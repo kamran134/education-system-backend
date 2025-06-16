@@ -10,7 +10,6 @@ import { deleteStudentResultsByStudentId } from "../services/studentResult.servi
 export const getStudents = async (req: Request, res: Response) => {
     try {
         const { data, totalCount } = await getFiltredStudents(req);
-
         res.status(200).json({ data, totalCount });
     }
     catch (error) {
@@ -51,16 +50,16 @@ export const getStudent = async (req: Request, res: Response) => {
     }
 }
 
-export const getStudentsForStats = async (req: Request, res: Response) => {
-    try {
-        const { data, totalCount } = await getFiltredStudents(req); 
-        res.status(200).json({ data, totalCount });
-    }
-    catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Tələbələrin alınmasında xəta", error });
-    }
-}
+// export const getStudentsForStats = async (req: Request, res: Response) => {
+//     try {
+//         const { data, totalCount } = await getFiltredStudents(req); 
+//         res.status(200).json({ data, totalCount });
+//     }
+//     catch (error) {
+//         console.error(error);
+//         res.status(500).json({ message: "Tələbələrin alınmasında xəta", error });
+//     }
+// }
 
 export const searchStudents = async (req: Request, res: Response) => {
     try {

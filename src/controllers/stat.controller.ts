@@ -40,9 +40,9 @@ export const getStudentsStatistics = async (req: Request, res: Response) => {
             ? (req.query.grades as string).split(',').map(grade => parseInt(grade, 10))
             : [];
         const code: number = req.query.code ? parseInt(req.query.code as string) : 0;
-        const examId: Types.ObjectId | null = req.query.examId
-            ? new Types.ObjectId(req.query.examId as string)
-            : null;
+        let examIds: Types.ObjectId[] = req.query.examIds
+            ? (req.query.examIds as string).split(',').map(id => new Types.ObjectId(id))
+            : [];
 
         if (!month) {
             res.status(400).json({ message: "Ay seçilməyib!" });
@@ -55,12 +55,7 @@ export const getStudentsStatistics = async (req: Request, res: Response) => {
         const startDate = new Date(selectedMonth);
         const endDate = new Date(new Date(startDate).setMonth(startDate.getMonth() + 1));
 
-        let examIds: Types.ObjectId[] = [];
-
-        if (examId) {
-            examIds = [examId];
-        }
-        else {
+        if (examIds.length === 0) {
             examIds = await Exam.find({ date: { $gte: startDate, $lt: endDate } }).select('_id');
         }
 
