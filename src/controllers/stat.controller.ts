@@ -39,6 +39,8 @@ export const getStudentsStatistics = async (req: Request, res: Response) => {
         const grades: number[] = req.query.grades
             ? (req.query.grades as string).split(',').map(grade => parseInt(grade, 10))
             : [];
+        const sortColumn: string = req.query.sortColumn?.toString() || 'averageScore';
+        const sortDirection: string = req.query.sortDirection?.toString() || 'desc';
         const code: number = req.query.code ? parseInt(req.query.code as string) : 0;
         let examIds: Types.ObjectId[] = req.query.examIds
             ? (req.query.examIds as string).split(',').map(id => new Types.ObjectId(id))
@@ -123,7 +125,15 @@ export const getStudentsStatistics = async (req: Request, res: Response) => {
                     as: 'examData'
                 }
             },
-            { $unwind: '$examData' }
+            { $unwind: '$examData' },
+
+            // 6. Сортируем studentData по sortColumn и sortDirection
+            {
+                $sort: {
+                    [sortColumn]: sortDirection === 'asc' ? 1 : -1, // Сортируем по выбранному столбцу
+                    [`studentData.${sortColumn}`]: sortDirection === 'asc' ? 1 : -1,
+                }
+            },
         ];
 
         const studentResults = await StudentResult.aggregate(pipeline);
