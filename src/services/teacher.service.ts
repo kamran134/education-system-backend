@@ -2,6 +2,11 @@ import { Request } from "express";
 import Teacher, { ITeacher } from "../models/teacher.model";
 import { DeleteResult, Types } from "mongoose";
 import { deleteStudentsByTeacherId, deleteStudentsByTeachersIds } from "./student.service";
+import { TeacherRepository } from '../repositories/teacher.repository';
+import { CreateTeacherDto, UpdateTeacherDto } from '../dtos/teacher.dto';
+import { ValidationError, NotFoundError, ConflictError } from '../utils/errors';
+import District from '../models/district.model';
+import School from '../models/school.model';
 
 export const checkExistingTeachers = async (codes: number[]): Promise<ITeacher[]> => {
     try {
@@ -97,5 +102,88 @@ export const deleteTeachersByIds = async (ids: string[]): Promise<DeleteResult> 
     } catch (error) {
         console.error(error);
         throw new Error("Müəllimlər silinə bilmədi!");
+    }
+}
+
+export class TeacherService {
+    constructor(private readonly teacherRepository: TeacherRepository) {}
+
+    async getTeachers(req: Request): Promise<{ data: ITeacher[]; totalCount: number }> {
+        const teachers = await this.teacherRepository.find(req.query);
+        return { data: teachers, totalCount: teachers.length };
+    }
+
+    async getTeacher(id: string): Promise<ITeacher> {
+        const teacher = await this.teacherRepository.findById(id);
+        if (!teacher) {
+            throw new NotFoundError('Teacher not found');
+        }
+        return teacher;
+    }
+
+    async createTeacher(createTeacherDto: CreateTeacherDto): Promise<ITeacher> {
+        // Check if teacher already exists
+        const existingTeacher = await this.teacherRepository.findByCode(createTeacherDto.code);
+        if (existingTeacher) {
+            throw new ConflictError('Teacher with this code already exists');
+        }
+
+        // Validate related entities
+        if (createTeacherDto.district) {
+            const district = await District.findById(createTeacherDto.district);
+            if (!district) {
+                throw new ValidationError('District not found');
+            }
+        }
+
+        if (createTeacherDto.school) {
+            const school = await School.findById(createTeacherDto.school);
+            if (!school) {
+                throw new ValidationError('School not found');
+            }
+        }
+
+        return this.teacherRepository.create(createTeacherDto);
+    }
+
+    async updateTeacher(id: string, updateTeacherDto: UpdateTeacherDto): Promise<ITeacher> {
+        const teacher = await this.teacherRepository.findById(id);
+        if (!teacher) {
+            throw new NotFoundError('Teacher not found');
+        }
+
+        // Validate related entities if they are being updated
+        if (updateTeacherDto.district) {
+            const district = await District.findById(updateTeacherDto.district);
+            if (!district) {
+                throw new ValidationError('District not found');
+            }
+        }
+
+        if (updateTeacherDto.school) {
+            const school = await School.findById(updateTeacherDto.school);
+            if (!school) {
+                throw new ValidationError('School not found');
+            }
+        }
+
+        const updatedTeacher = await this.teacherRepository.update(id, updateTeacherDto);
+        if (!updatedTeacher) {
+            throw new NotFoundError('Teacher not found');
+        }
+
+        return updatedTeacher;
+    }
+
+    async deleteTeacher(id: string): Promise<boolean> {
+        const teacher = await this.teacherRepository.findById(id);
+        if (!teacher) {
+            throw new NotFoundError('Teacher not found');
+        }
+        return this.teacherRepository.delete(id);
+    }
+
+    async deleteTeachers(ids: string[]): Promise<boolean> {
+        return this.teacherRepository.deleteMany({ _id: { $in: ids } });
     }
 }

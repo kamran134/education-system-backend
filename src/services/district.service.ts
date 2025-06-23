@@ -1,8 +1,66 @@
-import District, { IDistrict } from "../models/district.model";
-import Student from "../models/student.model";
-import StudentResult from "../models/studentResult.model";
-import School from "../models/school.model";
-import Teacher from "../models/teacher.model";
+import { Request } from 'express';
+import { DistrictRepository } from '../repositories/district.repository';
+import { IDistrict } from '../models/district.model';
+import { CreateDistrictDto, UpdateDistrictDto } from '../dtos/district.dto';
+import { ValidationError, NotFoundError, ConflictError } from '../utils/errors';
+import District from '../models/district.model';
+import Student from '../models/student.model';
+import StudentResult from '../models/studentResult.model';
+import School from '../models/school.model';
+import Teacher from '../models/teacher.model';
+
+export class DistrictService {
+    constructor(private readonly districtRepository: DistrictRepository) {}
+
+    async getDistricts(req: Request): Promise<{ data: IDistrict[]; totalCount: number }> {
+        const districts = await this.districtRepository.find(req.query);
+        return { data: districts, totalCount: districts.length };
+    }
+
+    async getDistrict(id: string): Promise<IDistrict> {
+        const district = await this.districtRepository.findById(id);
+        if (!district) {
+            throw new NotFoundError('District not found');
+        }
+        return district;
+    }
+
+    async createDistrict(createDistrictDto: CreateDistrictDto): Promise<IDistrict> {
+        // Check if district already exists
+        const existingDistrict = await this.districtRepository.findByName(createDistrictDto.name);
+        if (existingDistrict) {
+            throw new ConflictError('District with this name already exists');
+        }
+
+        return this.districtRepository.create(createDistrictDto);
+    }
+
+    async updateDistrict(id: string, updateDistrictDto: UpdateDistrictDto): Promise<IDistrict> {
+        const district = await this.districtRepository.findById(id);
+        if (!district) {
+            throw new NotFoundError('District not found');
+        }
+
+        const updatedDistrict = await this.districtRepository.update(id, updateDistrictDto);
+        if (!updatedDistrict) {
+            throw new NotFoundError('District not found');
+        }
+
+        return updatedDistrict;
+    }
+
+    async deleteDistrict(id: string): Promise<boolean> {
+        const district = await this.districtRepository.findById(id);
+        if (!district) {
+            throw new NotFoundError('District not found');
+        }
+        return this.districtRepository.delete(id);
+    }
+
+    async deleteDistricts(ids: string[]): Promise<boolean> {
+        return this.districtRepository.deleteMany({ _id: { $in: ids } });
+    }
+}
 
 export const checkExistingDistrict = async (district: IDistrict): Promise<boolean> => {
     try {

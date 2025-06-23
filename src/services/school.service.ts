@@ -4,6 +4,10 @@ import Teacher from "../models/teacher.model";
 import Student from "../models/student.model";
 import StudentResult from "../models/studentResult.model";
 import { Request } from "express";
+import { SchoolRepository } from '../repositories/school.repository';
+import { CreateSchoolDto, UpdateSchoolDto } from '../dtos/school.dto';
+import { ValidationError, NotFoundError, ConflictError } from '../utils/errors';
+import District from '../models/district.model';
 
 export const getFiltredSchools = async (req: Request): Promise<{ data: ISchool[], totalCount: number }> => {
     try {
@@ -91,5 +95,72 @@ export const deleteSchoolsByIds = async (schoolIds: string[]): Promise<DeleteRes
         return result;
     } catch (error) {
         throw error;
+    }
+}
+
+export class SchoolService {
+    constructor(private readonly schoolRepository: SchoolRepository) {}
+
+    async getSchools(req: Request): Promise<{ data: ISchool[]; totalCount: number }> {
+        const schools = await this.schoolRepository.find(req.query);
+        return { data: schools, totalCount: schools.length };
+    }
+
+    async getSchool(id: string): Promise<ISchool> {
+        const school = await this.schoolRepository.findById(id);
+        if (!school) {
+            throw new NotFoundError('School not found');
+        }
+        return school;
+    }
+
+    async createSchool(createSchoolDto: CreateSchoolDto): Promise<ISchool> {
+        // Check if school already exists
+        const existingSchool = await this.schoolRepository.findByName(createSchoolDto.name);
+        if (existingSchool) {
+            throw new ConflictError('School with this name already exists');
+        }
+
+        // Validate district
+        const district = await District.findById(createSchoolDto.district);
+        if (!district) {
+            throw new ValidationError('District not found');
+        }
+
+        return this.schoolRepository.create(createSchoolDto);
+    }
+
+    async updateSchool(id: string, updateSchoolDto: UpdateSchoolDto): Promise<ISchool> {
+        const school = await this.schoolRepository.findById(id);
+        if (!school) {
+            throw new NotFoundError('School not found');
+        }
+
+        // Validate district if it's being updated
+        if (updateSchoolDto.district) {
+            const district = await District.findById(updateSchoolDto.district);
+            if (!district) {
+                throw new ValidationError('District not found');
+            }
+        }
+
+        const updatedSchool = await this.schoolRepository.update(id, updateSchoolDto);
+        if (!updatedSchool) {
+            throw new NotFoundError('School not found');
+        }
+
+        return updatedSchool;
+    }
+
+    async deleteSchool(id: string): Promise<boolean> {
+        const school = await this.schoolRepository.findById(id);
+        if (!school) {
+            throw new NotFoundError('School not found');
+        }
+        return this.schoolRepository.delete(id);
+    }
+
+    async deleteSchools(ids: string[]): Promise<boolean> {
+        return this.schoolRepository.deleteMany({ _id: { $in: ids } });
     }
 }

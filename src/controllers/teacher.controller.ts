@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from 'express';
 import Teacher, { ITeacher, ITeacherInput } from "../models/teacher.model";
 import School from "../models/school.model";
 import District from "../models/district.model";
@@ -8,15 +8,23 @@ import { checkExistingTeacherCodes, deleteTeacherById, deleteTeachersByIds, getF
 import { checkExistingSchools } from "../services/school.service";
 import { deleteFile } from "../services/file.service";
 import { checkExistingDistricts } from "../services/district.service";
+import { TeacherService } from '../services/teacher.service';
+import { TeacherRepository } from '../repositories/teacher.repository';
+import { CreateTeacherDto, UpdateTeacherDto } from '../dtos/teacher.dto';
+import { validateDto } from '../middleware/validation.middleware';
+import { AppError } from '../utils/errors';
 
-export const getTeachers = async (req: Request, res: Response) => {
+const teacherRepository = new TeacherRepository(Teacher);
+const teacherService = new TeacherService(teacherRepository);
+
+export const getTeachers = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { data, totalCount } = await getFiltredTeachers(req);
-        res.status(200).json({ data, totalCount });
+        const result = await teacherService.getTeachers(req);
+        res.status(200).json(result);
     } catch (error) {
-        res.status(500).json({ message: "Müəllimlərin alınmasında xəta!", error });
+        next(error);
     }
-}
+};
 
 export const getTeachersForFilter = async (req: Request, res: Response) => {
     try {
@@ -43,41 +51,17 @@ export const getTeachersForFilter = async (req: Request, res: Response) => {
     }
 };
 
-export const createTeacher = async (req: Request, res: Response) => {
-    try {
-        const { fullname, code, district, school, active } = req.body;
-
-        if (!fullname || !code) {
-            res.status(400).json({ message: "Məlumatlar tam deyil" });
-            return;
+export const createTeacher = [
+    validateDto(CreateTeacherDto),
+    async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const teacher = await teacherService.createTeacher(req.body);
+            res.status(201).json(teacher);
+        } catch (error) {
+            next(error);
         }
-
-        if (code.toString().length !== 7) {
-            res.status(400).json({ message: "Müəllim kodu 7 simvoldan ibarət olmalıdır" });
-            return;
-        }
-
-        const existingTeacher = await Teacher.findOne({ code });
-        if (existingTeacher) {
-            res.status(400).json({ message: "Bu kodda müəllim artıq mövcuddur" });
-            return;
-        }
-
-        const teacher = new Teacher({
-            fullname,
-            code,
-            district: district._id,
-            school: school._id,
-            active
-        });
-
-        const savedTeacher = await Teacher.create(teacher);
-        await savedTeacher.populate('district school');
-        res.status(201).json({message: 'Müəllim uğurla yaradıldı!', data: savedTeacher});
-    } catch (error) {
-        res.status(500).json({ message: "Müəllimin əlavə edilməsində xəta", error })
     }
-}
+];
 
 export const createAllTeachers = async (req: Request, res: Response) => {
     try {
@@ -188,105 +172,47 @@ export const createAllTeachers = async (req: Request, res: Response) => {
     }
 }
 
-export const updateTeacher = async (req: Request, res: Response) => {
+export const updateTeacher = [
+    validateDto(UpdateTeacherDto),
+    async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const teacher = await teacherService.updateTeacher(req.params.id, req.body);
+            res.status(200).json(teacher);
+        } catch (error) {
+            next(error);
+        }
+    }
+];
+
+export const deleteTeacher = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const { id } = req.params;
-        const teacher: ITeacher = req.body as ITeacher;
-        
-        // first we check if teacher district and school are valid and changed
-        if (teacher.district) {
-            const district = await District.findById(teacher.district);
-            if (!district) {
-                res.status(400).json({ message: "Bu kodda rayon tapilmadi" });
-                return;
-            }
-        }
-
-        if (teacher.school) {
-            const school = await School.findById(teacher.school);
-            if (!school) {
-                res.status(400).json({ message: "Bu kodda məktəb tapılmadı" });
-                return;
-            }
-        }
-
-        // check changed fields of teacher
-        const existingTeacher = await Teacher.findById(id);
-        if (!existingTeacher) {
-            res.status(404).json({ message: "Müəllim tapılmadı" });
-            return;
-        }
-
-        let isUpdated = false;
-        if (existingTeacher.district !== teacher.district) {
-            existingTeacher.district = teacher.district;
-            isUpdated = true;
-        }
-
-        if (existingTeacher.school !== teacher.school) {
-            existingTeacher.school = teacher.school;
-            isUpdated = true;
-        }
-
-        if (existingTeacher.code !== teacher.code) {
-            existingTeacher.code = teacher.code;
-            isUpdated = true;
-        }
-
-        if (existingTeacher.fullname !== teacher.fullname) {
-            existingTeacher.fullname = teacher.fullname;
-            isUpdated = true;
-        }
-
-        if (existingTeacher.active !== teacher.active) {
-            existingTeacher.active = teacher.active;
-            isUpdated = true;
-        }
-
-        if (isUpdated) {
-            await existingTeacher.save();
-            res.status(200).json(existingTeacher);
-            return;
+        const success = await teacherService.deleteTeacher(req.params.id);
+        if (success) {
+            res.status(204).send();
+        } else {
+            throw new AppError(404, 'Teacher not found');
         }
     } catch (error) {
-        res.status(500).json({ message: "Müəllimin yenilənməsində xəta", error });
+        next(error);
     }
-}
+};
 
-export const deleteTeacher = async (req: Request, res: Response) => {
+export const deleteTeachers = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const teacherId = req.params.id;
-        const result = await deleteTeacherById(teacherId);
-        res.status(200).json(result);
-    }
-    catch (error) {
-        res.status(500).json(error);
-        console.error(error);
-    }
-}
-
-export const deleteTeachers = async (req: Request, res: Response) => {
-    try {
-        const { teacherIds } = req.params;
-        if (teacherIds.length === 0) {
-            res.status(400).json({ message: "Müəllimlər seçilməyib" });
-            return;
+        const { ids } = req.body;
+        if (!Array.isArray(ids)) {
+            throw new AppError(400, 'Invalid request body. Expected an array of teacher IDs.');
         }
-        const teacherIdsArr = teacherIds.split(",");
-
-        const result = await deleteTeachersByIds(teacherIdsArr);
-        
-        if (result.deletedCount === 0) {
-            res.status(404).json({ message: "Silinmək üçün seçilən müəllimlər bazada tapılmadı" });
-            return;
+        const success = await teacherService.deleteTeachers(ids);
+        if (success) {
+            res.status(204).send();
+        } else {
+            throw new AppError(404, 'No teachers found to delete');
         }
-
-        res.status(200).json({ message: `${result.deletedCount} müəllim bazadan silindi!` });
     } catch (error) {
-        res.status(500).json(error);
-        console.error(error);
+        next(error);
     }
-}
+};
 
 export const repairTeachers = async (req: Request, res: Response) => {
     try {
