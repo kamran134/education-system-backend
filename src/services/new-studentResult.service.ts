@@ -120,8 +120,9 @@ export class StudentResultService {
             .map(student => student.code);
         
         const newStudentsDocs = await Student.insertMany(studentsWithTeacher);
-        const newStudentsIds = newStudentsDocs.map(doc => doc.toObject() as IStudent);
-        const allStudents = existingStudents.concat(newStudentsIds);
+        const newStudentsPlain = newStudentsDocs.map(doc => doc.toObject() as IStudent);
+        const existingStudentsPlain = existingStudents.map(doc => doc.toObject() as IStudent);
+        const allStudents = existingStudentsPlain.concat(newStudentsPlain);
         
         return { students: allStudents, studentsWithoutTeacher };
     }
