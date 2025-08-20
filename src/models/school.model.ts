@@ -8,6 +8,18 @@ export interface ISchoolInput {
     districtCode: number;
 }
 
+export interface ISchoolCreate {
+    name: string;
+    address?: string;
+    code: number;
+    districtCode?: number;
+    district: Types.ObjectId;
+    score?: number;
+    averageScore?: number;
+    status?: string;
+    active?: boolean;
+}
+
 export interface ISchool extends Document {
     name: string;
     address: string;

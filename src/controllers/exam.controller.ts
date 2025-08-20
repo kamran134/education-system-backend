@@ -1,79 +1,186 @@
-import { Request, Response } from "express";
-import Exam from "../models/exam.model";
-import StudentResult from "../models/studentResult.model";
-import { deleteStudentResultsByExamId } from "../services/studentResult.service";
+import { Request, Response, NextFunction } from "express";
+import { ExamUseCase } from "../usecases/exam.usecase";
+import { ExamService } from "../services/exam.service";
+import { RequestParser } from "../utils/request-parser.util";
 
-export const getExams = async (req: Request, res: Response) => {
-    try {
-        const page: number = parseInt(req.query.page as string) || 1;
-        const size: number = parseInt(req.query.size as string) || 10;
-        const skip: number = (page - 1) * size;
+export class ExamController {
+    private examUseCase: ExamUseCase;
 
-        const [data, totalCount] = await Promise.all([
-            Exam.find()
-                .sort({ date: 1 })
-                .skip(skip)
-                .limit(size),
-            Exam.countDocuments()
-        ]);
-
-        res.status(200).json({ data, totalCount });
-    } catch (error) {
-        res.status(500).json({ message: "İmtahanların alınmasında xəta", error });
+    constructor() {
+        this.examUseCase = new ExamUseCase(new ExamService());
     }
-}
 
-export const getExamsForFilter = async (req: Request, res: Response) => {
-    try {
-        const exams = await Exam.find().sort({ date: -1 });
-        res.status(200).json({ data: exams });
-    }
-    catch (error) {
-        res.status(500).json({ message: "İmtahanların alınmasında xəta", error });
-    }
-}
+    getExams = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const pagination = RequestParser.parsePagination(req);
+            const filters = RequestParser.parseFilterOptions(req);
+            const sort = RequestParser.parseSorting(req, 'date', 'desc');
 
-export const createExam = async (req: Request, res: Response) => {
-    try {
-        const { name, code, date } = req.body;
+            const result = await this.examUseCase.getFilteredExams(pagination, filters, sort);
 
-        const existingExam = await Exam.findOne({ code, date });
-
-        if (existingExam) {
-            res.status(400).json({ message: "Bu kodda və tarixdə imtahan artıq mövcuddur!" });
-            return;
+            res.json({
+                success: true,
+                data: result.data,
+                totalCount: result.totalCount,
+                message: 'Exams retrieved successfully'
+            });
+        } catch (error) {
+            next(error);
         }
-
-        const exam = new Exam({ name, code, date });
-        const savedExam = await exam.save();
-        res.status(201).json(savedExam);
-    } catch (error) {
-        res.status(500).json({ message: "İmtahanın yaradılmasında xəta!", error });
     }
-}
 
-export const deleteAllExams = async (req: Request, res: Response) => {
-    try {
-        await StudentResult.deleteMany();
-        const result = await Exam.deleteMany();
-        res.status(200).json(result);
-    } catch (error) {
-        res.status(500).json(error);
-    }
-}
+    getExamsForFilter = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const filters = RequestParser.parseFilterOptions(req);
+            const exams = await this.examUseCase.getExamsForFilter(filters);
 
-export const deleteExam = async (req: Request, res: Response) => {
-    try {
-        const examId = req.params.id;
-
-        await deleteStudentResultsByExamId(examId);
-        const result = await Exam.findByIdAndDelete(req.params.id);
-
-        if (!result) {
-            res.status(404).json({ message: "İmtahan tapılmadı" });
+            res.json({
+                success: true,
+                data: exams,
+                message: 'Exams for filter retrieved successfully'
+            });
+        } catch (error) {
+            next(error);
         }
-        res.status(200).json(result);
-    } catch (error) {
-        res.status(500).json(error);
+    }
+
+    getExamById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+            const exam = await this.examUseCase.getExamById(id);
+
+            res.json({
+                success: true,
+                data: exam,
+                message: 'Exam retrieved successfully'
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    getExamsByMonthYear = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { month, year } = req.query;
+            const exams = await this.examUseCase.getExamsByMonthYear(Number(month), Number(year));
+
+            res.json({
+                success: true,
+                data: exams,
+                message: 'Exams retrieved successfully'
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    createExam = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const examData = req.body;
+            const exam = await this.examUseCase.createExam(examData);
+
+            res.status(201).json({
+                success: true,
+                data: exam,
+                message: 'Exam created successfully'
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    updateExam = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+            const updateData = req.body;
+            
+            const exam = await this.examUseCase.updateExam(id, updateData);
+
+            res.json({
+                success: true,
+                data: exam,
+                message: 'Exam updated successfully'
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    deleteExam = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+            await this.examUseCase.deleteExam(id);
+
+            res.json({
+                success: true,
+                message: 'Exam deleted successfully'
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    deleteExams = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { ids } = req.body;
+            const result = await this.examUseCase.deleteExams(ids);
+
+            res.json({
+                success: true,
+                data: result,
+                message: `${result.deletedCount} exam(s) deleted successfully`
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    processExamsFromExcel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            if (!req.file) {
+                res.status(400).json({ success: false, message: 'No file uploaded' });
+                return;
+            }
+
+            const result = await this.examUseCase.processExamsFromExcel(req.file.path);
+
+            res.json({
+                success: true,
+                data: result,
+                message: `Processed ${result.processedData.length} exams from Excel file`
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    checkExistingExamCodes = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { codes } = req.body;
+            const existingCodes = await this.examUseCase.checkExistingExamCodes(codes);
+
+            res.json({
+                success: true,
+                data: existingCodes,
+                message: 'Exam codes checked successfully'
+            });
+        } catch (error) {
+            next(error);
+        }
     }
 }
+
+// Legacy exports for backward compatibility
+const examController = new ExamController();
+
+export const deleteAllExams = examController.deleteExams;
+export const getExams = examController.getExams;
+export const getExamsForFilter = examController.getExamsForFilter;
+export const getExamById = examController.getExamById;
+export const getExamsByMonthYear = examController.getExamsByMonthYear;
+export const createExam = examController.createExam;
+export const updateExam = examController.updateExam;
+export const deleteExam = examController.deleteExam;
+export const deleteExams = examController.deleteExams;
+export const processExamsFromExcel = examController.processExamsFromExcel;
+export const checkExistingExamCodes = examController.checkExistingExamCodes;

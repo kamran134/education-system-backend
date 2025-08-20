@@ -1,11 +1,4 @@
-import mongoose from "mongoose";
-
-export interface IUser extends Document {
-    email: string;
-    passwordHash: string;
-    role: UserRole;
-    isApproved: boolean;
-}
+import mongoose, { Document } from "mongoose";
 
 export enum UserRole {
     SUPERADMIN = "superadmin",
@@ -13,6 +6,20 @@ export enum UserRole {
     MODERATOR = "moderator",
     TEACHER = "teacher",
     USER = "user"
+}
+
+export interface IUserCreate {
+    email: string;
+    passwordHash: string;
+    role?: UserRole;
+    isApproved?: boolean;
+}
+
+export interface IUser extends Document {
+    email: string;
+    passwordHash: string;
+    role: UserRole;
+    isApproved: boolean;
 }
 
 const UserSchema = new mongoose.Schema({

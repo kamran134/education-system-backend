@@ -9,6 +9,17 @@ export interface ITeacherInput {
     fullname: string;
 }
 
+export interface ITeacherCreate {
+    code: number;
+    district?: Types.ObjectId;
+    school?: Types.ObjectId;
+    fullname: string;
+    score?: number;
+    averageScore?: number;
+    status?: string;
+    active?: boolean;
+}
+
 export interface ITeacher extends Document {
     code: number;
     district: IDistrict;
