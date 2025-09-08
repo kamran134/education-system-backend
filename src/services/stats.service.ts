@@ -88,7 +88,7 @@ export class StatsService {
         }
 
         const { startDate, endDate } = RequestParser.parseMonthRange(filters.month);
-        
+
         let examIds: Types.ObjectId[];
         if (filters.examIds && filters.examIds.length > 0) {
             examIds = filters.examIds;

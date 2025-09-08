@@ -14,9 +14,6 @@ export const login = async (req: Request, res: Response) => {
 
     try {
         const user = await User.findOne({ email });
-
-        console.log("Found user:", user);
-
         if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
             res.status(400).json({ message: "Yanlış məlumatlar!" });
             return;
