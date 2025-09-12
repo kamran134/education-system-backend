@@ -4,6 +4,7 @@ import School, { ISchool } from "../models/school.model";
 import Teacher, { ITeacher } from "../models/teacher.model";
 import Student from "../models/student.model";
 import StudentResult, { IStudentResult } from "../models/studentResult.model";
+import { LevelScore } from "../types/levelScore.enum";
 import { markAllDevelopingStudents, markDevelopingStudents, markTopStudents, markTopStudentsRepublic } from "./studentResult.service";
 import { countDistrictsRates } from "./district.service";
 import { FilterOptions } from "../types/common.types";
@@ -18,7 +19,28 @@ export class StatsService {
     async resetStats(): Promise<void> {
         console.log("🔄 Сброс статистики...");
         await District.updateMany({}, { score: 0, averageScore: 0, rate: 0 });
-        await StudentResult.updateMany({}, { status: "", score: 1 });
+        // Reset status and recalculate base score from level mapping.
+        // Use aggregation-style pipeline update (MongoDB 4.2+) to derive numeric score from level.
+        await StudentResult.updateMany({}, [
+            {
+                $set: {
+                    status: "",
+                    score: {
+                        $switch: {
+                            branches: [
+                                { case: { $eq: ["$level", "E"] }, then: LevelScore.E },
+                                { case: { $eq: ["$level", "D"] }, then: LevelScore.D },
+                                { case: { $eq: ["$level", "C"] }, then: LevelScore.C },
+                                { case: { $eq: ["$level", "B"] }, then: LevelScore.B },
+                                { case: { $eq: ["$level", "A"] }, then: LevelScore.A },
+                                { case: { $in: ["$level", ["Lisey", "Lise", "Lisey "]] }, then: LevelScore.Lisey }
+                            ],
+                            default: 0
+                        }
+                    }
+                }
+            }
+        ] as any); // cast as any to satisfy TS for pipeline form
         console.log("✅ Статистика сброшена.");
     }
 
