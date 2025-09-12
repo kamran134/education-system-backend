@@ -1,10 +1,9 @@
-import { DeleteResult, Types } from "mongoose";
+import { Types } from "mongoose";
 import District, { IDistrict, IDistrictCreate } from "../models/district.model";
 import School from "../models/school.model";
 import Teacher from "../models/teacher.model";
 import Student from "../models/student.model";
 import StudentResult from "../models/studentResult.model";
-import { Request } from "express";
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult, FileProcessingResult } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
