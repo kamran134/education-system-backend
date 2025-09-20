@@ -1,4 +1,4 @@
-import { ISchool, ISchoolInput, ISchoolCreate } from "../models/school.model";
+import { ISchool, ISchoolCreate } from "../models/school.model";
 import { SchoolService } from "../services/school.service";
 import { PaginationOptions, FilterOptions, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";

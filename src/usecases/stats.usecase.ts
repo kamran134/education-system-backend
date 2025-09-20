@@ -5,7 +5,6 @@ import { IDistrict } from "../models/district.model";
 import { StatsService } from "../services/stats.service";
 import { FilterOptions, ValidationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
-import { RequestParser } from "../utils/request-parser.util";
 
 export interface StatisticsFilter extends FilterOptions {
     month?: string;
