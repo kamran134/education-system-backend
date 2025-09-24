@@ -24,6 +24,7 @@ export interface IStudentResultFileInput {
     lifeKnowledge: number;
     logic: number;
     totalScore: number;
+    participationScore: number;
     level: string;
 }
 
@@ -40,6 +41,7 @@ export interface IStudentResult extends Document {
     totalScore: number;
     level: string;
     score: number;
+    participationScore: number;
     status?: string;
     month: number;
     year: number;
@@ -59,6 +61,7 @@ export interface IStudentResultDetails extends Document {
     level: string;
     score: number;
     status?: string;
+    participationScore: number;
     month: number;
     year: number;
 }
@@ -80,6 +83,7 @@ const StudentResultSchema: Schema = new Schema({
     },
     totalScore: { type: Number, required: true },
     score: { type: Number, required: true },
+    participationScore: { type: Number, required: true },
     level: { type: String, required: true },
     status: { type: String, required: false },
     month: { type: Number, required: true },

@@ -1,156 +1,169 @@
-import { Request, Response } from "express";
-import Student, { IStudentInput } from "../models/student.model";
-import StudentResult, { IStudentResultFileInput, IStudentResultInput } from "../models/studentResult.model";
-import { Types } from "mongoose";
-import { deleteFile } from "../services/file.service";
-import { processStudentResults } from "../services/studentResult.service";
-import { readExcel } from "../services/excel.service";
+import { Request, Response, NextFunction } from "express";
+import { StudentResultUseCase } from "../usecases/studentResult.usecase";
+import { StudentResultService } from "../services/studentResult.service";
+import { RequestParser } from "../utils/request-parser.util";
 
-export const getStudentResults = async (req: Request, res: Response) => {
-    try {
-        const results = await StudentResult.find().populate("student").populate("exam");
-        res.status(200).json(results);
-    } catch (error) {
-        res.status(500).json({ message: "Şagird nəticələri tapılmadı!", error });
+export class StudentResultController {
+    private studentResultUseCase: StudentResultUseCase;
+
+    constructor() {
+        this.studentResultUseCase = new StudentResultUseCase(new StudentResultService());
     }
-}
 
-export const createAllResults = async (req: Request, res: Response) => {
-    try {
-        if (!req.file) {
-            res.status(400).json({ message: "Fayl yüklənməyib!" });
-            return;
+    getStudentResults = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const pagination = RequestParser.parsePagination(req);
+            const filters = RequestParser.parseFilterOptions(req);
+            const sort = RequestParser.parseSorting(req, 'createdAt', 'desc');
+
+            const result = await this.studentResultUseCase.getStudentResults(pagination, filters, sort);
+
+            res.json({
+                success: true,
+                data: result.data,
+                totalCount: result.totalCount,
+                message: 'Student results retrieved successfully'
+            });
+        } catch (error) {
+            next(error);
         }
+    }
 
-        const { examId } = req.body;
-        if (!examId) {
-            res.status(400).json({ message: "İmtahan seçilməyib!" });
-            return;
-        }
+    getStudentResultById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+            const result = await this.studentResultUseCase.getStudentResultById(id);
 
-        const rows: any[] = readExcel(req.file.path);
-
-        if (rows.length < 2) {
-            res.status(400).json({ message: "Faylda kifayət qədər sətr yoxdur!" });
-            return;
-        }
-
-        const resultReadedData: IStudentResultFileInput[] = rows.slice(3).map(row => ({
-            examId: examId as Types.ObjectId,
-            grade: Number(row[2]),
-            studentCode: Number(row[3]),
-            lastName: String(row[4]),
-            firstName: String(row[5]),
-            middleName: String(row[6]),
-            az: Number(row[7]),
-            math: Number(row[8]),
-            lifeKnowledge: Number(row[2]) === 5 ? 0 : Number(row[9]),
-            logic: Number(row[2]) === 5 ? Number(row[9]) : Number(row[10]),
-            totalScore: Number(row[2]) === 5 ? Number(row[10]) : Number(row[11]),
-            level: Number(row[2]) === 5 ? String(row[11]) : String(row[12])
-        }));
-
-        const studentDataToInsert: IStudentInput[] = rows.slice(3).map(row => ({
-            code: Number(row[3]),
-            lastName: String(row[4]),
-            firstName: String(row[5]),
-            middleName: String(row[6]),
-            grade: Number(row[2]),
-        }));
-
-        const correctStudentDataToInsert = studentDataToInsert.filter(data => data.code > 999999999);
-        const incorrectStudentCodes = studentDataToInsert.filter(data => data.code <= 999999999).map(data => data.code);
-
-        const {students, studentsWithoutTeacher} = await processStudentResults(correctStudentDataToInsert);
-
-        // нужны только те студенты, которые есть в базе и те, у кого totalScore = az + math + lifeKnowledge + logic
-        const filtredResults = resultReadedData.filter(result => 
-            students.map(student => student.code).includes(result.studentCode)
-            && result.totalScore === (result.az + result.math + result.lifeKnowledge + result.logic)
-            && result.totalScore > 0
-        );
-
-        const studentsWithIncorrectResults = resultReadedData.filter(result => 
-            students.map(student => student.code).includes(result.studentCode)
-            && result.totalScore !== (result.az + result.math + result.lifeKnowledge + result.logic)
-            && result.totalScore > 0
-        );
-
-        const resultsToInsert: IStudentResultInput[] = filtredResults.map(result => ({
-            student: students.find(student => student.code === result.studentCode)!._id as Types.ObjectId,
-            exam: result.examId as Types.ObjectId,
-            grade: result.grade,
-            disciplines: {
-                az: Number(result.az) || 0,
-                math: Number(result.math) || 0,
-                lifeKnowledge: Number(result.lifeKnowledge) || 0,
-                logic: Number(result.logic) || 0
-            },
-            totalScore: result.totalScore,
-            level: result.level,
-            score: 1
-        }));
-
-        // Remove the uploaded file
-        deleteFile(req.file.path);
-
-        // const results = await StudentResult.insertMany(resultsToInsert);
-        const bulkOps = resultsToInsert.map(result => ({
-            updateOne: {
-                filter: { student: result.student, exam: result.exam },
-                update: { $set: result },
-                upsert: true // Если записи нет – создаст новую
+            if (!result) {
+                res.status(404).json({
+                    success: false,
+                    message: 'Student result not found'
+                });
+                return;
             }
-        }));
-        
-        const results = await StudentResult.bulkWrite(bulkOps);
 
-        res.status(201).json({
-            message: "Şagirdin nəticələri uğurla yaradıldı!",
-            results,
-            studentsWithoutTeacher,
-            incorrectStudentCodes,
-            studentsWithIncorrectResults
-        });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Şagirdlərin nəticələrinin yaradılmasında xəta!", error });
+            res.json({
+                success: true,
+                data: result,
+                message: 'Student result retrieved successfully'
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    createStudentResult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const result = await this.studentResultUseCase.createStudentResult(req.body);
+
+            res.status(201).json({
+                success: true,
+                data: result,
+                message: 'Student result created successfully'
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    updateStudentResult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+            const result = await this.studentResultUseCase.updateStudentResult(id, req.body);
+
+            res.json({
+                success: true,
+                data: result,
+                message: 'Student result updated successfully'
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    deleteStudentResult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+            await this.studentResultUseCase.deleteStudentResult(id);
+
+            res.json({
+                success: true,
+                message: 'Student result deleted successfully'
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    processStudentResultsFromExcel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            if (!req.file) {
+                res.status(400).json({ 
+                    success: false, 
+                    message: "Fayl yüklənməyib!" 
+                });
+                return;
+            }
+
+            const { examId } = req.body;
+            if (!examId) {
+                res.status(400).json({ 
+                    success: false, 
+                    message: "İmtahan seçilməyib!" 
+                });
+                return;
+            }
+
+            const result = await this.studentResultUseCase.processStudentResultsFromExcel(req.file.path, examId);
+
+            res.status(201).json({
+                success: true,
+                data: result,
+                message: "Şagirdlərin nəticələri uğurla yaradıldı!"
+            });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    deleteResultsByExamId = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { examId } = req.params;
+            if (!examId) {
+                res.status(400).json({ 
+                    success: false, 
+                    message: "İmtahan seçilməyib!" 
+                });
+                return;
+            }
+
+            const result = await this.studentResultUseCase.deleteResultsByExamId(examId);
+
+            if (result.deletedCount === 0) {
+                res.status(404).json({ 
+                    success: false, 
+                    message: "Bu imtahan üçün nəticələr tapılmadı!" 
+                });
+                return;
+            }
+
+            res.json({
+                success: true,
+                data: { deletedCount: result.deletedCount },
+                message: "İmtahan nəticələri uğurla silindi!"
+            });
+        } catch (error) {
+            next(error);
+        }
     }
 }
 
-export const deleteResults = async (req: Request, res: Response) => {
-    try {
-        const { examId } = req.params;
-        if (!examId) {
-            res.status(400).json({ message: "İmtahan seçilməyib!" });
-        }
+const studentResultController = new StudentResultController();
 
-        const objectId = new Types.ObjectId(examId);
-
-        // Шаг 1: Найти всех студентов, у которых есть результаты по этому экзамену
-        const studentResults = await StudentResult.find({ exam: objectId }).select("student");
-        const studentIds = studentResults.map(result => result.student);
-
-        // Шаг 2: Удалить результаты экзамена
-        const deletedResults = await StudentResult.deleteMany({ exam: objectId });
-
-        if (deletedResults.deletedCount === 0) {
-            res.status(404).json({ message: "Bu imtahan üçün nəticələr tapılmadı!" });
-        }
-
-        // Шаг 3: Очистить поле `status` у найденных студентов
-        if (studentIds.length > 0) {
-            await Student.updateMany(
-                { _id: { $in: studentIds } }, // Найти всех студентов по их _id
-                { $unset: { status: "" } } // Удалить поле `status`
-            );
-        }
-
-        res.status(200).json({ 
-            message: "İmtahan nəticələri uğurla silindi!", 
-            totalCount: deletedResults.deletedCount 
-        });
-    } catch (error) {
-        res.status(500).json({ message: "İmtahan nəticələrini silərkən xəta baş verdi!", error });
-    }
-};
+export const getStudentResults = studentResultController.getStudentResults;
+export const getStudentResultById = studentResultController.getStudentResultById;
+export const createStudentResult = studentResultController.createStudentResult;
+export const updateStudentResult = studentResultController.updateStudentResult;
+export const deleteStudentResult = studentResultController.deleteStudentResult;
+export const createAllResults = studentResultController.processStudentResultsFromExcel;
+export const deleteResults = studentResultController.deleteResultsByExamId;
