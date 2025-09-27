@@ -44,7 +44,7 @@ export class StatsService {
         console.log("✅ Статистика сброшена.");
     }
 
-    async updateStats(): Promise<number> {
+    async updateStatsOld(): Promise<number> {
         try {
             // Reset all statistics
             await this.resetStats();
@@ -96,6 +96,146 @@ export class StatsService {
             return 200;
         } catch (error) {
             console.error("Ошибка при обновлении статистики:", error);
+            throw error;
+        }
+    }
+
+    async updateStats(): Promise<number> {
+        try {
+            console.log("🔄 Начинаем обновление статистики...");
+
+            // Получаем текущую дату
+            const currentDate = new Date();
+            const currentMonth = currentDate.getMonth() + 1;
+            const currentYear = currentDate.getFullYear();
+
+            console.log(`📅 Обрабатываем месяц: ${currentMonth}/${currentYear}`);
+
+            // Шаг 1: Получаем все результаты студентов за текущий месяц
+            const studentResults = await StudentResult.find({ 
+                month: currentMonth, 
+                year: currentYear 
+            }).populate({
+                path: 'student',
+                populate: {
+                    path: 'district'
+                }
+            });
+
+            if (studentResults.length === 0) {
+                console.log("❌ Нет результатов за текущий месяц");
+                return 404;
+            }
+
+            console.log(`📊 Найдено ${studentResults.length} результатов за ${currentMonth}/${currentYear}`);
+
+            // Шаг 2: Обнуляем studentOfTheMonthScore и republicWideStudentOfTheMonthScore
+            console.log("🔄 Обнуляем баллы студентов месяца...");
+            await StudentResult.updateMany(
+                { month: currentMonth, year: currentYear },
+                { 
+                    $set: { 
+                        studentOfTheMonthScore: 0,
+                        republicWideStudentOfTheMonthScore: 0
+                    }
+                }
+            );
+
+            // Шаг 3: Группируем по классам (grade) и районам (district)
+            console.log("🔄 Группируем результаты по классам и районам...");
+            
+            const gradeDistrictGroups: Map<string, IStudentResult[]> = new Map();
+            const gradeGroups: Map<number, IStudentResult[]> = new Map();
+
+            for (const result of studentResults) {
+                if (!result.student || !result.student.district) continue;
+                
+                const grade = result.grade;
+                const districtId = (result.student.district as any)._id.toString();
+                const gradeDistrictKey = `${grade}-${districtId}`;
+
+                // Группировка по классам и районам
+                if (!gradeDistrictGroups.has(gradeDistrictKey)) {
+                    gradeDistrictGroups.set(gradeDistrictKey, []);
+                }
+                gradeDistrictGroups.get(gradeDistrictKey)!.push(result);
+
+                // Группировка только по классам (для республиканского уровня)
+                if (!gradeGroups.has(grade)) {
+                    gradeGroups.set(grade, []);
+                }
+                gradeGroups.get(grade)!.push(result);
+            }
+
+            // Шаг 4: Находим лучших студентов в каждом классе и районе
+            console.log("🏆 Определяем лучших студентов месяца по районам...");
+            
+            const districtTopStudentUpdates: any[] = [];
+            
+            for (const [gradeDistrictKey, results] of gradeDistrictGroups.entries()) {
+                const [grade, districtId] = gradeDistrictKey.split('-');
+                
+                // Находим максимальный totalScore в этой группе
+                const maxTotalScore = Math.max(...results.map(r => r.totalScore));
+                
+                // Находим всех студентов с максимальным баллом
+                const topStudents = results.filter(r => r.totalScore === maxTotalScore);
+                
+                console.log(`📍 Класс ${grade}, район ${districtId}: максимум ${maxTotalScore} баллов, ${topStudents.length} студент(ов)`);
+                
+                // Добавляем 5 баллов каждому лучшему студенту
+                for (const student of topStudents) {
+                    districtTopStudentUpdates.push({
+                        updateOne: {
+                            filter: { _id: student._id },
+                            update: { $set: { studentOfTheMonthScore: 5 } }
+                        }
+                    });
+                }
+            }
+
+            // Применяем обновления для студентов месяца по районам
+            if (districtTopStudentUpdates.length > 0) {
+                await StudentResult.bulkWrite(districtTopStudentUpdates);
+                console.log(`✅ Обновлено ${districtTopStudentUpdates.length} студентов месяца по районам`);
+            }
+
+            // Шаг 5: Находим лучших студентов в каждом классе по всей республике
+            console.log("🏆 Определяем лучших студентов месяца по республике...");
+            
+            const republicTopStudentUpdates: any[] = [];
+            
+            for (const [grade, results] of gradeGroups.entries()) {
+                // Находим максимальный totalScore в этом классе по всей республике
+                const maxTotalScore = Math.max(...results.map(r => r.totalScore));
+                
+                // Находим всех студентов с максимальным баллом
+                const topStudents = results.filter(r => r.totalScore === maxTotalScore);
+                
+                console.log(`🎯 Класс ${grade} (республика): максимум ${maxTotalScore} баллов, ${topStudents.length} студент(ов)`);
+                
+                // Добавляем 5 баллов каждому лучшему студенту
+                for (const student of topStudents) {
+                    republicTopStudentUpdates.push({
+                        updateOne: {
+                            filter: { _id: student._id },
+                            update: { $set: { republicWideStudentOfTheMonthScore: 5 } }
+                        }
+                    });
+                }
+            }
+
+            // Применяем обновления для студентов месяца по республике
+            if (republicTopStudentUpdates.length > 0) {
+                await StudentResult.bulkWrite(republicTopStudentUpdates);
+                console.log(`✅ Обновлено ${republicTopStudentUpdates.length} студентов месяца по республике`);
+            }
+
+            console.log("✅ Статистика обновлена успешно!");
+            return 200;
+
+        } catch (error) {
+            console.error("❌ Ошибка при обновлении статистики:", error);
             throw error;
         }
     }
