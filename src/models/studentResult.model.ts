@@ -10,6 +10,10 @@ export interface IStudentResultInput {
     disciplines: IDiscipline;
     totalScore: number;
     level: string;
+    participationScore: number;
+    score: number;
+    month: number;
+    year: number;
 }
 
 export interface IStudentResultFileInput {
@@ -42,6 +46,9 @@ export interface IStudentResult extends Document {
     level: string;
     score: number;
     participationScore: number;
+    developmentScore?: number;
+    studentOfTheMonthScore?: number;
+    republicWideStudentOfTheMonthScore?: number;
     status?: string;
     month: number;
     year: number;
@@ -62,6 +69,9 @@ export interface IStudentResultDetails extends Document {
     score: number;
     status?: string;
     participationScore: number;
+    developmentScore?: number;
+    studentOfTheMonthScore?: number;
+    republicWideStudentOfTheMonthScore?: number;
     month: number;
     year: number;
 }
@@ -84,6 +94,9 @@ const StudentResultSchema: Schema = new Schema({
     totalScore: { type: Number, required: true },
     score: { type: Number, required: true },
     participationScore: { type: Number, required: true },
+    developmentScore: { type: Number, required: false },
+    studentOfTheMonthScore: { type: Number, required: false },
+    republicWideStudentOfTheMonthScore: { type: Number, required: false },
     level: { type: String, required: true },
     status: { type: String, required: false },
     month: { type: Number, required: true },

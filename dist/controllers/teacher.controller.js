@@ -13,6 +13,7 @@ exports.repairTeachers = exports.checkExistingTeacherCodes = exports.processTeac
 const teacher_usecase_1 = require("../usecases/teacher.usecase");
 const teacher_service_1 = require("../services/teacher.service");
 const request_parser_util_1 = require("../utils/request-parser.util");
+const response_handler_util_1 = require("../utils/response-handler.util");
 class TeacherController {
     constructor() {
         this.getTeachers = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
@@ -21,12 +22,10 @@ class TeacherController {
                 const filters = request_parser_util_1.RequestParser.parseFilterOptions(req);
                 const sort = request_parser_util_1.RequestParser.parseSorting(req, 'name', 'asc');
                 const result = yield this.teacherUseCase.getTeachers(pagination, filters, sort);
-                res.json({
-                    success: true,
+                res.json(response_handler_util_1.ResponseHandler.success({
                     data: result.data,
-                    totalCount: result.totalCount,
-                    message: 'Teachers retrieved successfully'
-                });
+                    totalCount: result.totalCount
+                }, 'Teachers retrieved successfully'));
             }
             catch (error) {
                 next(error);
@@ -36,11 +35,7 @@ class TeacherController {
             try {
                 const filters = request_parser_util_1.RequestParser.parseFilterOptions(req);
                 const teachers = yield this.teacherUseCase.getTeachersForFilter(filters);
-                res.json({
-                    success: true,
-                    data: teachers,
-                    message: 'Teachers for filter retrieved successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(teachers, 'Teachers for filter retrieved successfully'));
             }
             catch (error) {
                 next(error);
@@ -50,11 +45,7 @@ class TeacherController {
             try {
                 const { id } = req.params;
                 const teacher = yield this.teacherUseCase.getTeacherById(id);
-                res.json({
-                    success: true,
-                    data: teacher,
-                    message: 'Teacher retrieved successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(teacher, 'Teacher retrieved successfully'));
             }
             catch (error) {
                 next(error);
@@ -64,11 +55,7 @@ class TeacherController {
             try {
                 const teacherData = req.body;
                 const teacher = yield this.teacherUseCase.createTeacher(teacherData);
-                res.status(201).json({
-                    success: true,
-                    data: teacher,
-                    message: 'Teacher created successfully'
-                });
+                res.status(201).json(response_handler_util_1.ResponseHandler.created(teacher, 'Teacher created successfully'));
             }
             catch (error) {
                 next(error);
@@ -79,11 +66,7 @@ class TeacherController {
                 const { id } = req.params;
                 const updateData = req.body;
                 const teacher = yield this.teacherUseCase.updateTeacher(id, updateData);
-                res.json({
-                    success: true,
-                    data: teacher,
-                    message: 'Teacher updated successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.updated(teacher, 'Teacher updated successfully'));
             }
             catch (error) {
                 next(error);
@@ -93,10 +76,7 @@ class TeacherController {
             try {
                 const { id } = req.params;
                 yield this.teacherUseCase.deleteTeacher(id);
-                res.json({
-                    success: true,
-                    message: 'Teacher deleted successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.deleted('Teacher deleted successfully'));
             }
             catch (error) {
                 next(error);
@@ -106,11 +86,7 @@ class TeacherController {
             try {
                 const { ids } = req.body;
                 const result = yield this.teacherUseCase.deleteTeachers(ids);
-                res.json({
-                    success: true,
-                    data: result,
-                    message: `${result.deletedCount} teacher(s) deleted successfully`
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(result, `${result.deletedCount} teacher(s) deleted successfully`));
             }
             catch (error) {
                 next(error);
@@ -119,15 +95,11 @@ class TeacherController {
         this.processTeachersFromExcel = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
             try {
                 if (!req.file) {
-                    res.status(400).json({ success: false, message: 'No file uploaded' });
+                    res.status(400).json(response_handler_util_1.ResponseHandler.badRequest('No file uploaded'));
                     return;
                 }
                 const result = yield this.teacherUseCase.processTeachersFromFile(req.file.path);
-                res.json({
-                    success: true,
-                    data: result,
-                    message: `Processed ${result.processedData.length} teachers from Excel file`
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(result, `Processed ${result.processedData.length} teachers from Excel file`));
             }
             catch (error) {
                 next(error);
@@ -139,11 +111,7 @@ class TeacherController {
                 // Use service directly since this is not in use case
                 const teacherService = new teacher_service_1.TeacherService();
                 const existingCodes = yield teacherService.checkExistingTeacherCodes(codes);
-                res.json({
-                    success: true,
-                    data: existingCodes,
-                    message: 'Teacher codes checked successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(existingCodes, 'Teacher codes checked successfully'));
             }
             catch (error) {
                 next(error);
@@ -152,10 +120,7 @@ class TeacherController {
         this.repairTeachers = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
             try {
                 // This would need to be implemented based on business logic
-                res.json({
-                    success: true,
-                    message: 'Teacher repair functionality not yet implemented'
-                });
+                res.json(response_handler_util_1.ResponseHandler.success({}, 'Teacher repair functionality not yet implemented'));
             }
             catch (error) {
                 next(error);

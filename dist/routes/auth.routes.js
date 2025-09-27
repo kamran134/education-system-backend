@@ -12,4 +12,6 @@ router.post("/login", auth_controller_1.login);
 router.post("/register", auth_controller_1.register);
 router.post("/approve/:id", (0, auth_middleware_1.authMiddleware)(["superadmin"]), auth_controller_1.approveUser);
 router.post("/logout", auth_controller_1.logout);
+router.post("/refresh", auth_controller_1.refreshToken);
+router.get("/me", (0, auth_middleware_1.authMiddleware)([]), auth_controller_1.me);
 exports.default = router;

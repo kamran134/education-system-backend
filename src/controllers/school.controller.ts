@@ -19,12 +19,10 @@ export class SchoolController {
 
             const result = await this.schoolUseCase.getSchools(pagination, filters, sort);
 
-            res.json({
-                success: true,
+            res.json(ResponseHandler.success({
                 data: result.data,
-                totalCount: result.totalCount,
-                message: 'Schools retrieved successfully'
-            });
+                totalCount: result.totalCount
+            }, 'Schools retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -35,11 +33,7 @@ export class SchoolController {
             const filters = RequestParser.parseFilterOptions(req);
             const schools = await this.schoolUseCase.getSchoolsForFilter(filters);
 
-            res.json({
-                success: true,
-                data: schools,
-                message: 'Schools for filter retrieved successfully'
-            });
+            res.json(ResponseHandler.success(schools, 'Schools for filter retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -50,11 +44,7 @@ export class SchoolController {
             const { id } = req.params;
             const school = await this.schoolUseCase.getSchoolById(id);
 
-            res.json({
-                success: true,
-                data: school,
-                message: 'School retrieved successfully'
-            });
+            res.json(ResponseHandler.success(school, 'School retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -67,11 +57,7 @@ export class SchoolController {
             const schoolService = new SchoolService();
             const school = await schoolService.findByCode(Number(code));
 
-            res.json({
-                success: true,
-                data: school,
-                message: 'School retrieved successfully'
-            });
+            res.json(ResponseHandler.success(school, 'School retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -82,11 +68,7 @@ export class SchoolController {
             const schoolData = req.body;
             const school = await this.schoolUseCase.createSchool(schoolData);
 
-            res.status(201).json({
-                success: true,
-                data: school,
-                message: 'School created successfully'
-            });
+            res.status(201).json(ResponseHandler.created(school, 'School created successfully'));
         } catch (error) {
             next(error);
         }
@@ -99,11 +81,7 @@ export class SchoolController {
             
             const school = await this.schoolUseCase.updateSchool(id, updateData);
 
-            res.json({
-                success: true,
-                data: school,
-                message: 'School updated successfully'
-            });
+            res.json(ResponseHandler.updated(school, 'School updated successfully'));
         } catch (error) {
             next(error);
         }
@@ -114,10 +92,7 @@ export class SchoolController {
             const { id } = req.params;
             await this.schoolUseCase.deleteSchool(id);
 
-            res.json({
-                success: true,
-                message: 'School deleted successfully'
-            });
+            res.json(ResponseHandler.deleted('School deleted successfully'));
         } catch (error) {
             next(error);
         }
@@ -128,11 +103,7 @@ export class SchoolController {
             const { ids } = req.body;
             const result = await this.schoolUseCase.deleteSchools(ids);
 
-            res.json({
-                success: true,
-                data: result,
-                message: `${result.deletedCount} school(s) deleted successfully`
-            });
+            res.json(ResponseHandler.success(result, `${result.deletedCount} school(s) deleted successfully`));
         } catch (error) {
             next(error);
         }
@@ -141,17 +112,13 @@ export class SchoolController {
     processSchoolsFromExcel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             if (!req.file) {
-                res.status(400).json({ success: false, message: 'No file uploaded' });
+                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
                 return;
             }
 
             const result = await this.schoolUseCase.processSchoolsFromFile(req.file.path);
 
-            res.json({
-                success: true,
-                data: result,
-                message: `Processed ${result.processedData.length} schools from Excel file`
-            });
+            res.json(ResponseHandler.success(result, `Processed ${result.processedData.length} schools from Excel file`));
         } catch (error) {
             next(error);
         }
@@ -164,11 +131,7 @@ export class SchoolController {
             const schoolService = new SchoolService();
             const existingCodes = await schoolService.checkExistingSchoolCodes(codes);
 
-            res.json({
-                success: true,
-                data: existingCodes,
-                message: 'School codes checked successfully'
-            });
+            res.json(ResponseHandler.success(existingCodes, 'School codes checked successfully'));
         } catch (error) {
             next(error);
         }
@@ -182,10 +145,7 @@ export const createAllSchools = schoolController.processSchoolsFromExcel;
 export const repairSchools = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         // This would need to be implemented based on business logic
-        res.json({
-            success: true,
-            message: 'School repair functionality not yet implemented'
-        });
+        res.json(ResponseHandler.success({}, 'School repair functionality not yet implemented'));
     } catch (error) {
         next(error);
     }

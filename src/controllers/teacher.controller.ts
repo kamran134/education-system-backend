@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { TeacherUseCase } from "../usecases/teacher.usecase";
 import { TeacherService } from "../services/teacher.service";
 import { RequestParser } from "../utils/request-parser.util";
+import { ResponseHandler } from "../utils/response-handler.util";
 
 export class TeacherController {
     private teacherUseCase: TeacherUseCase;
@@ -18,12 +19,10 @@ export class TeacherController {
 
             const result = await this.teacherUseCase.getTeachers(pagination, filters, sort);
 
-            res.json({
-                success: true,
+            res.json(ResponseHandler.success({
                 data: result.data,
-                totalCount: result.totalCount,
-                message: 'Teachers retrieved successfully'
-            });
+                totalCount: result.totalCount
+            }, 'Teachers retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -34,11 +33,7 @@ export class TeacherController {
             const filters = RequestParser.parseFilterOptions(req);
             const teachers = await this.teacherUseCase.getTeachersForFilter(filters);
 
-            res.json({
-                success: true,
-                data: teachers,
-                message: 'Teachers for filter retrieved successfully'
-            });
+            res.json(ResponseHandler.success(teachers, 'Teachers for filter retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -49,11 +44,7 @@ export class TeacherController {
             const { id } = req.params;
             const teacher = await this.teacherUseCase.getTeacherById(id);
 
-            res.json({
-                success: true,
-                data: teacher,
-                message: 'Teacher retrieved successfully'
-            });
+            res.json(ResponseHandler.success(teacher, 'Teacher retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -64,11 +55,7 @@ export class TeacherController {
             const teacherData = req.body;
             const teacher = await this.teacherUseCase.createTeacher(teacherData);
 
-            res.status(201).json({
-                success: true,
-                data: teacher,
-                message: 'Teacher created successfully'
-            });
+            res.status(201).json(ResponseHandler.created(teacher, 'Teacher created successfully'));
         } catch (error) {
             next(error);
         }
@@ -81,11 +68,7 @@ export class TeacherController {
             
             const teacher = await this.teacherUseCase.updateTeacher(id, updateData);
 
-            res.json({
-                success: true,
-                data: teacher,
-                message: 'Teacher updated successfully'
-            });
+            res.json(ResponseHandler.updated(teacher, 'Teacher updated successfully'));
         } catch (error) {
             next(error);
         }
@@ -96,10 +79,7 @@ export class TeacherController {
             const { id } = req.params;
             await this.teacherUseCase.deleteTeacher(id);
 
-            res.json({
-                success: true,
-                message: 'Teacher deleted successfully'
-            });
+            res.json(ResponseHandler.deleted('Teacher deleted successfully'));
         } catch (error) {
             next(error);
         }
@@ -110,11 +90,7 @@ export class TeacherController {
             const { ids } = req.body;
             const result = await this.teacherUseCase.deleteTeachers(ids);
 
-            res.json({
-                success: true,
-                data: result,
-                message: `${result.deletedCount} teacher(s) deleted successfully`
-            });
+            res.json(ResponseHandler.success(result, `${result.deletedCount} teacher(s) deleted successfully`));
         } catch (error) {
             next(error);
         }
@@ -123,17 +99,13 @@ export class TeacherController {
     processTeachersFromExcel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             if (!req.file) {
-                res.status(400).json({ success: false, message: 'No file uploaded' });
+                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
                 return;
             }
 
             const result = await this.teacherUseCase.processTeachersFromFile(req.file.path);
 
-            res.json({
-                success: true,
-                data: result,
-                message: `Processed ${result.processedData.length} teachers from Excel file`
-            });
+            res.json(ResponseHandler.success(result, `Processed ${result.processedData.length} teachers from Excel file`));
         } catch (error) {
             next(error);
         }
@@ -146,11 +118,7 @@ export class TeacherController {
             const teacherService = new TeacherService();
             const existingCodes = await teacherService.checkExistingTeacherCodes(codes);
 
-            res.json({
-                success: true,
-                data: existingCodes,
-                message: 'Teacher codes checked successfully'
-            });
+            res.json(ResponseHandler.success(existingCodes, 'Teacher codes checked successfully'));
         } catch (error) {
             next(error);
         }
@@ -159,10 +127,7 @@ export class TeacherController {
     repairTeachers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             // This would need to be implemented based on business logic
-            res.json({
-                success: true,
-                message: 'Teacher repair functionality not yet implemented'
-            });
+            res.json(ResponseHandler.success({}, 'Teacher repair functionality not yet implemented'));
         } catch (error) {
             next(error);
         }

@@ -10,6 +10,7 @@ export interface IStudentInput {
     firstName: string;
     middleName: string;
     grade: number;
+    maxLevel?: number;
     teacher?: Types.ObjectId;
     school?: Types.ObjectId;
     district?: Types.ObjectId;

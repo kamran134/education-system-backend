@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { DistrictUseCase } from "../usecases/district.usecase";
 import { DistrictService } from "../services/district.service";
 import { RequestParser } from "../utils/request-parser.util";
+import { ResponseHandler } from "../utils/response-handler.util";
 
 export class DistrictController {
     private districtUseCase: DistrictUseCase;
@@ -18,12 +19,10 @@ export class DistrictController {
 
             const result = await this.districtUseCase.getFilteredDistricts(pagination, filters, sort);
 
-            res.json({
-                success: true,
+            res.json(ResponseHandler.success({
                 data: result.data,
-                totalCount: result.totalCount,
-                message: 'Districts retrieved successfully'
-            });
+                totalCount: result.totalCount
+            }, 'Districts retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -34,11 +33,7 @@ export class DistrictController {
             const filters = RequestParser.parseFilterOptions(req);
             const districts = await this.districtUseCase.getDistrictsForFilter(filters);
 
-            res.json({
-                success: true,
-                data: districts,
-                message: 'Districts for filter retrieved successfully'
-            });
+            res.json(ResponseHandler.success(districts, 'Districts for filter retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -49,11 +44,7 @@ export class DistrictController {
             const { id } = req.params;
             const district = await this.districtUseCase.getDistrictById(id);
 
-            res.json({
-                success: true,
-                data: district,
-                message: 'District retrieved successfully'
-            });
+            res.json(ResponseHandler.success(district, 'District retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -64,11 +55,7 @@ export class DistrictController {
             const districtData = req.body;
             const district = await this.districtUseCase.createDistrict(districtData);
 
-            res.status(201).json({
-                success: true,
-                data: district,
-                message: 'District created successfully'
-            });
+            res.status(201).json(ResponseHandler.created(district, 'District created successfully'));
         } catch (error) {
             next(error);
         }
@@ -81,11 +68,7 @@ export class DistrictController {
             
             const district = await this.districtUseCase.updateDistrict(id, updateData);
 
-            res.json({
-                success: true,
-                data: district,
-                message: 'District updated successfully'
-            });
+            res.json(ResponseHandler.updated(district, 'District updated successfully'));
         } catch (error) {
             next(error);
         }
@@ -96,10 +79,7 @@ export class DistrictController {
             const { id } = req.params;
             await this.districtUseCase.deleteDistrict(id);
 
-            res.json({
-                success: true,
-                message: 'District deleted successfully'
-            });
+            res.json(ResponseHandler.deleted('District deleted successfully'));
         } catch (error) {
             next(error);
         }
@@ -110,11 +90,7 @@ export class DistrictController {
             const { ids } = req.body;
             const result = await this.districtUseCase.deleteDistricts(ids);
 
-            res.json({
-                success: true,
-                data: result,
-                message: `${result.deletedCount} district(s) deleted successfully`
-            });
+            res.json(ResponseHandler.success(result, `${result.deletedCount} district(s) deleted successfully`));
         } catch (error) {
             next(error);
         }
@@ -123,17 +99,13 @@ export class DistrictController {
     processDistrictsFromExcel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             if (!req.file) {
-                res.status(400).json({ success: false, message: 'No file uploaded' });
+                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
                 return;
             }
 
             const result = await this.districtUseCase.processDistrictsFromExcel(req.file.path);
 
-            res.json({
-                success: true,
-                data: result,
-                message: `Processed ${result.processedData.length} districts from Excel file`
-            });
+            res.json(ResponseHandler.success(result, `Processed ${result.processedData.length} districts from Excel file`));
         } catch (error) {
             next(error);
         }
@@ -143,10 +115,7 @@ export class DistrictController {
         try {
             await this.districtUseCase.countDistrictsRates();
 
-            res.json({
-                success: true,
-                message: 'District rates counted successfully'
-            });
+            res.json(ResponseHandler.success({}, 'District rates counted successfully'));
         } catch (error) {
             next(error);
         }
@@ -157,11 +126,7 @@ export class DistrictController {
             const { codes } = req.body;
             const existingCodes = await this.districtUseCase.checkExistingDistrictCodes(codes);
 
-            res.json({
-                success: true,
-                data: existingCodes,
-                message: 'District codes checked successfully'
-            });
+            res.json(ResponseHandler.success(existingCodes, 'District codes checked successfully'));
         } catch (error) {
             next(error);
         }

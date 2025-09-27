@@ -8,6 +8,7 @@ import { assignTeacherToStudent } from "./student.service";
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } from "../types/common.types";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
+import { calculateParticipationScore } from "../types/participation.types";
 
 export class StudentResultService {
     async findById(id: string): Promise<IStudentResult | null> {
@@ -481,6 +482,16 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
             throw new Error("Faylda kifayət qədər sətr yoxdur!");
         }
 
+        // Get exam data to extract month and year
+        const exam = await Exam.findById(examId);
+        if (!exam) {
+            throw new Error("İmtahan tapılmadı!");
+        }
+
+        const examDate = new Date(exam.date);
+        const month = examDate.getMonth() + 1; // JavaScript months are 0-indexed
+        const year = examDate.getFullYear();
+
         const resultReadedData = rows.slice(3).map(row => ({
             examId: new Types.ObjectId(examId),
             grade: Number(row[2]),
@@ -502,6 +513,8 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
             firstName: String(row[5]),
             middleName: String(row[6]),
             grade: Number(row[2]),
+            // Устанавливаем maxLevel для новых студентов на основе текущего уровня
+            maxLevel: calculateParticipationScore(Number(row[2]) === 5 ? String(row[11]) : String(row[12]))
         }));
 
         const correctStudentDataToInsert = studentDataToInsert.filter(data => data.code > 999999999);
@@ -522,20 +535,61 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
             && result.totalScore > 0
         );
 
-        const resultsToInsert: IStudentResultInput[] = filtredResults.map(result => ({
-            student: students.find(student => student.code === result.studentCode)!._id as Types.ObjectId,
-            exam: result.examId as Types.ObjectId,
-            grade: result.grade,
-            disciplines: {
-                az: Number(result.az) || 0,
-                math: Number(result.math) || 0,
-                lifeKnowledge: Number(result.lifeKnowledge) || 0,
-                logic: Number(result.logic) || 0
-            },
-            totalScore: result.totalScore,
-            level: result.level,
-            score: 1
-        }));
+        // Подготавливаем массив обновлений для существующих студентов
+        const studentUpdates: any[] = [];
+
+        const resultsToInsert: IStudentResultInput[] = filtredResults.map(result => {
+            const student = students.find(student => student.code === result.studentCode)!;
+            const currentLevelScore = calculateParticipationScore(result.level);
+            let developmentScore = 0;
+
+            // Проверяем, есть ли у студента maxLevel и сравниваем
+            if (student.maxLevel !== undefined && student.maxLevel !== null) {
+                if (currentLevelScore > student.maxLevel) {
+                    // Текущий уровень больше maxLevel - устанавливаем developmentScore = 10
+                    developmentScore = 10;
+                    // Обновляем maxLevel у студента
+                    studentUpdates.push({
+                        updateOne: {
+                            filter: { _id: student._id },
+                            update: { $set: { maxLevel: currentLevelScore } }
+                        }
+                    });
+                }
+            } else {
+                // Если maxLevel не установлен, устанавливаем его в текущее значение
+                studentUpdates.push({
+                    updateOne: {
+                        filter: { _id: student._id },
+                        update: { $set: { maxLevel: currentLevelScore } }
+                    }
+                });
+            }
+
+            return {
+                student: student._id as Types.ObjectId,
+                exam: result.examId as Types.ObjectId,
+                grade: result.grade,
+                disciplines: {
+                    az: Number(result.az) || 0,
+                    math: Number(result.math) || 0,
+                    lifeKnowledge: Number(result.lifeKnowledge) || 0,
+                    logic: Number(result.logic) || 0
+                },
+                totalScore: result.totalScore,
+                level: result.level,
+                score: 1,
+                participationScore: currentLevelScore,
+                developmentScore: developmentScore,
+                month: month,
+                year: year
+            };
+        });
+
+        // Обновляем maxLevel у существующих студентов
+        if (studentUpdates.length > 0) {
+            await Student.bulkWrite(studentUpdates);
+        }
 
         // Remove the uploaded file
         deleteFile(filePath);

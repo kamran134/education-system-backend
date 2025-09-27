@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { ExamUseCase } from "../usecases/exam.usecase";
 import { ExamService } from "../services/exam.service";
 import { RequestParser } from "../utils/request-parser.util";
+import { ResponseHandler } from "../utils/response-handler.util";
 
 export class ExamController {
     private examUseCase: ExamUseCase;
@@ -18,12 +19,10 @@ export class ExamController {
 
             const result = await this.examUseCase.getFilteredExams(pagination, filters, sort);
 
-            res.json({
-                success: true,
+            res.json(ResponseHandler.success({
                 data: result.data,
-                totalCount: result.totalCount,
-                message: 'Exams retrieved successfully'
-            });
+                totalCount: result.totalCount
+            }, 'Exams retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -34,11 +33,7 @@ export class ExamController {
             const filters = RequestParser.parseFilterOptions(req);
             const exams = await this.examUseCase.getExamsForFilter(filters);
 
-            res.json({
-                success: true,
-                data: exams,
-                message: 'Exams for filter retrieved successfully'
-            });
+            res.json(ResponseHandler.success(exams, 'Exams for filter retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -49,11 +44,7 @@ export class ExamController {
             const { id } = req.params;
             const exam = await this.examUseCase.getExamById(id);
 
-            res.json({
-                success: true,
-                data: exam,
-                message: 'Exam retrieved successfully'
-            });
+            res.json(ResponseHandler.success(exam, 'Exam retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -64,11 +55,7 @@ export class ExamController {
             const { month, year } = req.query;
             const exams = await this.examUseCase.getExamsByMonthYear(Number(month), Number(year));
 
-            res.json({
-                success: true,
-                data: exams,
-                message: 'Exams retrieved successfully'
-            });
+            res.json(ResponseHandler.success(exams, 'Exams retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -79,11 +66,7 @@ export class ExamController {
             const examData = req.body;
             const exam = await this.examUseCase.createExam(examData);
 
-            res.status(201).json({
-                success: true,
-                data: exam,
-                message: 'Exam created successfully'
-            });
+            res.status(201).json(ResponseHandler.created(exam, 'Exam created successfully'));
         } catch (error) {
             next(error);
         }
@@ -96,11 +79,7 @@ export class ExamController {
             
             const exam = await this.examUseCase.updateExam(id, updateData);
 
-            res.json({
-                success: true,
-                data: exam,
-                message: 'Exam updated successfully'
-            });
+            res.json(ResponseHandler.updated(exam, 'Exam updated successfully'));
         } catch (error) {
             next(error);
         }
@@ -111,10 +90,7 @@ export class ExamController {
             const { id } = req.params;
             await this.examUseCase.deleteExam(id);
 
-            res.json({
-                success: true,
-                message: 'Exam deleted successfully'
-            });
+            res.json(ResponseHandler.deleted('Exam deleted successfully'));
         } catch (error) {
             next(error);
         }
@@ -125,11 +101,7 @@ export class ExamController {
             const { ids } = req.body;
             const result = await this.examUseCase.deleteExams(ids);
 
-            res.json({
-                success: true,
-                data: result,
-                message: `${result.deletedCount} exam(s) deleted successfully`
-            });
+            res.json(ResponseHandler.success(result, `${result.deletedCount} exam(s) deleted successfully`));
         } catch (error) {
             next(error);
         }
@@ -138,17 +110,13 @@ export class ExamController {
     processExamsFromExcel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             if (!req.file) {
-                res.status(400).json({ success: false, message: 'No file uploaded' });
+                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
                 return;
             }
 
             const result = await this.examUseCase.processExamsFromExcel(req.file.path);
 
-            res.json({
-                success: true,
-                data: result,
-                message: `Processed ${result.processedData.length} exams from Excel file`
-            });
+            res.json(ResponseHandler.success(result, `Processed ${result.processedData.length} exams from Excel file`));
         } catch (error) {
             next(error);
         }
@@ -159,11 +127,7 @@ export class ExamController {
             const { codes } = req.body;
             const existingCodes = await this.examUseCase.checkExistingExamCodes(codes);
 
-            res.json({
-                success: true,
-                data: existingCodes,
-                message: 'Exam codes checked successfully'
-            });
+            res.json(ResponseHandler.success(existingCodes, 'Exam codes checked successfully'));
         } catch (error) {
             next(error);
         }

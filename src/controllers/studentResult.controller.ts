@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { StudentResultUseCase } from "../usecases/studentResult.usecase";
 import { StudentResultService } from "../services/studentResult.service";
 import { RequestParser } from "../utils/request-parser.util";
+import { ResponseHandler } from "../utils/response-handler.util";
 
 export class StudentResultController {
     private studentResultUseCase: StudentResultUseCase;
@@ -18,12 +19,10 @@ export class StudentResultController {
 
             const result = await this.studentResultUseCase.getStudentResults(pagination, filters, sort);
 
-            res.json({
-                success: true,
+            res.json(ResponseHandler.success({
                 data: result.data,
-                totalCount: result.totalCount,
-                message: 'Student results retrieved successfully'
-            });
+                totalCount: result.totalCount
+            }, 'Student results retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -35,18 +34,11 @@ export class StudentResultController {
             const result = await this.studentResultUseCase.getStudentResultById(id);
 
             if (!result) {
-                res.status(404).json({
-                    success: false,
-                    message: 'Student result not found'
-                });
+                res.status(404).json(ResponseHandler.notFound('Student result not found'));
                 return;
             }
 
-            res.json({
-                success: true,
-                data: result,
-                message: 'Student result retrieved successfully'
-            });
+            res.json(ResponseHandler.success(result, 'Student result retrieved successfully'));
         } catch (error) {
             next(error);
         }
@@ -56,11 +48,7 @@ export class StudentResultController {
         try {
             const result = await this.studentResultUseCase.createStudentResult(req.body);
 
-            res.status(201).json({
-                success: true,
-                data: result,
-                message: 'Student result created successfully'
-            });
+            res.status(201).json(ResponseHandler.created(result, 'Student result created successfully'));
         } catch (error) {
             next(error);
         }
@@ -71,11 +59,7 @@ export class StudentResultController {
             const { id } = req.params;
             const result = await this.studentResultUseCase.updateStudentResult(id, req.body);
 
-            res.json({
-                success: true,
-                data: result,
-                message: 'Student result updated successfully'
-            });
+            res.json(ResponseHandler.updated(result, 'Student result updated successfully'));
         } catch (error) {
             next(error);
         }
@@ -86,10 +70,7 @@ export class StudentResultController {
             const { id } = req.params;
             await this.studentResultUseCase.deleteStudentResult(id);
 
-            res.json({
-                success: true,
-                message: 'Student result deleted successfully'
-            });
+            res.json(ResponseHandler.deleted('Student result deleted successfully'));
         } catch (error) {
             next(error);
         }
@@ -98,29 +79,19 @@ export class StudentResultController {
     processStudentResultsFromExcel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             if (!req.file) {
-                res.status(400).json({ 
-                    success: false, 
-                    message: "Fayl yüklənməyib!" 
-                });
+                res.status(400).json(ResponseHandler.badRequest("Fayl yüklənməyib!"));
                 return;
             }
 
             const { examId } = req.body;
             if (!examId) {
-                res.status(400).json({ 
-                    success: false, 
-                    message: "İmtahan seçilməyib!" 
-                });
+                res.status(400).json(ResponseHandler.badRequest("İmtahan seçilməyib!"));
                 return;
             }
 
             const result = await this.studentResultUseCase.processStudentResultsFromExcel(req.file.path, examId);
 
-            res.status(201).json({
-                success: true,
-                data: result,
-                message: "Şagirdlərin nəticələri uğurla yaradıldı!"
-            });
+            res.status(201).json(ResponseHandler.created(result, "Şagirdlərin nəticələri uğurla yaradıldı!"));
         } catch (error) {
             next(error);
         }
@@ -130,28 +101,21 @@ export class StudentResultController {
         try {
             const { examId } = req.params;
             if (!examId) {
-                res.status(400).json({ 
-                    success: false, 
-                    message: "İmtahan seçilməyib!" 
-                });
+                res.status(400).json(ResponseHandler.badRequest("İmtahan seçilməyib!"));
                 return;
             }
 
             const result = await this.studentResultUseCase.deleteResultsByExamId(examId);
 
             if (result.deletedCount === 0) {
-                res.status(404).json({ 
-                    success: false, 
-                    message: "Bu imtahan üçün nəticələr tapılmadı!" 
-                });
+                res.status(404).json(ResponseHandler.notFound("Bu imtahan üçün nəticələr tapılmadı!"));
                 return;
             }
 
-            res.json({
-                success: true,
-                data: { deletedCount: result.deletedCount },
-                message: "İmtahan nəticələri uğurla silindi!"
-            });
+            res.json(ResponseHandler.success(
+                { deletedCount: result.deletedCount },
+                "İmtahan nəticələri uğurla silindi!"
+            ));
         } catch (error) {
             next(error);
         }

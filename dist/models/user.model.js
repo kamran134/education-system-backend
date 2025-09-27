@@ -16,7 +16,7 @@ var UserRole;
 const UserSchema = new mongoose_1.default.Schema({
     email: { type: String, required: true, unique: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ["superadmin", "admin", "moderator", "user"], default: "user" },
+    role: { type: String, enum: ["superadmin", "admin", "moderator", "teacher", "user"], default: "user" },
     isApproved: { type: Boolean, default: false }
 });
 exports.default = mongoose_1.default.model("User", UserSchema);

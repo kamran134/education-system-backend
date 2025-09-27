@@ -18,6 +18,7 @@ const district_model_1 = __importDefault(require("../models/district.model"));
 const school_model_1 = __importDefault(require("../models/school.model"));
 const teacher_model_1 = __importDefault(require("../models/teacher.model"));
 const studentResult_model_1 = __importDefault(require("../models/studentResult.model"));
+const levelScore_enum_1 = require("../types/levelScore.enum");
 const studentResult_service_1 = require("./studentResult.service");
 const district_service_1 = require("./district.service");
 const request_parser_util_1 = require("../utils/request-parser.util");
@@ -26,7 +27,28 @@ class StatsService {
         return __awaiter(this, void 0, void 0, function* () {
             console.log("🔄 Сброс статистики...");
             yield district_model_1.default.updateMany({}, { score: 0, averageScore: 0, rate: 0 });
-            yield studentResult_model_1.default.updateMany({}, { status: "", score: 1 });
+            // Reset status and recalculate base score from level mapping.
+            // Use aggregation-style pipeline update (MongoDB 4.2+) to derive numeric score from level.
+            yield studentResult_model_1.default.updateMany({}, [
+                {
+                    $set: {
+                        status: "",
+                        score: {
+                            $switch: {
+                                branches: [
+                                    { case: { $eq: ["$level", "E"] }, then: levelScore_enum_1.LevelScore.E },
+                                    { case: { $eq: ["$level", "D"] }, then: levelScore_enum_1.LevelScore.D },
+                                    { case: { $eq: ["$level", "C"] }, then: levelScore_enum_1.LevelScore.C },
+                                    { case: { $eq: ["$level", "B"] }, then: levelScore_enum_1.LevelScore.B },
+                                    { case: { $eq: ["$level", "A"] }, then: levelScore_enum_1.LevelScore.A },
+                                    { case: { $in: ["$level", ["Lisey", "Lise", "Lisey "]] }, then: levelScore_enum_1.LevelScore.Lisey }
+                                ],
+                                default: 0
+                            }
+                        }
+                    }
+                }
+            ]); // cast as any to satisfy TS for pipeline form
             console.log("✅ Статистика сброшена.");
         });
     }

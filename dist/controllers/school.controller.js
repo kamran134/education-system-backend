@@ -13,6 +13,7 @@ exports.checkExistingSchoolCodes = exports.processSchoolsFromExcel = exports.del
 const school_usecase_1 = require("../usecases/school.usecase");
 const school_service_1 = require("../services/school.service");
 const request_parser_util_1 = require("../utils/request-parser.util");
+const response_handler_util_1 = require("../utils/response-handler.util");
 class SchoolController {
     constructor() {
         this.getSchools = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
@@ -21,12 +22,10 @@ class SchoolController {
                 const filters = request_parser_util_1.RequestParser.parseFilterOptions(req);
                 const sort = request_parser_util_1.RequestParser.parseSorting(req, 'averageScore', 'desc');
                 const result = yield this.schoolUseCase.getSchools(pagination, filters, sort);
-                res.json({
-                    success: true,
+                res.json(response_handler_util_1.ResponseHandler.success({
                     data: result.data,
-                    totalCount: result.totalCount,
-                    message: 'Schools retrieved successfully'
-                });
+                    totalCount: result.totalCount
+                }, 'Schools retrieved successfully'));
             }
             catch (error) {
                 next(error);
@@ -36,11 +35,7 @@ class SchoolController {
             try {
                 const filters = request_parser_util_1.RequestParser.parseFilterOptions(req);
                 const schools = yield this.schoolUseCase.getSchoolsForFilter(filters);
-                res.json({
-                    success: true,
-                    data: schools,
-                    message: 'Schools for filter retrieved successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(schools, 'Schools for filter retrieved successfully'));
             }
             catch (error) {
                 next(error);
@@ -50,11 +45,7 @@ class SchoolController {
             try {
                 const { id } = req.params;
                 const school = yield this.schoolUseCase.getSchoolById(id);
-                res.json({
-                    success: true,
-                    data: school,
-                    message: 'School retrieved successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(school, 'School retrieved successfully'));
             }
             catch (error) {
                 next(error);
@@ -66,11 +57,7 @@ class SchoolController {
                 // Use findByCode method from service directly since it's not in use case
                 const schoolService = new school_service_1.SchoolService();
                 const school = yield schoolService.findByCode(Number(code));
-                res.json({
-                    success: true,
-                    data: school,
-                    message: 'School retrieved successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(school, 'School retrieved successfully'));
             }
             catch (error) {
                 next(error);
@@ -80,11 +67,7 @@ class SchoolController {
             try {
                 const schoolData = req.body;
                 const school = yield this.schoolUseCase.createSchool(schoolData);
-                res.status(201).json({
-                    success: true,
-                    data: school,
-                    message: 'School created successfully'
-                });
+                res.status(201).json(response_handler_util_1.ResponseHandler.created(school, 'School created successfully'));
             }
             catch (error) {
                 next(error);
@@ -95,11 +78,7 @@ class SchoolController {
                 const { id } = req.params;
                 const updateData = req.body;
                 const school = yield this.schoolUseCase.updateSchool(id, updateData);
-                res.json({
-                    success: true,
-                    data: school,
-                    message: 'School updated successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.updated(school, 'School updated successfully'));
             }
             catch (error) {
                 next(error);
@@ -109,10 +88,7 @@ class SchoolController {
             try {
                 const { id } = req.params;
                 yield this.schoolUseCase.deleteSchool(id);
-                res.json({
-                    success: true,
-                    message: 'School deleted successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.deleted('School deleted successfully'));
             }
             catch (error) {
                 next(error);
@@ -122,11 +98,7 @@ class SchoolController {
             try {
                 const { ids } = req.body;
                 const result = yield this.schoolUseCase.deleteSchools(ids);
-                res.json({
-                    success: true,
-                    data: result,
-                    message: `${result.deletedCount} school(s) deleted successfully`
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(result, `${result.deletedCount} school(s) deleted successfully`));
             }
             catch (error) {
                 next(error);
@@ -135,15 +107,11 @@ class SchoolController {
         this.processSchoolsFromExcel = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
             try {
                 if (!req.file) {
-                    res.status(400).json({ success: false, message: 'No file uploaded' });
+                    res.status(400).json(response_handler_util_1.ResponseHandler.badRequest('No file uploaded'));
                     return;
                 }
                 const result = yield this.schoolUseCase.processSchoolsFromFile(req.file.path);
-                res.json({
-                    success: true,
-                    data: result,
-                    message: `Processed ${result.processedData.length} schools from Excel file`
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(result, `Processed ${result.processedData.length} schools from Excel file`));
             }
             catch (error) {
                 next(error);
@@ -155,11 +123,7 @@ class SchoolController {
                 // Use service directly since this is not in use case
                 const schoolService = new school_service_1.SchoolService();
                 const existingCodes = yield schoolService.checkExistingSchoolCodes(codes);
-                res.json({
-                    success: true,
-                    data: existingCodes,
-                    message: 'School codes checked successfully'
-                });
+                res.json(response_handler_util_1.ResponseHandler.success(existingCodes, 'School codes checked successfully'));
             }
             catch (error) {
                 next(error);
@@ -175,10 +139,7 @@ exports.createAllSchools = schoolController.processSchoolsFromExcel;
 const repairSchools = (req, res, next) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         // This would need to be implemented based on business logic
-        res.json({
-            success: true,
-            message: 'School repair functionality not yet implemented'
-        });
+        res.json(response_handler_util_1.ResponseHandler.success({}, 'School repair functionality not yet implemented'));
     }
     catch (error) {
         next(error);
