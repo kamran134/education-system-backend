@@ -253,6 +253,10 @@ export class StatsService {
                 console.log(`✅ Обновлено ${republicTopStudentUpdates.length} студентов месяца по республике`);
             }
 
+            // Шаг 6: Подсчитываем общий score для всех студентов
+            console.log("🔢 Подсчитываем общий score для студентов...");
+            await this.updateStudentScores();
+
             console.log("✅ Статистика обновлена успешно!");
             return 200;
 
@@ -496,6 +500,84 @@ export class StatsService {
         pipeline.push({ $unwind: '$examData' });
 
         return pipeline;
+    }
+
+    /**
+     * Обновляет общий score для всех студентов на основе их результатов
+     */
+    private async updateStudentScores(): Promise<void> {
+        try {
+            // Агрегация для подсчета общего score каждого студента
+            const pipeline = [
+                {
+                    $group: {
+                        _id: '$student',
+                        totalParticipationScore: { 
+                            $sum: { $ifNull: ['$participationScore', 0] }
+                        },
+                        totalDevelopmentScore: { 
+                            $sum: { $ifNull: ['$developmentScore', 0] }
+                        },
+                        totalStudentOfTheMonthScore: { 
+                            $sum: { $ifNull: ['$studentOfTheMonthScore', 0] }
+                        },
+                        totalRepublicWideStudentOfTheMonthScore: { 
+                            $sum: { $ifNull: ['$republicWideStudentOfTheMonthScore', 0] }
+                        }
+                    }
+                },
+                {
+                    $addFields: {
+                        totalScore: {
+                            $add: [
+                                '$totalParticipationScore',
+                                '$totalDevelopmentScore', 
+                                '$totalStudentOfTheMonthScore',
+                                '$totalRepublicWideStudentOfTheMonthScore'
+                            ]
+                        }
+                    }
+                }
+            ];
+
+            const studentScores = await StudentResult.aggregate(pipeline);
+            
+            if (studentScores.length === 0) {
+                console.log("Нет результатов для подсчета score студентов.");
+                return;
+            }
+
+            // Подготавливаем bulk операции для обновления студентов
+            const bulkOperations = studentScores.map(scoreData => ({
+                updateOne: {
+                    filter: { _id: scoreData._id },
+                    update: { 
+                        $set: { 
+                            score: scoreData.totalScore,
+                            participationScore: scoreData.totalParticipationScore,
+                            developmentScore: scoreData.totalDevelopmentScore,
+                            studentOfTheMonthScore: scoreData.totalStudentOfTheMonthScore,
+                            republicWideStudentOfTheMonthScore: scoreData.totalRepublicWideStudentOfTheMonthScore
+                        } 
+                    }
+                }
+            }));
+
+            // Выполняем массовое обновление студентов
+            if (bulkOperations.length > 0) {
+                await Student.bulkWrite(bulkOperations);
+                console.log(`✅ Обновлен общий score для ${bulkOperations.length} студентов`);
+                
+                // Показываем статистику по баллам
+                const totalScoreSum = studentScores.reduce((sum, student) => sum + student.totalScore, 0);
+                const averageScore = totalScoreSum / studentScores.length;
+                console.log(`📊 Общая сумма баллов: ${totalScoreSum}, средний балл: ${averageScore.toFixed(2)}`);
+            }
+
+        } catch (error) {
+            console.error("❌ Ошибка при обновлении score студентов:", error);
+            throw error;
+        }
     }
 }
 
