@@ -289,9 +289,10 @@ export class StatsService {
         const pipeline = this.buildStudentStatsPipeline(filters, examIds);
         const studentResults = await StudentResult.aggregate(pipeline);
         
-        const studentsOfMonth = studentResults.filter(r => r.status?.match(/Ayın şagirdi/i));
-        const studentsOfMonthByRepublic = studentResults.filter(r => r.status?.match(/Respublika üzrə ayın şagirdi/i));
-        const developingStudents = studentResults.filter(r => r.status?.match(/İnkişaf edən şagird/i));
+        // Используем числовые поля вместо поиска в статусе
+        const studentsOfMonth = studentResults.filter(r => r.studentOfTheMonthScore && r.studentOfTheMonthScore > 0);
+        const studentsOfMonthByRepublic = studentResults.filter(r => r.republicWideStudentOfTheMonthScore && r.republicWideStudentOfTheMonthScore > 0);
+        const developingStudents = studentResults.filter(r => r.developmentScore && r.developmentScore > 0);
 
         return { studentsOfMonth, studentsOfMonthByRepublic, developingStudents };
     }
@@ -312,9 +313,10 @@ export class StatsService {
                 ]
             });
 
-        const studentsOfMonth = studentResults.filter(r => r.status?.match(/Ayın şagirdi/i));
-        const studentsOfMonthByRepublic = studentResults.filter(r => r.status?.match(/Respublika üzrə ayın şagirdi/i));
-        const developingStudents = studentResults.filter(r => r.status?.match(/İnkişaf edən şagird/i));
+        // Используем числовые поля вместо поиска в статусе
+        const studentsOfMonth = studentResults.filter(r => r.studentOfTheMonthScore && r.studentOfTheMonthScore > 0);
+        const studentsOfMonthByRepublic = studentResults.filter(r => r.republicWideStudentOfTheMonthScore && r.republicWideStudentOfTheMonthScore > 0);
+        const developingStudents = studentResults.filter(r => r.developmentScore && r.developmentScore > 0);
 
         return { studentsOfMonth, studentsOfMonthByRepublic, developingStudents };
     }
