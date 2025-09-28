@@ -16,6 +16,12 @@ export interface StatisticsFilter extends FilterOptions {
 }
 
 export class StatsService {
+    // Функция для проверки, является ли уровень лицейным
+    private isLiceyLevel(level: string): boolean {
+        const normalizedLevel = level.trim().toUpperCase();
+        return normalizedLevel === 'LISEY' || normalizedLevel === 'LISE' || normalizedLevel.includes('LISEY');
+    }
+
     async resetStats(): Promise<void> {
         console.log("🔄 Сброс статистики...");
         await District.updateMany({}, { score: 0, averageScore: 0, rate: 0 });
@@ -179,18 +185,26 @@ export class StatsService {
                 const maxTotalScore = Math.max(...results.map(r => r.totalScore));
                 
                 // Находим всех студентов с максимальным баллом
-                const topStudents = results.filter(r => r.totalScore === maxTotalScore);
+                const studentsWithMaxScore = results.filter(r => r.totalScore === maxTotalScore);
                 
-                console.log(`📍 Класс ${grade}, район ${districtId}: максимум ${maxTotalScore} баллов, ${topStudents.length} студент(ов)`);
+                // Проверяем, есть ли среди них лицейные студенты
+                const liceyStudentsWithMaxScore = studentsWithMaxScore.filter(r => this.isLiceyLevel(r.level));
                 
-                // Добавляем 5 баллов каждому лучшему студенту
-                for (const student of topStudents) {
-                    districtTopStudentUpdates.push({
-                        updateOne: {
-                            filter: { _id: student._id },
-                            update: { $set: { studentOfTheMonthScore: 5 } }
-                        }
-                    });
+                if (liceyStudentsWithMaxScore.length > 0) {
+                    // Если есть лицейные студенты с максимальным баллом, награждаем только их
+                    console.log(`📍 Класс ${grade}, район ${districtId}: максимум ${maxTotalScore} баллов (лицейный уровень), ${liceyStudentsWithMaxScore.length} студент(ов)`);
+                    
+                    for (const student of liceyStudentsWithMaxScore) {
+                        districtTopStudentUpdates.push({
+                            updateOne: {
+                                filter: { _id: student._id },
+                                update: { $set: { studentOfTheMonthScore: 5 } }
+                            }
+                        });
+                    }
+                } else {
+                    // Если нет лицейных с максимальным баллом, никого не награждаем
+                    console.log(`📍 Класс ${grade}, район ${districtId}: максимум ${maxTotalScore} баллов (не лицейный уровень), никого не награждаем`);
                 }
             }
 
@@ -210,18 +224,26 @@ export class StatsService {
                 const maxTotalScore = Math.max(...results.map(r => r.totalScore));
                 
                 // Находим всех студентов с максимальным баллом
-                const topStudents = results.filter(r => r.totalScore === maxTotalScore);
+                const studentsWithMaxScore = results.filter(r => r.totalScore === maxTotalScore);
                 
-                console.log(`🎯 Класс ${grade} (республика): максимум ${maxTotalScore} баллов, ${topStudents.length} студент(ов)`);
+                // Проверяем, есть ли среди них лицейные студенты
+                const liceyStudentsWithMaxScore = studentsWithMaxScore.filter(r => this.isLiceyLevel(r.level));
                 
-                // Добавляем 5 баллов каждому лучшему студенту
-                for (const student of topStudents) {
-                    republicTopStudentUpdates.push({
-                        updateOne: {
-                            filter: { _id: student._id },
-                            update: { $set: { republicWideStudentOfTheMonthScore: 5 } }
-                        }
-                    });
+                if (liceyStudentsWithMaxScore.length > 0) {
+                    // Если есть лицейные студенты с максимальным баллом, награждаем только их
+                    console.log(`🎯 Класс ${grade} (республика): максимум ${maxTotalScore} баллов (лицейный уровень), ${liceyStudentsWithMaxScore.length} студент(ов)`);
+                    
+                    for (const student of liceyStudentsWithMaxScore) {
+                        republicTopStudentUpdates.push({
+                            updateOne: {
+                                filter: { _id: student._id },
+                                update: { $set: { republicWideStudentOfTheMonthScore: 5 } }
+                            }
+                        });
+                    }
+                } else {
+                    // Если нет лицейных с максимальным баллом, никого не награждаем
+                    console.log(`🎯 Класс ${grade} (республика): максимум ${maxTotalScore} баллов (не лицейный уровень), никого не награждаем`);
                 }
             }
 
