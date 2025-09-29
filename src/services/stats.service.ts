@@ -257,6 +257,10 @@ export class StatsService {
             console.log("🔢 Подсчитываем общий score для студентов...");
             await this.updateStudentScores();
 
+            // Шаг 7: Обновляем место в рейтинге (place) для всех студентов
+            console.log("🏆 Обновляем рейтинг студентов (place)...");
+            await this.updateStudentPlaces();
+
             console.log("✅ Статистика обновлена успешно!");
             return 200;
 
@@ -576,6 +580,67 @@ export class StatsService {
 
         } catch (error) {
             console.error("❌ Ошибка при обновлении score студентов:", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Обновляет место в рейтинге (place) для всех студентов на основе их score
+     */
+    private async updateStudentPlaces(): Promise<void> {
+        try {
+            // Получаем всех студентов, отсортированных по score в убывающем порядке
+            const students = await Student.find({ score: { $exists: true } })
+                                         .sort({ score: -1, code: 1 }) // сортируем по score убывание, при равенстве по коду
+                                         .select('_id score');
+
+            if (students.length === 0) {
+                console.log("Нет студентов с score для установки места в рейтинге.");
+                return;
+            }
+
+            // Подготавливаем bulk операции для обновления места
+            const bulkOperations = [];
+            let currentPlace = 1;
+            let previousScore = null;
+
+            for (let i = 0; i < students.length; i++) {
+                const student = students[i];
+                
+                if (i === 0) {
+                    // Первый студент - место 1
+                    currentPlace = 1;
+                } else if (previousScore !== null && student.score < previousScore) {
+                    // Новый балл - следующее место = предыдущее место + 1
+                    currentPlace = currentPlace + 1;
+                }
+                // Если балл такой же, как у предыдущего, место остается тем же
+
+                bulkOperations.push({
+                    updateOne: {
+                        filter: { _id: student._id },
+                        update: { $set: { place: currentPlace } }
+                    }
+                });
+
+                previousScore = student.score;
+            }
+
+            // Выполняем массовое обновление мест
+            if (bulkOperations.length > 0) {
+                await Student.bulkWrite(bulkOperations);
+                console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} студентов`);
+                
+                // Показываем статистику рейтинга
+                const topStudent = students[0];
+                const lastStudent = students[students.length - 1];
+                console.log(`🥇 Лидер рейтинга: ${topStudent.score} баллов (место 1)`);
+                console.log(`📊 Всего в рейтинге: ${students.length} студентов`);
+                console.log(`🔢 Диапазон баллов: ${lastStudent.score} - ${topStudent.score}`);
+            }
+
+        } catch (error) {
+            console.error("❌ Ошибка при обновлении места в рейтинге:", error);
             throw error;
         }
     }
