@@ -15,6 +15,14 @@ export class SchoolService {
      * Обновляет статистику по школам: studentCount, score, averageScore
      */
     async updateSchoolsStats(): Promise<void> {
+        // Сначала обнуляем статистику всех школ
+        console.log("🧹 Обнуляем статистику школ...");
+        await School.updateMany({}, { 
+            score: 0, 
+            averageScore: 0, 
+            studentCount: 0 
+        });
+        
         // Получаем всех студентов с school и score
         const students = await Student.find({}, { school: 1, score: 1 });
         // Группируем по school

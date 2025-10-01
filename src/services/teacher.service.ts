@@ -14,6 +14,14 @@ export class TeacherService {
      * Обновляет статистику по учителям: studentCount, score, averageScore
      */
     async updateTeachersStats(): Promise<void> {
+        // Сначала обнуляем статистику всех учителей
+        console.log("🧹 Обнуляем статистику учителей...");
+        await Teacher.updateMany({}, { 
+            score: 0, 
+            averageScore: 0, 
+            studentCount: 0 
+        });
+        
         // Получаем всех студентов с teacher и score
         const Student = require('../models/student.model').default;
         const students = await Student.find({}, { teacher: 1, score: 1 });

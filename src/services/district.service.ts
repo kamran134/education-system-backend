@@ -14,6 +14,14 @@ export class DistrictService {
      * Обновляет статистику по районам: studentCount, score, averageScore
      */
     async updateDistrictsStats(): Promise<void> {
+        // Сначала обнуляем статистику всех районов
+        console.log("🧹 Обнуляем статистику районов...");
+        await District.updateMany({}, { 
+            score: 0, 
+            averageScore: 0, 
+            studentCount: 0 
+        });
+        
         // Получаем всех студентов с district и score
         const students = await Student.find({}, { district: 1, score: 1 });
         // Группируем по district

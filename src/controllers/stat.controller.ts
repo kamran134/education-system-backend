@@ -102,7 +102,6 @@ export class StatsController {
 
     async getDistrictStatistics(req: Request, res: Response): Promise<void> {
         try {
-            console.log('🎯 DISTRICT CONTROLLER - Request query:', req.query);
             const filters = {
                 ...RequestParser.parseFilterOptions(req),
                 sortColumn: req.query.sortColumn as string || 'averageScore',
@@ -110,10 +109,8 @@ export class StatsController {
                 page: parseInt(req.query.page as string) || 1,
                 size: parseInt(req.query.size as string) || 100
             };
-            console.log('🎯 DISTRICT CONTROLLER - Parsed filters:', filters);
 
             const statistics = await this.statsUseCase.getDistrictStatistics(filters);
-            console.log('🎯 DISTRICT CONTROLLER - Statistics result:', { dataLength: statistics.data.length, totalCount: statistics.totalCount });
             res.status(200).json(ResponseHandler.success(statistics));
         } catch (error: any) {
             console.error('Error in getDistrictStatistics:', error);

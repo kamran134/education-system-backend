@@ -372,6 +372,19 @@ export class StatsService {
             Teacher.countDocuments(filter)
         ]);
 
+        // Добавляем значения по умолчанию для отсутствующих полей
+        data.forEach(teacher => {
+            if (teacher.score === undefined || teacher.score === null) {
+                teacher.score = 0;
+            }
+            if (teacher.averageScore === undefined || teacher.averageScore === null) {
+                teacher.averageScore = 0;
+            }
+            if ((teacher as any).studentCount === undefined || (teacher as any).studentCount === null) {
+                (teacher as any).studentCount = 0;
+            }
+        });
+
         return { data, totalCount };
     }
 
@@ -403,6 +416,19 @@ export class StatsService {
             School.countDocuments(filter)
         ]);
 
+        // Добавляем значения по умолчанию для отсутствующих полей
+        data.forEach(school => {
+            if (school.score === undefined || school.score === null) {
+                school.score = 0;
+            }
+            if (school.averageScore === undefined || school.averageScore === null) {
+                school.averageScore = 0;
+            }
+            if ((school as any).studentCount === undefined || (school as any).studentCount === null) {
+                (school as any).studentCount = 0;
+            }
+        });
+
         return { data, totalCount };
     }
 
@@ -411,18 +437,12 @@ export class StatsService {
         sortColumn: string,
         sortDirection: string
     ): Promise<{ data: IDistrict[], totalCount: number }> {
-        console.log('🔍 DISTRICT DEBUG - Input filters:', filters);
-        console.log('🔍 DISTRICT DEBUG - Sort:', sortColumn, sortDirection);
-        
-        // Попробуем сначала без фильтра active
         const filter: any = {};
 
         if (filters.code) {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
             filter.code = { $gte: start, $lte: end };
         }
-
-        console.log('🔍 DISTRICT DEBUG - Final filter:', filter);
 
         const sortOptions: any = {};
         sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
@@ -440,16 +460,18 @@ export class StatsService {
             District.countDocuments(filter)
         ]);
 
-        console.log('📊 DISTRICT DEBUG - Found districts:', data.length);
-        console.log('📊 DISTRICT DEBUG - Total count:', totalCount);
-        console.log('📊 DISTRICT DEBUG - First district:', data[0] ? {
-            id: data[0]._id,
-            name: data[0].name,
-            code: data[0].code,
-            active: (data[0] as any).active,
-            score: data[0].score,
-            averageScore: data[0].averageScore
-        } : 'No districts found');
+        // Добавляем значения по умолчанию для отсутствующих полей
+        data.forEach(district => {
+            if (district.score === undefined || district.score === null) {
+                district.score = 0;
+            }
+            if (district.averageScore === undefined || district.averageScore === null) {
+                district.averageScore = 0;
+            }
+            if ((district as any).studentCount === undefined || (district as any).studentCount === null) {
+                (district as any).studentCount = 0;
+            }
+        });
 
         return { data, totalCount };
     }
