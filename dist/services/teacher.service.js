@@ -22,6 +22,40 @@ const request_parser_util_1 = require("../utils/request-parser.util");
 const excel_service_1 = require("./excel.service");
 const file_service_1 = require("./file.service");
 class TeacherService {
+    /**
+     * Обновляет статистику по учителям: studentCount, score, averageScore
+     */
+    updateTeachersStats() {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a;
+            // Получаем всех студентов с teacher и score
+            const Student = require('../models/student.model').default;
+            const students = yield Student.find({}, { teacher: 1, score: 1 });
+            // Группируем по teacher
+            const statsMap = new Map();
+            for (const student of students) {
+                const teacherId = (_a = student.teacher) === null || _a === void 0 ? void 0 : _a.toString();
+                if (!teacherId)
+                    continue;
+                const score = typeof student.score === 'number' ? student.score : 0;
+                if (!statsMap.has(teacherId)) {
+                    statsMap.set(teacherId, { sum: 0, count: 0 });
+                }
+                const stat = statsMap.get(teacherId);
+                stat.sum += score;
+                stat.count += 1;
+            }
+            // Обновляем каждого учителя
+            for (const [teacherId, { sum, count }] of statsMap.entries()) {
+                const average = count > 0 ? sum / count : 0;
+                yield teacher_model_1.default.findByIdAndUpdate(teacherId, {
+                    studentCount: count,
+                    score: sum,
+                    averageScore: average
+                });
+            }
+        });
+    }
     findById(id) {
         return __awaiter(this, void 0, void 0, function* () {
             return yield teacher_model_1.default.findById(id).populate('district school');

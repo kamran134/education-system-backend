@@ -10,6 +10,36 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 
 export class TeacherService {
+    /**
+     * Обновляет статистику по учителям: studentCount, score, averageScore
+     */
+    async updateTeachersStats(): Promise<void> {
+        // Получаем всех студентов с teacher и score
+        const Student = require('../models/student.model').default;
+        const students = await Student.find({}, { teacher: 1, score: 1 });
+        // Группируем по teacher
+        const statsMap = new Map<string, { sum: number, count: number }>();
+        for (const student of students) {
+            const teacherId = student.teacher?.toString();
+            if (!teacherId) continue;
+            const score = typeof student.score === 'number' ? student.score : 0;
+            if (!statsMap.has(teacherId)) {
+                statsMap.set(teacherId, { sum: 0, count: 0 });
+            }
+            const stat = statsMap.get(teacherId)!;
+            stat.sum += score;
+            stat.count += 1;
+        }
+        // Обновляем каждого учителя
+        for (const [teacherId, { sum, count }] of statsMap.entries()) {
+            const average = count > 0 ? sum / count : 0;
+            await Teacher.findByIdAndUpdate(teacherId, {
+                studentCount: count,
+                score: sum,
+                averageScore: average
+            });
+        }
+    }
     async findById(id: string): Promise<ITeacher | null> {
         return await Teacher.findById(id).populate('district school');
     }

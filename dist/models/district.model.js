@@ -40,7 +40,9 @@ const DistrictSchema = new mongoose_1.Schema({
     name: { type: String, required: true },
     score: { type: Number, required: false },
     averageScore: { type: Number, required: false },
+    studentCount: { type: Number, required: false },
     rate: { type: Number, required: false },
+    districtOfTheYearScore: { type: Number, required: false, default: 0 },
     active: { type: Boolean, required: false, default: true }
 });
 exports.default = mongoose_1.default.model("District", DistrictSchema);

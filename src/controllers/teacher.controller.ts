@@ -11,6 +11,15 @@ export class TeacherController {
         this.teacherUseCase = new TeacherUseCase(new TeacherService());
     }
 
+    updateTeachersStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            await this.teacherUseCase.updateTeachersStats();
+            res.json(ResponseHandler.success({}, 'Teacher statistics updated successfully'));
+        } catch (error) {
+            next(error);
+        }
+    }
+
     getTeachers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const pagination = RequestParser.parsePagination(req);
@@ -148,3 +157,4 @@ export const createAllTeachers = teacherController.processTeachersFromExcel;
 export const processTeachersFromExcel = teacherController.processTeachersFromExcel;
 export const checkExistingTeacherCodes = teacherController.checkExistingTeacherCodes;
 export const repairTeachers = teacherController.repairTeachers;
+export const updateTeachersStats = teacherController.updateTeachersStats;

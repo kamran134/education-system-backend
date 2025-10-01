@@ -42,7 +42,9 @@ const SchoolSchema = new mongoose_1.Schema({
     district: { type: mongoose_1.Types.ObjectId, ref: 'District' },
     score: { type: Number, required: false },
     averageScore: { type: Number, required: false },
+    studentCount: { type: Number, required: false },
     status: { type: String, required: false },
+    schoolOfTheYearScore: { type: Number, required: false, default: 0 },
     active: { type: Boolean, required: false, default: true },
 });
 exports.default = mongoose_1.default.model("School", SchoolSchema);

@@ -17,4 +17,6 @@ router.route("/delete/:schoolIds").delete((0, auth_middleware_1.authMiddleware)(
 router.route("/:id")
     .put((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), school_controller_1.updateSchool)
     .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), school_controller_1.deleteSchool);
+router.route("/update-stats")
+    .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), school_controller_1.updateSchoolsStats);
 exports.default = router;

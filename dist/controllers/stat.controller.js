@@ -78,7 +78,7 @@ class StatsController {
     getTeacherStatistics(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc' });
+                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 20 });
                 const statistics = yield this.statsUseCase.getTeacherStatistics(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(statistics));
             }
@@ -91,7 +91,7 @@ class StatsController {
     getSchoolStatistics(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc' });
+                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 20 });
                 const statistics = yield this.statsUseCase.getSchoolStatistics(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(statistics));
             }
@@ -104,7 +104,7 @@ class StatsController {
     getDistrictStatistics(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc' });
+                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 20 });
                 const statistics = yield this.statsUseCase.getDistrictStatistics(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(statistics));
             }

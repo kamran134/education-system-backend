@@ -50,8 +50,9 @@ export class StatsUseCase {
         return await this.statsService.getStatisticsByExam(examId);
     }
 
-    async getTeacherStatistics(filters: FilterOptions & { sortColumn?: string; sortDirection?: string }): Promise<{
-        teachers: ITeacher[];
+    async getTeacherStatistics(filters: FilterOptions & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
+        data: ITeacher[];
+        totalCount: number;
     }> {
         const sortColumn = filters.sortColumn || 'averageScore';
         const sortDirection = filters.sortDirection || 'desc';
@@ -59,8 +60,9 @@ export class StatsUseCase {
         return await this.statsService.getTeacherStatistics(filters, sortColumn, sortDirection);
     }
 
-    async getSchoolStatistics(filters: FilterOptions & { sortColumn?: string; sortDirection?: string }): Promise<{
-        schools: ISchool[];
+    async getSchoolStatistics(filters: FilterOptions & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
+        data: ISchool[];
+        totalCount: number;
     }> {
         const sortColumn = filters.sortColumn || 'averageScore';
         const sortDirection = filters.sortDirection || 'desc';
@@ -68,8 +70,9 @@ export class StatsUseCase {
         return await this.statsService.getSchoolStatistics(filters, sortColumn, sortDirection);
     }
 
-    async getDistrictStatistics(filters: FilterOptions & { sortColumn?: string; sortDirection?: string }): Promise<{
-        districts: IDistrict[];
+    async getDistrictStatistics(filters: FilterOptions & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
+        data: IDistrict[];
+        totalCount: number;
     }> {
         const sortColumn = filters.sortColumn || 'averageScore';
         const sortDirection = filters.sortDirection || 'desc';

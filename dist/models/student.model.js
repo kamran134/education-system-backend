@@ -51,5 +51,6 @@ const StudentSchema = new mongoose_1.Schema({
     developmentScore: { type: Number, required: false },
     studentOfTheMonthScore: { type: Number, required: false },
     republicWideStudentOfTheMonthScore: { type: Number, required: false },
+    place: { type: Number, required: false },
 });
 exports.default = mongoose_1.default.model("Student", StudentSchema);

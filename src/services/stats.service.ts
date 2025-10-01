@@ -261,6 +261,18 @@ export class StatsService {
             console.log("🏆 Обновляем рейтинг студентов (place)...");
             await this.updateStudentPlaces();
 
+            // Шаг 8: Назначаем учителей года
+            console.log("👨‍🏫 Назначаем учителей года...");
+            await this.updateTeachersOfTheYear();
+
+            // Шаг 9: Назначаем школы года
+            console.log("🏫 Назначаем школы года...");
+            await this.updateSchoolsOfTheYear();
+
+            // Шаг 10: Назначаем районы года
+            console.log("🏛️ Назначаем районы года...");
+            await this.updateDistrictsOfTheYear();
+
             console.log("✅ Статистика обновлена успешно!");
             return 200;
 
@@ -330,14 +342,11 @@ export class StatsService {
     }
 
     async getTeacherStatistics(
-        filters: FilterOptions, 
-        sortColumn: string, 
+        filters: FilterOptions & { page?: number; size?: number },
+        sortColumn: string,
         sortDirection: string
-    ): Promise<{ teachers: ITeacher[] }> {
-        const filter: any = { 
-            score: { $exists: true }, 
-            averageScore: { $exists: true } 
-        };
+    ): Promise<{ data: ITeacher[], totalCount: number }> {
+        const filter: any = { active: true };
 
         if (filters.districtIds && filters.districtIds.length > 0) {
             filter.district = { $in: filters.districtIds };
@@ -345,29 +354,33 @@ export class StatsService {
         
         if (filters.schoolIds && filters.schoolIds.length > 0) {
             filter.school = { $in: filters.schoolIds };
-        }
-
-        const sortOptions: any = {};
+        }        const sortOptions: any = {};
         sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
         
-        const teachers = await Teacher
-            .find(filter)
-            .populate("school")
-            .populate({ path: "school", populate: { path: "district", model: "District" } })
-            .sort(sortOptions);
+        const page = filters.page || 1;
+        const size = filters.size || 100;
+        const skip = (page - 1) * size;
 
-        return { teachers };
+        const [data, totalCount] = await Promise.all([
+            Teacher
+                .find(filter)
+                .populate("school")
+                .populate({ path: "school", populate: { path: "district", model: "District" } })
+                .sort(sortOptions)
+                .skip(skip)
+                .limit(size),
+            Teacher.countDocuments(filter)
+        ]);
+
+        return { data, totalCount };
     }
 
     async getSchoolStatistics(
-        filters: FilterOptions,
+        filters: FilterOptions & { page?: number; size?: number },
         sortColumn: string,
         sortDirection: string
-    ): Promise<{ schools: ISchool[] }> {
-        const filter: any = { 
-            score: { $exists: true }, 
-            averageScore: { $exists: true } 
-        };
+    ): Promise<{ data: ISchool[], totalCount: number }> {
+        const filter: any = { active: true };
 
         if (filters.districtIds && filters.districtIds.length > 0) {
             filter.district = { $in: filters.districtIds };
@@ -376,19 +389,32 @@ export class StatsService {
         const sortOptions: any = {};
         sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
 
-        const schools = await School
-            .find(filter)
-            .populate("district")
-            .sort(sortOptions);
+        const page = filters.page || 1;
+        const size = filters.size || 100;
+        const skip = (page - 1) * size;
 
-        return { schools };
+        const [data, totalCount] = await Promise.all([
+            School
+                .find(filter)
+                .populate("district")
+                .sort(sortOptions)
+                .skip(skip)
+                .limit(size),
+            School.countDocuments(filter)
+        ]);
+
+        return { data, totalCount };
     }
 
     async getDistrictStatistics(
-        filters: FilterOptions,
+        filters: FilterOptions & { page?: number; size?: number },
         sortColumn: string,
         sortDirection: string
-    ): Promise<{ districts: IDistrict[] }> {
+    ): Promise<{ data: IDistrict[], totalCount: number }> {
+        console.log('🔍 DISTRICT DEBUG - Input filters:', filters);
+        console.log('🔍 DISTRICT DEBUG - Sort:', sortColumn, sortDirection);
+        
+        // Попробуем сначала без фильтра active
         const filter: any = {};
 
         if (filters.code) {
@@ -396,14 +422,36 @@ export class StatsService {
             filter.code = { $gte: start, $lte: end };
         }
 
+        console.log('🔍 DISTRICT DEBUG - Final filter:', filter);
+
         const sortOptions: any = {};
         sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
 
-        const districts = await District
-            .find(filter)
-            .sort(sortOptions);
+        const page = filters.page || 1;
+        const size = filters.size || 100;
+        const skip = (page - 1) * size;
 
-        return { districts };
+        const [data, totalCount] = await Promise.all([
+            District
+                .find(filter)
+                .sort(sortOptions)
+                .skip(skip)
+                .limit(size),
+            District.countDocuments(filter)
+        ]);
+
+        console.log('📊 DISTRICT DEBUG - Found districts:', data.length);
+        console.log('📊 DISTRICT DEBUG - Total count:', totalCount);
+        console.log('📊 DISTRICT DEBUG - First district:', data[0] ? {
+            id: data[0]._id,
+            name: data[0].name,
+            code: data[0].code,
+            active: (data[0] as any).active,
+            score: data[0].score,
+            averageScore: data[0].averageScore
+        } : 'No districts found');
+
+        return { data, totalCount };
     }
 
     private buildStudentStatsPipeline(filters: StatisticsFilter, examIds: Types.ObjectId[]): any[] {
@@ -607,12 +655,10 @@ export class StatsService {
             for (let i = 0; i < students.length; i++) {
                 const student = students[i];
                 
-                if (i === 0) {
-                    // Первый студент - место 1
-                    currentPlace = 1;
-                } else if (previousScore !== null && student.score < previousScore) {
-                    // Новый балл - следующее место = предыдущее место + 1
-                    currentPlace = currentPlace + 1;
+                // Если это первый студент или балл изменился
+                if (i === 0 || (previousScore !== null && student.score < previousScore)) {
+                    // Место = позиция в отсортированном списке + 1
+                    currentPlace = i + 1;
                 }
                 // Если балл такой же, как у предыдущего, место остается тем же
 
@@ -641,6 +687,90 @@ export class StatsService {
 
         } catch (error) {
             console.error("❌ Ошибка при обновлении места в рейтинге:", error);
+            throw error;
+        }
+    }
+
+    private async updateTeachersOfTheYear(): Promise<void> {
+        try {
+            // Сбрасываем все предыдущие награды
+            await Teacher.updateMany({}, { $set: { teacherOfTheYearScore: 0 } });
+
+            // Находим всех учителей с averageScore выше определенного порога
+            const eligibleTeachers = await Teacher.find({ 
+                averageScore: { $gte: 80 }, // учителя с баллом 80 и выше
+                active: true 
+            });
+
+            if (eligibleTeachers.length > 0) {
+                const bulkOperations = eligibleTeachers.map(teacher => ({
+                    updateOne: {
+                        filter: { _id: teacher._id },
+                        update: { $set: { teacherOfTheYearScore: 10 } }
+                    }
+                }));
+
+                await Teacher.bulkWrite(bulkOperations);
+                console.log(`✅ Назначено ${eligibleTeachers.length} учителей года`);
+            }
+        } catch (error) {
+            console.error("❌ Ошибка при назначении учителей года:", error);
+            throw error;
+        }
+    }
+
+    private async updateSchoolsOfTheYear(): Promise<void> {
+        try {
+            // Сбрасываем все предыдущие награды
+            await School.updateMany({}, { $set: { schoolOfTheYearScore: 0 } });
+
+            // Находим все школы с averageScore выше определенного порога
+            const eligibleSchools = await School.find({ 
+                averageScore: { $gte: 85 }, // школы с баллом 85 и выше
+                active: true 
+            });
+
+            if (eligibleSchools.length > 0) {
+                const bulkOperations = eligibleSchools.map(school => ({
+                    updateOne: {
+                        filter: { _id: school._id },
+                        update: { $set: { schoolOfTheYearScore: 10 } }
+                    }
+                }));
+
+                await School.bulkWrite(bulkOperations);
+                console.log(`✅ Назначено ${eligibleSchools.length} школ года`);
+            }
+        } catch (error) {
+            console.error("❌ Ошибка при назначении школ года:", error);
+            throw error;
+        }
+    }
+
+    private async updateDistrictsOfTheYear(): Promise<void> {
+        try {
+            // Сбрасываем все предыдущие награды
+            await District.updateMany({}, { $set: { districtOfTheYearScore: 0 } });
+
+            // Находим все районы с averageScore выше определенного порога
+            const eligibleDistricts = await District.find({ 
+                averageScore: { $gte: 90 }, // районы с баллом 90 и выше
+                active: true 
+            });
+
+            if (eligibleDistricts.length > 0) {
+                const bulkOperations = eligibleDistricts.map(district => ({
+                    updateOne: {
+                        filter: { _id: district._id },
+                        update: { $set: { districtOfTheYearScore: 15 } }
+                    }
+                }));
+
+                await District.bulkWrite(bulkOperations);
+                console.log(`✅ Назначено ${eligibleDistricts.length} районов года`);
+            }
+        } catch (error) {
+            console.error("❌ Ошибка при назначении районов года:", error);
             throw error;
         }
     }

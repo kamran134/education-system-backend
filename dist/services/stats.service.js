@@ -17,6 +17,7 @@ const exam_model_1 = __importDefault(require("../models/exam.model"));
 const district_model_1 = __importDefault(require("../models/district.model"));
 const school_model_1 = __importDefault(require("../models/school.model"));
 const teacher_model_1 = __importDefault(require("../models/teacher.model"));
+const student_model_1 = __importDefault(require("../models/student.model"));
 const studentResult_model_1 = __importDefault(require("../models/studentResult.model"));
 const levelScore_enum_1 = require("../types/levelScore.enum");
 const studentResult_service_1 = require("./studentResult.service");
@@ -226,6 +227,21 @@ class StatsService {
                     yield studentResult_model_1.default.bulkWrite(republicTopStudentUpdates);
                     console.log(`✅ Обновлено ${republicTopStudentUpdates.length} студентов месяца по республике`);
                 }
+                // Шаг 6: Подсчитываем общий score для всех студентов
+                console.log("🔢 Подсчитываем общий score для студентов...");
+                yield this.updateStudentScores();
+                // Шаг 7: Обновляем место в рейтинге (place) для всех студентов
+                console.log("🏆 Обновляем рейтинг студентов (place)...");
+                yield this.updateStudentPlaces();
+                // Шаг 8: Назначаем учителей года
+                console.log("👨‍🏫 Назначаем учителей года...");
+                yield this.updateTeachersOfTheYear();
+                // Шаг 9: Назначаем школы года
+                console.log("🏫 Назначаем школы года...");
+                yield this.updateSchoolsOfTheYear();
+                // Шаг 10: Назначаем районы года
+                console.log("🏛️ Назначаем районы года...");
+                yield this.updateDistrictsOfTheYear();
                 console.log("✅ Статистика обновлена успешно!");
                 return 200;
             }
@@ -255,9 +271,10 @@ class StatsService {
             // Build aggregation pipeline
             const pipeline = this.buildStudentStatsPipeline(filters, examIds);
             const studentResults = yield studentResult_model_1.default.aggregate(pipeline);
-            const studentsOfMonth = studentResults.filter(r => { var _a; return (_a = r.status) === null || _a === void 0 ? void 0 : _a.match(/Ayın şagirdi/i); });
-            const studentsOfMonthByRepublic = studentResults.filter(r => { var _a; return (_a = r.status) === null || _a === void 0 ? void 0 : _a.match(/Respublika üzrə ayın şagirdi/i); });
-            const developingStudents = studentResults.filter(r => { var _a; return (_a = r.status) === null || _a === void 0 ? void 0 : _a.match(/İnkişaf edən şagird/i); });
+            // Используем числовые поля вместо поиска в статусе
+            const studentsOfMonth = studentResults.filter(r => r.studentOfTheMonthScore && r.studentOfTheMonthScore > 0);
+            const studentsOfMonthByRepublic = studentResults.filter(r => r.republicWideStudentOfTheMonthScore && r.republicWideStudentOfTheMonthScore > 0);
+            const developingStudents = studentResults.filter(r => r.developmentScore && r.developmentScore > 0);
             return { studentsOfMonth, studentsOfMonthByRepublic, developingStudents };
         });
     }
@@ -273,17 +290,17 @@ class StatsService {
                     { path: "teacher", model: "Teacher" }
                 ]
             });
-            const studentsOfMonth = studentResults.filter(r => { var _a; return (_a = r.status) === null || _a === void 0 ? void 0 : _a.match(/Ayın şagirdi/i); });
-            const studentsOfMonthByRepublic = studentResults.filter(r => { var _a; return (_a = r.status) === null || _a === void 0 ? void 0 : _a.match(/Respublika üzrə ayın şagirdi/i); });
-            const developingStudents = studentResults.filter(r => { var _a; return (_a = r.status) === null || _a === void 0 ? void 0 : _a.match(/İnkişaf edən şagird/i); });
+            // Используем числовые поля вместо поиска в статусе
+            const studentsOfMonth = studentResults.filter(r => r.studentOfTheMonthScore && r.studentOfTheMonthScore > 0);
+            const studentsOfMonthByRepublic = studentResults.filter(r => r.republicWideStudentOfTheMonthScore && r.republicWideStudentOfTheMonthScore > 0);
+            const developingStudents = studentResults.filter(r => r.developmentScore && r.developmentScore > 0);
             return { studentsOfMonth, studentsOfMonthByRepublic, developingStudents };
         });
     }
     getTeacherStatistics(filters, sortColumn, sortDirection) {
         return __awaiter(this, void 0, void 0, function* () {
             const filter = {
-                score: { $exists: true },
-                averageScore: { $exists: true }
+                active: true
             };
             if (filters.districtIds && filters.districtIds.length > 0) {
                 filter.district = { $in: filters.districtIds };
@@ -293,45 +310,70 @@ class StatsService {
             }
             const sortOptions = {};
             sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
-            const teachers = yield teacher_model_1.default
-                .find(filter)
-                .populate("school")
-                .populate({ path: "school", populate: { path: "district", model: "District" } })
-                .sort(sortOptions);
-            return { teachers };
+            const page = filters.page || 1;
+            const size = filters.size || 20;
+            const skip = (page - 1) * size;
+            const [data, totalCount] = yield Promise.all([
+                teacher_model_1.default
+                    .find(filter)
+                    .populate("school")
+                    .populate({ path: "school", populate: { path: "district", model: "District" } })
+                    .sort(sortOptions)
+                    .skip(skip)
+                    .limit(size),
+                teacher_model_1.default.countDocuments(filter)
+            ]);
+            return { data, totalCount };
         });
     }
     getSchoolStatistics(filters, sortColumn, sortDirection) {
         return __awaiter(this, void 0, void 0, function* () {
             const filter = {
-                score: { $exists: true },
-                averageScore: { $exists: true }
+                active: true
             };
             if (filters.districtIds && filters.districtIds.length > 0) {
                 filter.district = { $in: filters.districtIds };
             }
             const sortOptions = {};
             sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
-            const schools = yield school_model_1.default
-                .find(filter)
-                .populate("district")
-                .sort(sortOptions);
-            return { schools };
+            const page = filters.page || 1;
+            const size = filters.size || 20;
+            const skip = (page - 1) * size;
+            const [data, totalCount] = yield Promise.all([
+                school_model_1.default
+                    .find(filter)
+                    .populate("district")
+                    .sort(sortOptions)
+                    .skip(skip)
+                    .limit(size),
+                school_model_1.default.countDocuments(filter)
+            ]);
+            return { data, totalCount };
         });
     }
     getDistrictStatistics(filters, sortColumn, sortDirection) {
         return __awaiter(this, void 0, void 0, function* () {
-            const filter = {};
+            const filter = {
+                active: true
+            };
             if (filters.code) {
                 const { start, end } = request_parser_util_1.RequestParser.parseCodeRange(filters.code, 3);
                 filter.code = { $gte: start, $lte: end };
             }
             const sortOptions = {};
             sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
-            const districts = yield district_model_1.default
-                .find(filter)
-                .sort(sortOptions);
-            return { districts };
+            const page = filters.page || 1;
+            const size = filters.size || 20;
+            const skip = (page - 1) * size;
+            const [data, totalCount] = yield Promise.all([
+                district_model_1.default
+                    .find(filter)
+                    .sort(sortOptions)
+                    .skip(skip)
+                    .limit(size),
+                district_model_1.default.countDocuments(filter)
+            ]);
+            return { data, totalCount };
         });
     }
     buildStudentStatsPipeline(filters, examIds) {
@@ -417,6 +459,213 @@ class StatsService {
         });
         pipeline.push({ $unwind: '$examData' });
         return pipeline;
+    }
+    /**
+     * Обновляет общий score для всех студентов на основе их результатов
+     */
+    updateStudentScores() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                // Агрегация для подсчета общего score каждого студента
+                const pipeline = [
+                    {
+                        $group: {
+                            _id: '$student',
+                            totalParticipationScore: {
+                                $sum: { $ifNull: ['$participationScore', 0] }
+                            },
+                            totalDevelopmentScore: {
+                                $sum: { $ifNull: ['$developmentScore', 0] }
+                            },
+                            totalStudentOfTheMonthScore: {
+                                $sum: { $ifNull: ['$studentOfTheMonthScore', 0] }
+                            },
+                            totalRepublicWideStudentOfTheMonthScore: {
+                                $sum: { $ifNull: ['$republicWideStudentOfTheMonthScore', 0] }
+                            }
+                        }
+                    },
+                    {
+                        $addFields: {
+                            totalScore: {
+                                $add: [
+                                    '$totalParticipationScore',
+                                    '$totalDevelopmentScore',
+                                    '$totalStudentOfTheMonthScore',
+                                    '$totalRepublicWideStudentOfTheMonthScore'
+                                ]
+                            }
+                        }
+                    }
+                ];
+                const studentScores = yield studentResult_model_1.default.aggregate(pipeline);
+                if (studentScores.length === 0) {
+                    console.log("Нет результатов для подсчета score студентов.");
+                    return;
+                }
+                // Подготавливаем bulk операции для обновления студентов
+                const bulkOperations = studentScores.map(scoreData => ({
+                    updateOne: {
+                        filter: { _id: scoreData._id },
+                        update: {
+                            $set: {
+                                score: scoreData.totalScore,
+                                participationScore: scoreData.totalParticipationScore,
+                                developmentScore: scoreData.totalDevelopmentScore,
+                                studentOfTheMonthScore: scoreData.totalStudentOfTheMonthScore,
+                                republicWideStudentOfTheMonthScore: scoreData.totalRepublicWideStudentOfTheMonthScore
+                            }
+                        }
+                    }
+                }));
+                // Выполняем массовое обновление студентов
+                if (bulkOperations.length > 0) {
+                    yield student_model_1.default.bulkWrite(bulkOperations);
+                    console.log(`✅ Обновлен общий score для ${bulkOperations.length} студентов`);
+                    // Показываем статистику по баллам
+                    const totalScoreSum = studentScores.reduce((sum, student) => sum + student.totalScore, 0);
+                    const averageScore = totalScoreSum / studentScores.length;
+                    console.log(`📊 Общая сумма баллов: ${totalScoreSum}, средний балл: ${averageScore.toFixed(2)}`);
+                }
+            }
+            catch (error) {
+                console.error("❌ Ошибка при обновлении score студентов:", error);
+                throw error;
+            }
+        });
+    }
+    /**
+     * Обновляет место в рейтинге (place) для всех студентов на основе их score
+     */
+    updateStudentPlaces() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                // Получаем всех студентов, отсортированных по score в убывающем порядке
+                const students = yield student_model_1.default.find({ score: { $exists: true } })
+                    .sort({ score: -1, code: 1 }) // сортируем по score убывание, при равенстве по коду
+                    .select('_id score');
+                if (students.length === 0) {
+                    console.log("Нет студентов с score для установки места в рейтинге.");
+                    return;
+                }
+                // Подготавливаем bulk операции для обновления места
+                const bulkOperations = [];
+                let currentPlace = 1;
+                let previousScore = null;
+                for (let i = 0; i < students.length; i++) {
+                    const student = students[i];
+                    // Если это первый студент или балл изменился
+                    if (i === 0 || (previousScore !== null && student.score < previousScore)) {
+                        // Место = позиция в отсортированном списке + 1
+                        currentPlace = i + 1;
+                    }
+                    // Если балл такой же, как у предыдущего, место остается тем же
+                    bulkOperations.push({
+                        updateOne: {
+                            filter: { _id: student._id },
+                            update: { $set: { place: currentPlace } }
+                        }
+                    });
+                    previousScore = student.score;
+                }
+                // Выполняем массовое обновление мест
+                if (bulkOperations.length > 0) {
+                    yield student_model_1.default.bulkWrite(bulkOperations);
+                    console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} студентов`);
+                    // Показываем статистику рейтинга
+                    const topStudent = students[0];
+                    const lastStudent = students[students.length - 1];
+                    console.log(`🥇 Лидер рейтинга: ${topStudent.score} баллов (место 1)`);
+                    console.log(`📊 Всего в рейтинге: ${students.length} студентов`);
+                    console.log(`🔢 Диапазон баллов: ${lastStudent.score} - ${topStudent.score}`);
+                }
+            }
+            catch (error) {
+                console.error("❌ Ошибка при обновлении места в рейтинге:", error);
+                throw error;
+            }
+        });
+    }
+    updateTeachersOfTheYear() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                // Сбрасываем все предыдущие награды
+                yield teacher_model_1.default.updateMany({}, { $set: { teacherOfTheYearScore: 0 } });
+                // Находим всех учителей с averageScore выше определенного порога
+                const eligibleTeachers = yield teacher_model_1.default.find({
+                    averageScore: { $gte: 80 }, // учителя с баллом 80 и выше
+                    active: true
+                });
+                if (eligibleTeachers.length > 0) {
+                    const bulkOperations = eligibleTeachers.map(teacher => ({
+                        updateOne: {
+                            filter: { _id: teacher._id },
+                            update: { $set: { teacherOfTheYearScore: 10 } }
+                        }
+                    }));
+                    yield teacher_model_1.default.bulkWrite(bulkOperations);
+                    console.log(`✅ Назначено ${eligibleTeachers.length} учителей года`);
+                }
+            }
+            catch (error) {
+                console.error("❌ Ошибка при назначении учителей года:", error);
+                throw error;
+            }
+        });
+    }
+    updateSchoolsOfTheYear() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                // Сбрасываем все предыдущие награды
+                yield school_model_1.default.updateMany({}, { $set: { schoolOfTheYearScore: 0 } });
+                // Находим все школы с averageScore выше определенного порога
+                const eligibleSchools = yield school_model_1.default.find({
+                    averageScore: { $gte: 85 }, // школы с баллом 85 и выше
+                    active: true
+                });
+                if (eligibleSchools.length > 0) {
+                    const bulkOperations = eligibleSchools.map(school => ({
+                        updateOne: {
+                            filter: { _id: school._id },
+                            update: { $set: { schoolOfTheYearScore: 10 } }
+                        }
+                    }));
+                    yield school_model_1.default.bulkWrite(bulkOperations);
+                    console.log(`✅ Назначено ${eligibleSchools.length} школ года`);
+                }
+            }
+            catch (error) {
+                console.error("❌ Ошибка при назначении школ года:", error);
+                throw error;
+            }
+        });
+    }
+    updateDistrictsOfTheYear() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                // Сбрасываем все предыдущие награды
+                yield district_model_1.default.updateMany({}, { $set: { districtOfTheYearScore: 0 } });
+                // Находим все районы с averageScore выше определенного порога
+                const eligibleDistricts = yield district_model_1.default.find({
+                    averageScore: { $gte: 90 }, // районы с баллом 90 и выше
+                    active: true
+                });
+                if (eligibleDistricts.length > 0) {
+                    const bulkOperations = eligibleDistricts.map(district => ({
+                        updateOne: {
+                            filter: { _id: district._id },
+                            update: { $set: { districtOfTheYearScore: 15 } }
+                        }
+                    }));
+                    yield district_model_1.default.bulkWrite(bulkOperations);
+                    console.log(`✅ Назначено ${eligibleDistricts.length} районов года`);
+                }
+            }
+            catch (error) {
+                console.error("❌ Ошибка при назначении районов года:", error);
+                throw error;
+            }
+        });
     }
 }
 exports.StatsService = StatsService;

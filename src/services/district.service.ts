@@ -10,6 +10,35 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 
 export class DistrictService {
+    /**
+     * Обновляет статистику по районам: studentCount, score, averageScore
+     */
+    async updateDistrictsStats(): Promise<void> {
+        // Получаем всех студентов с district и score
+        const students = await Student.find({}, { district: 1, score: 1 });
+        // Группируем по district
+        const statsMap = new Map<string, { sum: number, count: number }>();
+        for (const student of students) {
+            const districtId = student.district?.toString();
+            if (!districtId) continue;
+            const score = typeof student.score === 'number' ? student.score : 0;
+            if (!statsMap.has(districtId)) {
+                statsMap.set(districtId, { sum: 0, count: 0 });
+            }
+            const stat = statsMap.get(districtId)!;
+            stat.sum += score;
+            stat.count += 1;
+        }
+        // Обновляем каждый район
+        for (const [districtId, { sum, count }] of statsMap.entries()) {
+            const average = count > 0 ? sum / count : 0;
+            await District.findByIdAndUpdate(districtId, {
+                studentCount: count,
+                score: sum,
+                averageScore: average
+            });
+        }
+    }
     async findById(id: string): Promise<IDistrict | null> {
         return await District.findById(id);
     }

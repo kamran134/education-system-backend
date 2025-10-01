@@ -7,6 +7,10 @@ import { Types } from "mongoose";
 export class TeacherUseCase {
     constructor(private teacherService: TeacherService) {}
 
+    async updateTeachersStats(): Promise<void> {
+        await this.teacherService.updateTeachersStats();
+    }
+
     async getTeachers(
         pagination: PaginationOptions,
         filters: FilterOptions,

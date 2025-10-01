@@ -9,13 +9,22 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkExistingDistrictCodes = exports.countDistrictsRates = exports.processDistrictsFromExcel = exports.deleteDistricts = exports.deleteDistrict = exports.updateDistrict = exports.createDistrict = exports.getDistrictById = exports.getDistrictsForFilter = exports.getDistricts = exports.createAllDistricts = exports.DistrictController = void 0;
+exports.checkExistingDistrictCodes = exports.countDistrictsRates = exports.processDistrictsFromExcel = exports.deleteDistricts = exports.deleteDistrict = exports.updateDistrict = exports.createDistrict = exports.updateDistrictsStats = exports.getDistrictById = exports.getDistrictsForFilter = exports.getDistricts = exports.createAllDistricts = exports.DistrictController = void 0;
 const district_usecase_1 = require("../usecases/district.usecase");
 const district_service_1 = require("../services/district.service");
 const request_parser_util_1 = require("../utils/request-parser.util");
 const response_handler_util_1 = require("../utils/response-handler.util");
 class DistrictController {
     constructor() {
+        this.updateDistrictsStats = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                yield this.districtUseCase.updateDistrictsStats();
+                res.json(response_handler_util_1.ResponseHandler.success({}, 'District statistics updated successfully'));
+            }
+            catch (error) {
+                next(error);
+            }
+        });
         this.getDistricts = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
             try {
                 const pagination = request_parser_util_1.RequestParser.parsePagination(req);
@@ -134,6 +143,7 @@ exports.createAllDistricts = districtController.processDistrictsFromExcel;
 exports.getDistricts = districtController.getDistricts;
 exports.getDistrictsForFilter = districtController.getDistrictsForFilter;
 exports.getDistrictById = districtController.getDistrictById;
+exports.updateDistrictsStats = districtController.updateDistrictsStats;
 exports.createDistrict = districtController.createDistrict;
 exports.updateDistrict = districtController.updateDistrict;
 exports.deleteDistrict = districtController.deleteDistrict;

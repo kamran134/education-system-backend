@@ -16,6 +16,11 @@ class SchoolUseCase {
     constructor(schoolService) {
         this.schoolService = schoolService;
     }
+    updateSchoolsStats() {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.schoolService.updateSchoolsStats();
+        });
+    }
     getSchools(pagination, filters, sort) {
         return __awaiter(this, void 0, void 0, function* () {
             const { data, totalCount } = yield this.schoolService.getFilteredSchools(pagination, filters, sort);

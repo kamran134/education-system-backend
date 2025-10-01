@@ -16,6 +16,11 @@ class DistrictUseCase {
     constructor(districtService) {
         this.districtService = districtService;
     }
+    updateDistrictsStats() {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.districtService.updateDistrictsStats();
+        });
+    }
     getDistrictById(id) {
         return __awaiter(this, void 0, void 0, function* () {
             const validationError = validation_util_1.ValidationUtils.validateObjectId(id, 'District ID');

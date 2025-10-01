@@ -11,6 +11,35 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 
 export class SchoolService {
+    /**
+     * Обновляет статистику по школам: studentCount, score, averageScore
+     */
+    async updateSchoolsStats(): Promise<void> {
+        // Получаем всех студентов с school и score
+        const students = await Student.find({}, { school: 1, score: 1 });
+        // Группируем по school
+        const statsMap = new Map<string, { sum: number, count: number }>();
+        for (const student of students) {
+            const schoolId = student.school?.toString();
+            if (!schoolId) continue;
+            const score = typeof student.score === 'number' ? student.score : 0;
+            if (!statsMap.has(schoolId)) {
+                statsMap.set(schoolId, { sum: 0, count: 0 });
+            }
+            const stat = statsMap.get(schoolId)!;
+            stat.sum += score;
+            stat.count += 1;
+        }
+        // Обновляем каждую школу
+        for (const [schoolId, { sum, count }] of statsMap.entries()) {
+            const average = count > 0 ? sum / count : 0;
+            await School.findByIdAndUpdate(schoolId, {
+                studentCount: count,
+                score: sum,
+                averageScore: average
+            });
+        }
+    }
     async findById(id: string): Promise<ISchool | null> {
         return await School.findById(id).populate('district');
     }

@@ -11,6 +11,15 @@ export class SchoolController {
         this.schoolUseCase = new SchoolUseCase(new SchoolService());
     }
 
+    updateSchoolsStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            await this.schoolUseCase.updateSchoolsStats();
+            res.json(ResponseHandler.success({}, 'School statistics updated successfully'));
+        } catch (error) {
+            next(error);
+        }
+    }
+
     getSchools = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const pagination = RequestParser.parsePagination(req);
@@ -161,3 +170,4 @@ export const deleteSchool = schoolController.deleteSchool;
 export const deleteSchools = schoolController.deleteSchools;
 export const processSchoolsFromExcel = schoolController.processSchoolsFromExcel;
 export const checkExistingSchoolCodes = schoolController.checkExistingSchoolCodes;
+export const updateSchoolsStats = schoolController.updateSchoolsStats;

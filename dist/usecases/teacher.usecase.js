@@ -16,6 +16,11 @@ class TeacherUseCase {
     constructor(teacherService) {
         this.teacherService = teacherService;
     }
+    updateTeachersStats() {
+        return __awaiter(this, void 0, void 0, function* () {
+            yield this.teacherService.updateTeachersStats();
+        });
+    }
     getTeachers(pagination, filters, sort) {
         return __awaiter(this, void 0, void 0, function* () {
             const { data, totalCount } = yield this.teacherService.getFilteredTeachers(pagination, filters, sort);

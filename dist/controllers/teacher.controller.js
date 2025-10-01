@@ -9,13 +9,22 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.repairTeachers = exports.checkExistingTeacherCodes = exports.processTeachersFromExcel = exports.createAllTeachers = exports.deleteTeachers = exports.deleteTeacher = exports.updateTeacher = exports.createTeacher = exports.getTeacherById = exports.getTeachersForFilter = exports.getTeachers = exports.TeacherController = void 0;
+exports.updateTeachersStats = exports.repairTeachers = exports.checkExistingTeacherCodes = exports.processTeachersFromExcel = exports.createAllTeachers = exports.deleteTeachers = exports.deleteTeacher = exports.updateTeacher = exports.createTeacher = exports.getTeacherById = exports.getTeachersForFilter = exports.getTeachers = exports.TeacherController = void 0;
 const teacher_usecase_1 = require("../usecases/teacher.usecase");
 const teacher_service_1 = require("../services/teacher.service");
 const request_parser_util_1 = require("../utils/request-parser.util");
 const response_handler_util_1 = require("../utils/response-handler.util");
 class TeacherController {
     constructor() {
+        this.updateTeachersStats = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                yield this.teacherUseCase.updateTeachersStats();
+                res.json(response_handler_util_1.ResponseHandler.success({}, 'Teacher statistics updated successfully'));
+            }
+            catch (error) {
+                next(error);
+            }
+        });
         this.getTeachers = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
             try {
                 const pagination = request_parser_util_1.RequestParser.parsePagination(req);
@@ -143,3 +152,4 @@ exports.createAllTeachers = teacherController.processTeachersFromExcel;
 exports.processTeachersFromExcel = teacherController.processTeachersFromExcel;
 exports.checkExistingTeacherCodes = teacherController.checkExistingTeacherCodes;
 exports.repairTeachers = teacherController.repairTeachers;
+exports.updateTeachersStats = teacherController.updateTeachersStats;

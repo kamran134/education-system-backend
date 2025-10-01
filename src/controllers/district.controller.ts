@@ -11,6 +11,15 @@ export class DistrictController {
         this.districtUseCase = new DistrictUseCase(new DistrictService());
     }
 
+    updateDistrictsStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            await this.districtUseCase.updateDistrictsStats();
+            res.json(ResponseHandler.success({}, 'District statistics updated successfully'));
+        } catch (error) {
+            next(error);
+        }
+    }
+
     getDistricts = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const pagination = RequestParser.parsePagination(req);
@@ -140,6 +149,7 @@ export const createAllDistricts = districtController.processDistrictsFromExcel;
 export const getDistricts = districtController.getDistricts;
 export const getDistrictsForFilter = districtController.getDistrictsForFilter;
 export const getDistrictById = districtController.getDistrictById;
+export const updateDistrictsStats = districtController.updateDistrictsStats;
 export const createDistrict = districtController.createDistrict;
 export const updateDistrict = districtController.updateDistrict;
 export const deleteDistrict = districtController.deleteDistrict;

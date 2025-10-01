@@ -9,6 +9,7 @@ export interface ITeacherInput {
     fullname: string;
 }
 
+
 export interface ITeacherCreate {
     code: number;
     district?: Types.ObjectId;
@@ -16,9 +17,12 @@ export interface ITeacherCreate {
     fullname: string;
     score?: number;
     averageScore?: number;
+    studentCount?: number;
     status?: string;
+    teacherOfTheYearScore?: number;
     active?: boolean;
 }
+
 
 export interface ITeacher extends Document {
     code: number;
@@ -27,7 +31,9 @@ export interface ITeacher extends Document {
     fullname: string;
     score: number;
     averageScore: number;
+    studentCount: number;
     status: string;
+    teacherOfTheYearScore: number;
     active: boolean;
 }
 
@@ -38,7 +44,9 @@ const TeacherSchema: Schema = new Schema({
     fullname: { type: String, required: true },
     score: { type: Number, required: false },
     averageScore: { type: Number, required: false },
+    studentCount: { type: Number, required: false },
     status: { type: String, required: false },
+    teacherOfTheYearScore: { type: Number, required: false, default: 0 },
     active: { type: Boolean, required: false, default: true },
 });
 

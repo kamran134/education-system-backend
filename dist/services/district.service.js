@@ -22,6 +22,39 @@ const request_parser_util_1 = require("../utils/request-parser.util");
 const excel_service_1 = require("./excel.service");
 const file_service_1 = require("./file.service");
 class DistrictService {
+    /**
+     * Обновляет статистику по районам: studentCount, score, averageScore
+     */
+    updateDistrictsStats() {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a;
+            // Получаем всех студентов с district и score
+            const students = yield student_model_1.default.find({}, { district: 1, score: 1 });
+            // Группируем по district
+            const statsMap = new Map();
+            for (const student of students) {
+                const districtId = (_a = student.district) === null || _a === void 0 ? void 0 : _a.toString();
+                if (!districtId)
+                    continue;
+                const score = typeof student.score === 'number' ? student.score : 0;
+                if (!statsMap.has(districtId)) {
+                    statsMap.set(districtId, { sum: 0, count: 0 });
+                }
+                const stat = statsMap.get(districtId);
+                stat.sum += score;
+                stat.count += 1;
+            }
+            // Обновляем каждый район
+            for (const [districtId, { sum, count }] of statsMap.entries()) {
+                const average = count > 0 ? sum / count : 0;
+                yield district_model_1.default.findByIdAndUpdate(districtId, {
+                    studentCount: count,
+                    score: sum,
+                    averageScore: average
+                });
+            }
+        });
+    }
     findById(id) {
         return __awaiter(this, void 0, void 0, function* () {
             return yield district_model_1.default.findById(id);

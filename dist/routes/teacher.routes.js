@@ -18,6 +18,8 @@ router.route("/upload")
     .post(upload.single("file"), (0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), teacher_controller_1.createAllTeachers);
 router.route("/repair")
     .get((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), teacher_controller_1.repairTeachers);
+router.route("/update-stats")
+    .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), teacher_controller_1.updateTeachersStats);
 router.route("/delete/:teacherIds")
     .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), teacher_controller_1.deleteTeachers);
 router.route("/:id")

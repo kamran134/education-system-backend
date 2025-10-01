@@ -7,6 +7,10 @@ import { Types } from "mongoose";
 export class SchoolUseCase {
     constructor(private schoolService: SchoolService) {}
 
+    async updateSchoolsStats(): Promise<void> {
+        await this.schoolService.updateSchoolsStats();
+    }
+
     async getSchools(
         pagination: PaginationOptions,
         filters: FilterOptions,

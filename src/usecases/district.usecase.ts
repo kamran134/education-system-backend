@@ -7,6 +7,10 @@ import { Types } from "mongoose";
 export class DistrictUseCase {
     constructor(private districtService: DistrictService) {}
 
+    async updateDistrictsStats(): Promise<void> {
+        await this.districtService.updateDistrictsStats();
+    }
+
     async getDistrictById(id: string): Promise<IDistrict> {
         const validationError = ValidationUtils.validateObjectId(id, 'District ID');
         if (validationError) {

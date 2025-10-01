@@ -9,13 +9,22 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.checkExistingSchoolCodes = exports.processSchoolsFromExcel = exports.deleteSchools = exports.deleteSchool = exports.updateSchool = exports.createSchool = exports.getSchoolByCode = exports.getSchoolById = exports.getSchoolsForFilter = exports.getSchools = exports.repairSchools = exports.createAllSchools = exports.SchoolController = void 0;
+exports.updateSchoolsStats = exports.checkExistingSchoolCodes = exports.processSchoolsFromExcel = exports.deleteSchools = exports.deleteSchool = exports.updateSchool = exports.createSchool = exports.getSchoolByCode = exports.getSchoolById = exports.getSchoolsForFilter = exports.getSchools = exports.repairSchools = exports.createAllSchools = exports.SchoolController = void 0;
 const school_usecase_1 = require("../usecases/school.usecase");
 const school_service_1 = require("../services/school.service");
 const request_parser_util_1 = require("../utils/request-parser.util");
 const response_handler_util_1 = require("../utils/response-handler.util");
 class SchoolController {
     constructor() {
+        this.updateSchoolsStats = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
+            try {
+                yield this.schoolUseCase.updateSchoolsStats();
+                res.json(response_handler_util_1.ResponseHandler.success({}, 'School statistics updated successfully'));
+            }
+            catch (error) {
+                next(error);
+            }
+        });
         this.getSchools = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
             try {
                 const pagination = request_parser_util_1.RequestParser.parsePagination(req);
@@ -156,3 +165,4 @@ exports.deleteSchool = schoolController.deleteSchool;
 exports.deleteSchools = schoolController.deleteSchools;
 exports.processSchoolsFromExcel = schoolController.processSchoolsFromExcel;
 exports.checkExistingSchoolCodes = schoolController.checkExistingSchoolCodes;
+exports.updateSchoolsStats = schoolController.updateSchoolsStats;

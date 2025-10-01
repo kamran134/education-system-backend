@@ -14,4 +14,6 @@ router.route("/addAll")
     .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), district_controller_1.createAllDistricts);
 router.route("/:id")
     .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), district_controller_1.deleteDistrict);
+router.route("/update-stats")
+    .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), district_controller_1.updateDistrictsStats);
 exports.default = router;
