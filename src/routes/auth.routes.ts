@@ -1,5 +1,5 @@
 import express from "express";
-import { login, register, approveUser, logout, checkRole, refreshToken, me } from "../controllers/auth.controller";
+import { login, register, approveUser, logout, checkRole, refreshToken, me, logoutFromAllDevices, getActiveSessions, getTokenStatistics, forceCleanupTokens } from "../controllers/auth.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 
 const router = express.Router();
@@ -9,7 +9,13 @@ router.post("/login", login);
 router.post("/register", register);
 router.post("/approve/:id", authMiddleware(["superadmin"]), approveUser);
 router.post("/logout", logout);
+router.post("/logout-all", authMiddleware([]), logoutFromAllDevices);
 router.post("/refresh", refreshToken);
 router.get("/me", authMiddleware([]), me);
+router.get("/sessions", authMiddleware([]), getActiveSessions);
+
+// Админские маршруты для управления токенами
+router.get("/admin/token-stats", authMiddleware(["admin", "superadmin"]), getTokenStatistics);
+router.post("/admin/cleanup-tokens", authMiddleware(["admin", "superadmin"]), forceCleanupTokens);
 
 export default router;

@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { validationResult } from "express-validator";
 import User from "../models/user.model";
+import TokenService from "../services/token.service";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -10,8 +11,7 @@ dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "superrefreshsecret";
 
-// Хранилище refresh токенов (в продакшене должно быть в Redis/DB)
-const refreshTokens: Set<string> = new Set();
+// Refresh токены теперь хранятся в MongoDB в коллекции пользователей
 
 const generateTokens = (userId: string, role: string) => {
     const accessToken = jwt.sign(
@@ -52,8 +52,14 @@ export const login = async (req: Request, res: Response) => {
 
         const { accessToken, refreshToken } = generateTokens(String(user._id), user.role);
         
-        // Сохраняем refresh token
-        refreshTokens.add(refreshToken);
+        // Сохраняем refresh token в базе данных и обновляем время последнего входа
+        await User.findByIdAndUpdate(user._id, {
+            $push: { refreshTokens: refreshToken },
+            lastLoginAt: new Date()
+        });
+
+        // Ограничиваем количество активных сессий (максимум 5 устройств)
+        await TokenService.limitUserTokens(String(user._id), 5);
 
         // Устанавливаем refresh token в httpOnly cookie
         res.cookie("refreshToken", refreshToken, {
@@ -90,7 +96,18 @@ export const login = async (req: Request, res: Response) => {
 export const refreshToken = async (req: Request, res: Response) => {
     const { refreshToken } = req.cookies;
 
-    if (!refreshToken || !refreshTokens.has(refreshToken)) {
+    if (!refreshToken) {
+        res.status(401).json({ 
+            success: false,
+            message: "Refresh token yoxdur və ya düzgün deyil!" 
+        });
+        return;
+    }
+
+    // Проверяем токен в базе данных
+    const userWithToken = await User.findOne({ refreshTokens: refreshToken });
+    
+    if (!userWithToken) {
         res.status(401).json({ 
             success: false,
             message: "Refresh token yoxdur və ya düzgün deyil!" 
@@ -101,23 +118,27 @@ export const refreshToken = async (req: Request, res: Response) => {
     try {
         const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as { userId: string; role: string };
         
-        // Проверяем, что пользователь все еще существует и активен
-        const user = await User.findById(decoded.userId);
-        if (!user || !user.isApproved) {
-            refreshTokens.delete(refreshToken);
+        // Проверяем, что пользователь все еще существует и активен (дополнительная проверка)
+        if (!userWithToken.isApproved) {
+            // Удаляем токен из базы данных
+            await User.findByIdAndUpdate(userWithToken._id, {
+                $pull: { refreshTokens: refreshToken }
+            });
             res.clearCookie("refreshToken");
             res.status(401).json({ 
                 success: false,
-                message: "İstifadəçi tapılmadı və ya aktiv deyil!" 
+                message: "İstifadəçi aktiv deyil!" 
             });
             return;
         }
 
-        const { accessToken, refreshToken: newRefreshToken } = generateTokens(decoded.userId, decoded.role);
+        const { accessToken, refreshToken: newRefreshToken } = generateTokens(String(userWithToken._id), userWithToken.role);
         
-        // Удаляем старый и добавляем новый refresh token
-        refreshTokens.delete(refreshToken);
-        refreshTokens.add(newRefreshToken);
+        // Удаляем старый и добавляем новый refresh token в базе данных
+        await User.findByIdAndUpdate(userWithToken._id, {
+            $pull: { refreshTokens: refreshToken },
+            $push: { refreshTokens: newRefreshToken }
+        });
 
         // Обновляем refresh token cookie
         res.cookie("refreshToken", newRefreshToken, {
@@ -135,7 +156,12 @@ export const refreshToken = async (req: Request, res: Response) => {
             }
         });
     } catch (error) {
-        refreshTokens.delete(refreshToken);
+        // Удаляем некорректный токен из базы данных
+        if (userWithToken) {
+            await User.findByIdAndUpdate(userWithToken._id, {
+                $pull: { refreshTokens: refreshToken }
+            });
+        }
         res.clearCookie("refreshToken");
         res.status(401).json({ 
             success: false,
@@ -252,7 +278,11 @@ export const logout = async (req: Request, res: Response) => {
         const { refreshToken } = req.cookies;
         
         if (refreshToken) {
-            refreshTokens.delete(refreshToken);
+            // Удаляем токен из базы данных
+            await User.updateOne(
+                { refreshTokens: refreshToken },
+                { $pull: { refreshTokens: refreshToken } }
+            );
         }
         
         res.clearCookie("refreshToken");
@@ -264,6 +294,114 @@ export const logout = async (req: Request, res: Response) => {
         res.status(500).json({ 
             success: false,
             message: "Çıxış zamanı xəta!" 
+        });
+        console.error(error);
+    }
+};
+
+// Выход из всех устройств (удаляет все refresh токены пользователя)
+export const logoutFromAllDevices = async (req: Request, res: Response) => {
+    try {
+        const userId = req.user?.userId;  // Из middleware авторизации
+        
+        if (!userId) {
+            res.status(401).json({ 
+                success: false,
+                message: "Avtorizasiya tələb olunur!" 
+            });
+            return;
+        }
+
+        // Удаляем все refresh токены пользователя
+        await User.findByIdAndUpdate(userId, {
+            $set: { refreshTokens: [] }
+        });
+        
+        res.clearCookie("refreshToken");
+        res.json({ 
+            success: true,
+            message: "Bütün cihazlardan çıxış edildi!" 
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            success: false,
+            message: "Çıxış zamanı xəta!" 
+        });
+        console.error(error);
+    }
+};
+
+// Получить информацию об активных сессиях
+export const getActiveSessions = async (req: Request, res: Response) => {
+    try {
+        const userId = req.user?.userId;
+        
+        if (!userId) {
+            res.status(401).json({ 
+                success: false,
+                message: "Avtorizasiya tələb olunur!" 
+            });
+            return;
+        }
+
+        const user = await User.findById(userId).select('refreshTokens lastLoginAt');
+        
+        if (!user) {
+            res.status(404).json({ 
+                success: false,
+                message: "İstifadəçi tapılmadı!" 
+            });
+            return;
+        }
+
+        res.json({ 
+            success: true,
+            data: {
+                activeSessionsCount: user.refreshTokens?.length || 0,
+                lastLoginAt: user.lastLoginAt,
+                currentSession: !!req.cookies.refreshToken
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            success: false,
+            message: "Sessiya məlumatları alınarkən xəta!" 
+        });
+        console.error(error);
+    }
+};
+
+// Админский эндпоинт для статистики токенов
+export const getTokenStatistics = async (req: Request, res: Response) => {
+    try {
+        const stats = await TokenService.getTokenStatistics();
+        
+        res.json({ 
+            success: true,
+            data: stats
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            success: false,
+            message: "Token statistikası alınarkən xəta!" 
+        });
+        console.error(error);
+    }
+};
+
+// Админский эндпоинт для принудительной очистки токенов
+export const forceCleanupTokens = async (req: Request, res: Response) => {
+    try {
+        await TokenService.cleanupExpiredTokens();
+        
+        res.json({ 
+            success: true,
+            message: "Köhnə tokenlər təmizləndi!" 
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            success: false,
+            message: "Token təmizlənməsi zamanı xəta!" 
         });
         console.error(error);
     }

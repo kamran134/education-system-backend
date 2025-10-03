@@ -18,9 +18,13 @@ import morgan from "morgan";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middleware/errorHandler";
+import { startTokenCleanupScheduler } from "./services/token.service";
 
 dontenv.config();
 connectDB();
+
+// Запускаем планировщик очистки токенов
+startTokenCleanupScheduler();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
