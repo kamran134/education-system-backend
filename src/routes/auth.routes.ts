@@ -13,6 +13,14 @@ router.post("/logout-all", authMiddleware([]), logoutFromAllDevices);
 router.post("/refresh", refreshToken);
 router.get("/me", authMiddleware([]), me);
 router.get("/sessions", authMiddleware([]), getActiveSessions);
+router.get("/debug-cookies", (req, res) => {
+    console.log('[DEBUG] All cookies:', req.cookies);
+    res.json({ 
+        cookies: req.cookies, 
+        hasRefreshToken: !!req.cookies.refreshToken,
+        refreshTokenLength: req.cookies.refreshToken ? req.cookies.refreshToken.length : 0
+    });
+});
 
 // Админские маршруты для управления токенами
 router.get("/admin/token-stats", authMiddleware(["admin", "superadmin"]), getTokenStatistics);

@@ -52,23 +52,37 @@ export const login = async (req: Request, res: Response) => {
 
         const { accessToken, refreshToken } = generateTokens(String(user._id), user.role);
         
+        console.log('[LOGIN] Generated tokens for user:', user.email);
+        
         // Сохраняем refresh token в базе данных и обновляем время последнего входа
         await User.findByIdAndUpdate(user._id, {
             $push: { refreshTokens: refreshToken },
             lastLoginAt: new Date()
         });
+        
+        console.log('[LOGIN] Saved refresh token to database');
 
         // Ограничиваем количество активных сессий (максимум 5 устройств)
         await TokenService.limitUserTokens(String(user._id), 5);
 
         // Устанавливаем refresh token в httpOnly cookie
-        res.cookie("refreshToken", refreshToken, {
+        const cookieOptions: any = {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
             maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
             path: "/"
-        });
+        };
+        
+        // В production указываем domain для работы с поддоменами
+        if (process.env.NODE_ENV === "production") {
+            cookieOptions.domain = ".isim.kpm.az";
+        }
+        // В development НЕ указываем domain - так cookie будет работать для всех портов localhost
+        
+        res.cookie("refreshToken", refreshToken, cookieOptions);
+        
+        console.log('[LOGIN] Set refresh token cookie with sameSite:', process.env.NODE_ENV === "production" ? "none" : "lax");
 
         res.json({ 
             success: true,
@@ -95,8 +109,11 @@ export const login = async (req: Request, res: Response) => {
 // Новый эндпоинт для обновления токена
 export const refreshToken = async (req: Request, res: Response) => {
     const { refreshToken } = req.cookies;
+    
+    console.log('[REFRESH TOKEN] Request received, token exists:', !!refreshToken);
 
     if (!refreshToken) {
+        console.log('[REFRESH TOKEN] No refresh token found in cookies');
         res.status(401).json({ 
             success: false,
             message: "Refresh token yoxdur və ya düzgün deyil!" 
@@ -107,7 +124,10 @@ export const refreshToken = async (req: Request, res: Response) => {
     // Проверяем токен в базе данных
     const userWithToken = await User.findOne({ refreshTokens: refreshToken });
     
+    console.log('[REFRESH TOKEN] User found with token:', !!userWithToken);
+    
     if (!userWithToken) {
+        console.log('[REFRESH TOKEN] No user found with this refresh token');
         res.status(401).json({ 
             success: false,
             message: "Refresh token yoxdur və ya düzgün deyil!" 
@@ -116,7 +136,9 @@ export const refreshToken = async (req: Request, res: Response) => {
     }
 
     try {
+        console.log('[REFRESH TOKEN] Verifying token...');
         const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as { userId: string; role: string };
+        console.log('[REFRESH TOKEN] Token verified, user ID:', decoded.userId);
         
         // Проверяем, что пользователь все еще существует и активен (дополнительная проверка)
         if (!userWithToken.isApproved) {
@@ -124,7 +146,13 @@ export const refreshToken = async (req: Request, res: Response) => {
             await User.findByIdAndUpdate(userWithToken._id, {
                 $pull: { refreshTokens: refreshToken }
             });
-            res.clearCookie("refreshToken");
+            
+            const clearOptions: any = { path: "/" };
+            if (process.env.NODE_ENV === "production") {
+                clearOptions.domain = ".isim.kpm.az";
+            }
+            res.clearCookie("refreshToken", clearOptions);
+            
             res.status(401).json({ 
                 success: false,
                 message: "İstifadəçi aktiv deyil!" 
@@ -141,13 +169,19 @@ export const refreshToken = async (req: Request, res: Response) => {
         });
 
         // Обновляем refresh token cookie
-        res.cookie("refreshToken", newRefreshToken, {
+        const cookieOptions: any = {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
             maxAge: 7 * 24 * 60 * 60 * 1000,
             path: "/"
-        });
+        };
+        
+        if (process.env.NODE_ENV === "production") {
+            cookieOptions.domain = ".isim.kpm.az";
+        }
+        
+        res.cookie("refreshToken", newRefreshToken, cookieOptions);
 
         res.json({ 
             success: true,
@@ -156,13 +190,20 @@ export const refreshToken = async (req: Request, res: Response) => {
             }
         });
     } catch (error) {
+        console.log('[REFRESH TOKEN] Token verification failed:', error instanceof jwt.JsonWebTokenError ? error.message : 'Unknown error');
         // Удаляем некорректный токен из базы данных
         if (userWithToken) {
             await User.findByIdAndUpdate(userWithToken._id, {
                 $pull: { refreshTokens: refreshToken }
             });
         }
-        res.clearCookie("refreshToken");
+        
+        const clearOptions: any = { path: "/" };
+        if (process.env.NODE_ENV === "production") {
+            clearOptions.domain = ".isim.kpm.az";
+        }
+        res.clearCookie("refreshToken", clearOptions);
+        
         res.status(401).json({ 
             success: false,
             message: "Düzgün olmayan refresh token!" 
@@ -285,7 +326,12 @@ export const logout = async (req: Request, res: Response) => {
             );
         }
         
-        res.clearCookie("refreshToken");
+        const clearOptions: any = { path: "/" };
+        if (process.env.NODE_ENV === "production") {
+            clearOptions.domain = ".isim.kpm.az";
+        }
+        
+        res.clearCookie("refreshToken", clearOptions);
         res.json({ 
             success: true,
             message: "Çıxış edildi!" 
@@ -317,7 +363,12 @@ export const logoutFromAllDevices = async (req: Request, res: Response) => {
             $set: { refreshTokens: [] }
         });
         
-        res.clearCookie("refreshToken");
+        const clearOptions: any = { path: "/" };
+        if (process.env.NODE_ENV === "production") {
+            clearOptions.domain = ".isim.kpm.az";
+        }
+        res.clearCookie("refreshToken", clearOptions);
+        
         res.json({ 
             success: true,
             message: "Bütün cihazlardan çıxış edildi!" 
