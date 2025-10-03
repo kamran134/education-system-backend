@@ -20,6 +20,7 @@ export interface ITeacherCreate {
     studentCount?: number;
     status?: string;
     teacherOfTheYearScore?: number;
+    place?: number;
     active?: boolean;
 }
 
@@ -34,6 +35,7 @@ export interface ITeacher extends Document {
     studentCount: number;
     status: string;
     teacherOfTheYearScore: number;
+    place: number;
     active: boolean;
 }
 
@@ -47,6 +49,7 @@ const TeacherSchema: Schema = new Schema({
     studentCount: { type: Number, required: false },
     status: { type: String, required: false },
     teacherOfTheYearScore: { type: Number, required: false, default: 0 },
+    place: { type: Number, required: false },
     active: { type: Boolean, required: false, default: true },
 });
 

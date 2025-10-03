@@ -46,6 +46,76 @@ export class DistrictService {
                 averageScore: average
             });
         }
+
+        // Обновляем место в рейтинге (place) для всех районов
+        console.log("🏆 Обновляем рейтинг районов (place)...");
+        await this.updateDistrictPlaces();
+    }
+
+    /**
+     * Обновляет место в рейтинге (place) для всех районов на основе их averageScore
+     */
+    private async updateDistrictPlaces(): Promise<void> {
+        try {
+            console.log("🔍 DEBUG: Начинаем обновление мест районов...");
+            
+            // Получаем все районы, отсортированные по averageScore в убывающем порядке
+            const districts = await District.find({ averageScore: { $exists: true } })
+                                           .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                                           .select('_id averageScore code active');
+
+            console.log(`🔍 DEBUG: Найдено ${districts.length} районов с averageScore`);
+            if (districts.length > 0) {
+                console.log(`🔍 DEBUG: Первые 3 района:`, districts.slice(0, 3).map(d => `${d.code}: ${d.averageScore} (active: ${d.active})`));
+            }
+
+            if (districts.length === 0) {
+                console.log("❌ Нет районов с averageScore для установки места в рейтинге.");
+                return;
+            }
+
+            // Подготавливаем bulk операции для обновления места
+            const bulkOperations = [];
+            let currentPlace = 0;
+            let previousScore = null;
+
+            for (let i = 0; i < districts.length; i++) {
+                const district = districts[i];
+                
+                // Если это первый район или балл изменился
+                if (i === 0 || (previousScore !== null && district.averageScore < previousScore)) {
+                    // Место = позиция в отсортированном списке + 1
+                    currentPlace++;
+                }
+                // Если балл такой же, как у предыдущего, место остается тем же
+
+                bulkOperations.push({
+                    updateOne: {
+                        filter: { _id: district._id },
+                        update: { $set: { place: currentPlace } }
+                    }
+                });
+
+                previousScore = district.averageScore;
+            }
+
+            // Выполняем массовое обновление мест
+            if (bulkOperations.length > 0) {
+                await District.bulkWrite(bulkOperations);
+                console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} районов`);
+                
+                // Показываем статистику рейтинга
+                const topDistrict = districts[0];
+                const lastDistrict = districts[districts.length - 1];
+                console.log(`🥇 Лидер рейтинга районов: ${topDistrict.averageScore} баллов (место 1)`);
+                console.log(`📊 Всего в рейтинге: ${districts.length} районов`);
+                console.log(`🔢 Диапазон баллов: ${lastDistrict.averageScore} - ${topDistrict.averageScore}`);
+            }
+
+        } catch (error) {
+            console.error("❌ Ошибка при обновлении места в рейтинге районов:", error);
+            throw error;
+        }
     }
     async findById(id: string): Promise<IDistrict | null> {
         return await District.findById(id);

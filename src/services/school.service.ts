@@ -47,6 +47,62 @@ export class SchoolService {
                 averageScore: average
             });
         }
+
+        // Обновляем место в рейтинге (place) для всех школ
+        console.log("🏆 Обновляем рейтинг школ (place)...");
+        await this.updateSchoolPlaces();
+    }
+
+    /**
+     * Обновляет место в рейтинге (place) для всех школ на основе их averageScore
+     */
+    private async updateSchoolPlaces(): Promise<void> {
+        try {
+            // Получаем все школы, отсортированные по averageScore в убывающем порядке
+            const schools = await School.find({ averageScore: { $exists: true }, active: true })
+                                       .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                                       .select('_id averageScore code');
+
+            if (schools.length === 0) {
+                console.log("Нет школ с averageScore для установки места в рейтинге.");
+                return;
+            }
+
+            // Подготавливаем bulk операции для обновления места
+            const bulkOperations = [];
+            let currentPlace = 0;
+            let previousScore = null;
+
+            for (let i = 0; i < schools.length; i++) {
+                const school = schools[i];
+                
+                // Если это первая школа или балл изменился
+                if (i === 0 || (previousScore !== null && school.averageScore < previousScore)) {
+                    // Место = позиция в отсортированном списке + 1
+                    currentPlace++;
+                }
+                // Если балл такой же, как у предыдущей, место остается тем же
+
+                bulkOperations.push({
+                    updateOne: {
+                        filter: { _id: school._id },
+                        update: { $set: { place: currentPlace } }
+                    }
+                });
+
+                previousScore = school.averageScore;
+            }
+
+            // Выполняем массовое обновление мест
+            if (bulkOperations.length > 0) {
+                await School.bulkWrite(bulkOperations);
+                console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} школ`);
+            }
+
+        } catch (error) {
+            console.error("❌ Ошибка при обновлении места в рейтинге школ:", error);
+            throw error;
+        }
     }
     async findById(id: string): Promise<ISchool | null> {
         return await School.findById(id).populate('district');

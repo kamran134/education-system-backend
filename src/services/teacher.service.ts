@@ -47,6 +47,69 @@ export class TeacherService {
                 averageScore: average
             });
         }
+
+        // Обновляем место в рейтинге (place) для всех учителей
+        console.log("🏆 Обновляем рейтинг учителей (place)...");
+        await this.updateTeacherPlaces();
+    }
+
+    /**
+     * Обновляет место в рейтинге (place) для всех учителей на основе их averageScore
+     */
+    private async updateTeacherPlaces(): Promise<void> {
+        try {
+            // Получаем всех учителей, отсортированных по averageScore в убывающем порядке
+            const teachers = await Teacher.find({ averageScore: { $exists: true }, active: true })
+                                         .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                                         .select('_id averageScore code');
+
+            if (teachers.length === 0) {
+                console.log("Нет учителей с averageScore для установки места в рейтинге.");
+                return;
+            }
+
+            // Подготавливаем bulk операции для обновления места
+            const bulkOperations = [];
+            let currentPlace = 0;
+            let previousScore = null;
+
+            for (let i = 0; i < teachers.length; i++) {
+                const teacher = teachers[i];
+                
+                // Если это первый учитель или балл изменился
+                if (i === 0 || (previousScore !== null && teacher.averageScore < previousScore)) {
+                    // Место = позиция в отсортированном списке + 1
+                    currentPlace++;
+                }
+                // Если балл такой же, как у предыдущего, место остается тем же
+
+                bulkOperations.push({
+                    updateOne: {
+                        filter: { _id: teacher._id },
+                        update: { $set: { place: currentPlace } }
+                    }
+                });
+
+                previousScore = teacher.averageScore;
+            }
+
+            // Выполняем массовое обновление мест
+            if (bulkOperations.length > 0) {
+                await Teacher.bulkWrite(bulkOperations);
+                console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} учителей`);
+                
+                // Показываем статистику рейтинга
+                const topTeacher = teachers[0];
+                const lastTeacher = teachers[teachers.length - 1];
+                console.log(`🥇 Лидер рейтинга учителей: ${topTeacher.averageScore} баллов (место 1)`);
+                console.log(`📊 Всего в рейтинге: ${teachers.length} учителей`);
+                console.log(`🔢 Диапазон баллов: ${lastTeacher.averageScore} - ${topTeacher.averageScore}`);
+            }
+
+        } catch (error) {
+            console.error("❌ Ошибка при обновлении места в рейтинге учителей:", error);
+            throw error;
+        }
     }
     async findById(id: string): Promise<ITeacher | null> {
         return await Teacher.findById(id).populate('district school');

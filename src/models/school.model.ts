@@ -20,6 +20,7 @@ export interface ISchoolCreate {
     studentCount?: number;
     status?: string;
     schoolOfTheYearScore?: number;
+    place?: number;
     active?: boolean;
 }
 
@@ -35,6 +36,7 @@ export interface ISchool extends Document {
     studentCount: number;
     status: string;
     schoolOfTheYearScore: number;
+    place: number;
     active: boolean;
 }
 
@@ -49,6 +51,7 @@ const SchoolSchema: Schema = new Schema({
     studentCount: { type: Number, required: false },
     status: { type: String, required: false },
     schoolOfTheYearScore: { type: Number, required: false, default: 0 },
+    place: { type: Number, required: false },
     active: { type: Boolean, required: false, default: true },
 });
 

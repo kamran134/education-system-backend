@@ -10,6 +10,7 @@ export interface IDistrictCreate {
     studentCount?: number;
     rate?: number;
     districtOfTheYearScore?: number;
+    place?: number;
     active?: boolean;
 }
 
@@ -23,6 +24,7 @@ export interface IDistrict extends Document {
     studentCount: number;
     rate: number;
     districtOfTheYearScore: number;
+    place: number;
     active: boolean;
 }
 
@@ -35,6 +37,7 @@ const DistrictSchema: Schema = new Schema({
     studentCount: { type: Number, required: false },
     rate: { type: Number, required: false },
     districtOfTheYearScore: { type: Number, required: false, default: 0 },
+    place: { type: Number, required: false },
     active: { type: Boolean, required: false, default: true }
 });
 

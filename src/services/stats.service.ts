@@ -7,6 +7,9 @@ import StudentResult, { IStudentResult } from "../models/studentResult.model";
 import { LevelScore } from "../types/levelScore.enum";
 import { markAllDevelopingStudents, markDevelopingStudents, markTopStudents, markTopStudentsRepublic } from "./studentResult.service";
 import { countDistrictsRates } from "./district.service";
+import { DistrictService } from "./district.service";
+import { SchoolService } from "./school.service";
+import { TeacherService } from "./teacher.service";
 import { FilterOptions } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { Types } from "mongoose";
@@ -257,21 +260,34 @@ export class StatsService {
             console.log("🔢 Подсчитываем общий score для студентов...");
             await this.updateStudentScores();
 
+            // // Шаг 6.1: Обновляем статистику для учителей, школ и районов
+            // console.log("👨‍🏫 Обновляем статистику учителей...");
+            // const teacherService = new TeacherService();
+            // await teacherService.updateTeachersStats();
+
+            // console.log("🏫 Обновляем статистику школ...");
+            // const schoolService = new SchoolService();
+            // await schoolService.updateSchoolsStats();
+
+            // console.log("🏛️ Обновляем статистику районов...");
+            // const districtService = new DistrictService();
+            // await districtService.updateDistrictsStats();
+
             // Шаг 7: Обновляем место в рейтинге (place) для всех студентов
             console.log("🏆 Обновляем рейтинг студентов (place)...");
             await this.updateStudentPlaces();
 
-            // Шаг 8: Назначаем учителей года
-            console.log("👨‍🏫 Назначаем учителей года...");
-            await this.updateTeachersOfTheYear();
+            // // Шаг 8: Назначаем учителей года
+            // console.log("👨‍🏫 Назначаем учителей года...");
+            // await this.updateTeachersOfTheYear();
 
-            // Шаг 9: Назначаем школы года
-            console.log("🏫 Назначаем школы года...");
-            await this.updateSchoolsOfTheYear();
+            // // Шаг 9: Назначаем школы года
+            // console.log("🏫 Назначаем школы года...");
+            // await this.updateSchoolsOfTheYear();
 
-            // Шаг 10: Назначаем районы года
-            console.log("🏛️ Назначаем районы года...");
-            await this.updateDistrictsOfTheYear();
+            // // Шаг 10: Назначаем районы года
+            // console.log("🏛️ Назначаем районы года...");
+            // await this.updateDistrictsOfTheYear();
 
             console.log("✅ Статистика обновлена успешно!");
             return 200;
@@ -383,6 +399,9 @@ export class StatsService {
             if ((teacher as any).studentCount === undefined || (teacher as any).studentCount === null) {
                 (teacher as any).studentCount = 0;
             }
+            if ((teacher as any).place === undefined || (teacher as any).place === null) {
+                (teacher as any).place = null; // Не устанавливаем 0, т.к. место может быть не рассчитано
+            }
         });
 
         return { data, totalCount };
@@ -427,6 +446,9 @@ export class StatsService {
             if ((school as any).studentCount === undefined || (school as any).studentCount === null) {
                 (school as any).studentCount = 0;
             }
+            if ((school as any).place === undefined || (school as any).place === null) {
+                (school as any).place = null; // Не устанавливаем 0, т.к. место может быть не рассчитано
+            }
         });
 
         return { data, totalCount };
@@ -470,6 +492,9 @@ export class StatsService {
             }
             if ((district as any).studentCount === undefined || (district as any).studentCount === null) {
                 (district as any).studentCount = 0;
+            }
+            if ((district as any).place === undefined || (district as any).place === null) {
+                (district as any).place = null; // Не устанавливаем 0, т.к. место может быть не рассчитано
             }
         });
 
@@ -796,6 +821,8 @@ export class StatsService {
             throw error;
         }
     }
+
+
 }
 
 // Legacy function exports for backward compatibility
