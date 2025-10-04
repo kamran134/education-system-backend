@@ -164,9 +164,13 @@ export const refreshToken = async (req: Request, res: Response) => {
         const { accessToken, refreshToken: newRefreshToken } = generateTokens(String(userWithToken._id), userWithToken.role);
         
         console.log('[REFRESH TOKEN] Updating tokens in database...');
-        // Удаляем старый и добавляем новый refresh token в базе данных
+        // Сначала удаляем старый refresh token
         await User.findByIdAndUpdate(userWithToken._id, {
-            $pull: { refreshTokens: refreshToken },
+            $pull: { refreshTokens: refreshToken }
+        });
+        
+        // Затем добавляем новый refresh token
+        await User.findByIdAndUpdate(userWithToken._id, {
             $push: { refreshTokens: newRefreshToken }
         });
 
