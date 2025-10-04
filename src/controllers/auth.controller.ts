@@ -160,14 +160,17 @@ export const refreshToken = async (req: Request, res: Response) => {
             return;
         }
 
+        console.log('[REFRESH TOKEN] Generating new tokens...');
         const { accessToken, refreshToken: newRefreshToken } = generateTokens(String(userWithToken._id), userWithToken.role);
         
+        console.log('[REFRESH TOKEN] Updating tokens in database...');
         // Удаляем старый и добавляем новый refresh token в базе данных
         await User.findByIdAndUpdate(userWithToken._id, {
             $pull: { refreshTokens: refreshToken },
             $push: { refreshTokens: newRefreshToken }
         });
 
+        console.log('[REFRESH TOKEN] Setting new refresh token cookie...');
         // Обновляем refresh token cookie
         const cookieOptions: any = {
             httpOnly: true,
@@ -183,6 +186,7 @@ export const refreshToken = async (req: Request, res: Response) => {
         
         res.cookie("refreshToken", newRefreshToken, cookieOptions);
 
+        console.log('[REFRESH TOKEN] Sending successful response...');
         res.json({ 
             success: true,
             data: {
@@ -190,7 +194,9 @@ export const refreshToken = async (req: Request, res: Response) => {
             }
         });
     } catch (error) {
-        console.log('[REFRESH TOKEN] Token verification failed:', error instanceof jwt.JsonWebTokenError ? error.message : 'Unknown error');
+        console.log('[REFRESH TOKEN] Error occurred:', error);
+        console.log('[REFRESH TOKEN] Error message:', error instanceof Error ? error.message : 'Unknown error');
+        console.log('[REFRESH TOKEN] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
         // Удаляем некорректный токен из базы данных
         if (userWithToken) {
             await User.findByIdAndUpdate(userWithToken._id, {
