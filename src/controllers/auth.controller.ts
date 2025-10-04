@@ -76,7 +76,7 @@ export const login = async (req: Request, res: Response) => {
         
         // В production указываем domain для работы с поддоменами
         if (process.env.NODE_ENV === "production") {
-            cookieOptions.domain = ".isim.kpm.az";
+            cookieOptions.domain = ".kpm.az";
         }
         // В development НЕ указываем domain - так cookie будет работать для всех портов localhost
         
@@ -149,7 +149,7 @@ export const refreshToken = async (req: Request, res: Response) => {
             
             const clearOptions: any = { path: "/" };
             if (process.env.NODE_ENV === "production") {
-                clearOptions.domain = ".isim.kpm.az";
+                clearOptions.domain = ".kpm.az";
             }
             res.clearCookie("refreshToken", clearOptions);
             
@@ -178,7 +178,7 @@ export const refreshToken = async (req: Request, res: Response) => {
         };
         
         if (process.env.NODE_ENV === "production") {
-            cookieOptions.domain = ".isim.kpm.az";
+            cookieOptions.domain = ".kpm.az";
         }
         
         res.cookie("refreshToken", newRefreshToken, cookieOptions);
@@ -200,7 +200,7 @@ export const refreshToken = async (req: Request, res: Response) => {
         
         const clearOptions: any = { path: "/" };
         if (process.env.NODE_ENV === "production") {
-            clearOptions.domain = ".isim.kpm.az";
+            clearOptions.domain = ".kpm.az";
         }
         res.clearCookie("refreshToken", clearOptions);
         
@@ -328,7 +328,7 @@ export const logout = async (req: Request, res: Response) => {
         
         const clearOptions: any = { path: "/" };
         if (process.env.NODE_ENV === "production") {
-            clearOptions.domain = ".isim.kpm.az";
+            clearOptions.domain = ".kpm.az";
         }
         
         res.clearCookie("refreshToken", clearOptions);
@@ -365,7 +365,7 @@ export const logoutFromAllDevices = async (req: Request, res: Response) => {
         
         const clearOptions: any = { path: "/" };
         if (process.env.NODE_ENV === "production") {
-            clearOptions.domain = ".isim.kpm.az";
+            clearOptions.domain = ".kpm.az";
         }
         res.clearCookie("refreshToken", clearOptions);
         
