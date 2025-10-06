@@ -45,9 +45,9 @@ export class DistrictService {
             });
         }
 
-        // Обновляем studentCount из суммы школ
-        console.log("👥 Обновляем количество студентов районов из суммы школ...");
-        await this.updateDistrictStudentCountFromSchools();
+        // ЗАКОММЕНТИРОВАНО: Обновление studentCount из суммы школ (количество студентов устанавливается только вручную или через Excel)
+        // console.log("👥 Обновляем количество студентов районов из суммы школ...");
+        // await this.updateDistrictStudentCountFromSchools();
 
         // Обновляем место в рейтинге (place) для всех районов
         console.log("🏆 Обновляем рейтинг районов (place)...");
@@ -55,8 +55,10 @@ export class DistrictService {
     }
 
     /**
-     * Обновляет studentCount районов из суммы studentCount их школ
+     * ЗАКОММЕНТИРОВАНО: Обновляет studentCount районов из суммы studentCount их школ
+     * (количество студентов устанавливается только вручную или через Excel)
      */
+    /*
     private async updateDistrictStudentCountFromSchools(): Promise<void> {
         try {
             // Получаем агрегацию по районам с суммой studentCount школ
@@ -86,6 +88,7 @@ export class DistrictService {
             console.error("❌ Ошибка при обновлении studentCount районов:", error);
         }
     }
+    */
 
     /**
      * Обновляет место в рейтинге (place) для всех районов на основе их averageScore

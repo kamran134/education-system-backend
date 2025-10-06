@@ -47,9 +47,9 @@ export class SchoolService {
             });
         }
 
-        // Обновляем studentCount из суммы учителей
-        console.log("👥 Обновляем количество студентов школ из суммы учителей...");
-        await this.updateSchoolStudentCountFromTeachers();
+        // ЗАКОММЕНТИРОВАНО: Обновление studentCount из суммы учителей (количество студентов устанавливается только вручную или через Excel)
+        // console.log("👥 Обновляем количество студентов школ из суммы учителей...");
+        // await this.updateSchoolStudentCountFromTeachers();
 
         // Обновляем место в рейтинге (place) для всех школ
         console.log("🏆 Обновляем рейтинг школ (place)...");
@@ -57,8 +57,10 @@ export class SchoolService {
     }
 
     /**
-     * Обновляет studentCount школ из суммы studentCount их учителей
+     * ЗАКОММЕНТИРОВАНО: Обновляет studentCount школ из суммы studentCount их учителей
+     * (количество студентов устанавливается только вручную или через Excel)
      */
+    /*
     private async updateSchoolStudentCountFromTeachers(): Promise<void> {
         try {
             // Получаем агрегацию по школам с суммой studentCount учителей
@@ -88,6 +90,7 @@ export class SchoolService {
             console.error("❌ Ошибка при обновлении studentCount школ:", error);
         }
     }
+    */
 
     /**
      * Обновляет место в рейтинге (place) для всех школ на основе их averageScore
