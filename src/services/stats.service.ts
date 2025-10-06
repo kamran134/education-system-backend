@@ -7,9 +7,6 @@ import StudentResult, { IStudentResult } from "../models/studentResult.model";
 import { LevelScore } from "../types/levelScore.enum";
 import { markAllDevelopingStudents, markDevelopingStudents, markTopStudents, markTopStudentsRepublic } from "./studentResult.service";
 import { countDistrictsRates } from "./district.service";
-import { DistrictService } from "./district.service";
-import { SchoolService } from "./school.service";
-import { TeacherService } from "./teacher.service";
 import { FilterOptions } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { Types } from "mongoose";
@@ -737,92 +734,6 @@ export class StatsService {
             throw error;
         }
     }
-
-    private async updateTeachersOfTheYear(): Promise<void> {
-        try {
-            // Сбрасываем все предыдущие награды
-            await Teacher.updateMany({}, { $set: { teacherOfTheYearScore: 0 } });
-
-            // Находим всех учителей с averageScore выше определенного порога
-            const eligibleTeachers = await Teacher.find({ 
-                averageScore: { $gte: 80 }, // учителя с баллом 80 и выше
-                active: true 
-            });
-
-            if (eligibleTeachers.length > 0) {
-                const bulkOperations = eligibleTeachers.map(teacher => ({
-                    updateOne: {
-                        filter: { _id: teacher._id },
-                        update: { $set: { teacherOfTheYearScore: 10 } }
-                    }
-                }));
-
-                await Teacher.bulkWrite(bulkOperations);
-                console.log(`✅ Назначено ${eligibleTeachers.length} учителей года`);
-            }
-        } catch (error) {
-            console.error("❌ Ошибка при назначении учителей года:", error);
-            throw error;
-        }
-    }
-
-    private async updateSchoolsOfTheYear(): Promise<void> {
-        try {
-            // Сбрасываем все предыдущие награды
-            await School.updateMany({}, { $set: { schoolOfTheYearScore: 0 } });
-
-            // Находим все школы с averageScore выше определенного порога
-            const eligibleSchools = await School.find({ 
-                averageScore: { $gte: 85 }, // школы с баллом 85 и выше
-                active: true 
-            });
-
-            if (eligibleSchools.length > 0) {
-                const bulkOperations = eligibleSchools.map(school => ({
-                    updateOne: {
-                        filter: { _id: school._id },
-                        update: { $set: { schoolOfTheYearScore: 10 } }
-                    }
-                }));
-
-                await School.bulkWrite(bulkOperations);
-                console.log(`✅ Назначено ${eligibleSchools.length} школ года`);
-            }
-        } catch (error) {
-            console.error("❌ Ошибка при назначении школ года:", error);
-            throw error;
-        }
-    }
-
-    private async updateDistrictsOfTheYear(): Promise<void> {
-        try {
-            // Сбрасываем все предыдущие награды
-            await District.updateMany({}, { $set: { districtOfTheYearScore: 0 } });
-
-            // Находим все районы с averageScore выше определенного порога
-            const eligibleDistricts = await District.find({ 
-                averageScore: { $gte: 90 }, // районы с баллом 90 и выше
-                active: true 
-            });
-
-            if (eligibleDistricts.length > 0) {
-                const bulkOperations = eligibleDistricts.map(district => ({
-                    updateOne: {
-                        filter: { _id: district._id },
-                        update: { $set: { districtOfTheYearScore: 15 } }
-                    }
-                }));
-
-                await District.bulkWrite(bulkOperations);
-                console.log(`✅ Назначено ${eligibleDistricts.length} районов года`);
-            }
-        } catch (error) {
-            console.error("❌ Ошибка при назначении районов года:", error);
-            throw error;
-        }
-    }
-
-
 }
 
 // Legacy function exports for backward compatibility

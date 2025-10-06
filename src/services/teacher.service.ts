@@ -18,8 +18,7 @@ export class TeacherService {
         console.log("🧹 Обнуляем статистику учителей...");
         await Teacher.updateMany({}, { 
             score: 0, 
-            averageScore: 0, 
-            studentCount: 0 
+            averageScore: 0,
         });
         
         // Получаем всех студентов с teacher и score
@@ -42,7 +41,6 @@ export class TeacherService {
         for (const [teacherId, { sum, count }] of statsMap.entries()) {
             const average = count > 0 ? sum / count : 0;
             await Teacher.findByIdAndUpdate(teacherId, {
-                studentCount: count,
                 score: sum,
                 averageScore: average
             });
@@ -207,7 +205,8 @@ export class TeacherService {
                 districtCode: Number(row[1]) || 0,
                 schoolCode: Number(row[2]) || 0,
                 code: Number(row[3]),
-                fullname: String(row[4])
+                fullname: String(row[4]),
+                studentCount: Number(row[5]) || 0
             }));
 
             // Filter correct teachers
@@ -245,12 +244,30 @@ export class TeacherService {
                     fullname: teacherData.fullname,
                     school: school?._id as Types.ObjectId,
                     district: district?._id as Types.ObjectId,
+                    studentCount: teacherData.studentCount || 0,
                     active: true
                 };
             });
 
             const createdTeachers = await Teacher.insertMany(teachersToCreate);
             processedData.push(...createdTeachers.map(t => t.toObject() as ITeacher));
+
+            // Обновляем studentCount для существующих учителей из Excel
+            if (existingTeacherCodes.length > 0) {
+                const existingTeachersToUpdate = correctTeachersToInsert.filter(data => existingTeacherCodes.includes(data.code));
+                
+                const bulkUpdateOperations = existingTeachersToUpdate.map(teacherData => ({
+                    updateOne: {
+                        filter: { code: teacherData.code },
+                        update: { $set: { studentCount: teacherData.studentCount || 0 } }
+                    }
+                }));
+
+                if (bulkUpdateOperations.length > 0) {
+                    await Teacher.bulkWrite(bulkUpdateOperations);
+                    console.log(`✅ Обновлено studentCount для ${bulkUpdateOperations.length} существующих учителей`);
+                }
+            }
 
             // Clean up
             deleteFile(filePath);

@@ -18,8 +18,7 @@ export class DistrictService {
         console.log("🧹 Обнуляем статистику районов...");
         await District.updateMany({}, { 
             score: 0, 
-            averageScore: 0, 
-            studentCount: 0 
+            averageScore: 0,
         });
         
         // Получаем всех студентов с district и score
@@ -41,15 +40,51 @@ export class DistrictService {
         for (const [districtId, { sum, count }] of statsMap.entries()) {
             const average = count > 0 ? sum / count : 0;
             await District.findByIdAndUpdate(districtId, {
-                studentCount: count,
                 score: sum,
                 averageScore: average
             });
         }
 
+        // Обновляем studentCount из суммы школ
+        console.log("👥 Обновляем количество студентов районов из суммы школ...");
+        await this.updateDistrictStudentCountFromSchools();
+
         // Обновляем место в рейтинге (place) для всех районов
         console.log("🏆 Обновляем рейтинг районов (place)...");
         await this.updateDistrictPlaces();
+    }
+
+    /**
+     * Обновляет studentCount районов из суммы studentCount их школ
+     */
+    private async updateDistrictStudentCountFromSchools(): Promise<void> {
+        try {
+            // Получаем агрегацию по районам с суммой studentCount школ
+            const districtStats = await School.aggregate([
+                { $match: { district: { $exists: true, $ne: null }, active: true } },
+                { 
+                    $group: {
+                        _id: "$district",
+                        totalStudentCount: { $sum: "$studentCount" }
+                    }
+                }
+            ]);
+
+            // Подготавливаем bulk операции для обновления
+            const bulkOperations = districtStats.map(stat => ({
+                updateOne: {
+                    filter: { _id: stat._id },
+                    update: { $set: { studentCount: stat.totalStudentCount } }
+                }
+            }));
+
+            if (bulkOperations.length > 0) {
+                await District.bulkWrite(bulkOperations);
+                console.log(`✅ Обновлено studentCount для ${bulkOperations.length} районов`);
+            }
+        } catch (error) {
+            console.error("❌ Ошибка при обновлении studentCount районов:", error);
+        }
     }
 
     /**
@@ -228,7 +263,8 @@ export class DistrictService {
             const rows = data.slice(3); // Skip header rows
             const dataToInsert = rows.map(row => ({
                 code: Number(row[1]),
-                name: String(row[2])
+                name: String(row[2]),
+                studentCount: Number(row[3]) || 0
             }));
 
             // Filter valid districts
@@ -247,11 +283,29 @@ export class DistrictService {
             const districtsToCreate: IDistrictCreate[] = newDistricts.map(districtData => ({
                 code: districtData.code,
                 name: districtData.name,
+                studentCount: districtData.studentCount || 0,
                 active: true
             }));
 
             const createdDistricts = await District.insertMany(districtsToCreate);
             processedData.push(...createdDistricts.map(d => d.toObject() as IDistrict));
+
+            // Обновляем studentCount для существующих районов из Excel
+            if (existingDistrictCodes.length > 0) {
+                const existingDistrictsToUpdate = validDistricts.filter(data => existingDistrictCodes.includes(data.code));
+                
+                const bulkUpdateOperations = existingDistrictsToUpdate.map(districtData => ({
+                    updateOne: {
+                        filter: { code: districtData.code },
+                        update: { $set: { studentCount: districtData.studentCount || 0 } }
+                    }
+                }));
+
+                if (bulkUpdateOperations.length > 0) {
+                    await District.bulkWrite(bulkUpdateOperations);
+                    console.log(`✅ Обновлено studentCount для ${bulkUpdateOperations.length} существующих районов`);
+                }
+            }
 
             // Clean up
             deleteFile(filePath);

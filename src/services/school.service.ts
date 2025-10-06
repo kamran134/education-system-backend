@@ -42,15 +42,51 @@ export class SchoolService {
         for (const [schoolId, { sum, count }] of statsMap.entries()) {
             const average = count > 0 ? sum / count : 0;
             await School.findByIdAndUpdate(schoolId, {
-                studentCount: count,
                 score: sum,
                 averageScore: average
             });
         }
 
+        // Обновляем studentCount из суммы учителей
+        console.log("👥 Обновляем количество студентов школ из суммы учителей...");
+        await this.updateSchoolStudentCountFromTeachers();
+
         // Обновляем место в рейтинге (place) для всех школ
         console.log("🏆 Обновляем рейтинг школ (place)...");
         await this.updateSchoolPlaces();
+    }
+
+    /**
+     * Обновляет studentCount школ из суммы studentCount их учителей
+     */
+    private async updateSchoolStudentCountFromTeachers(): Promise<void> {
+        try {
+            // Получаем агрегацию по школам с суммой studentCount учителей
+            const schoolStats = await Teacher.aggregate([
+                { $match: { school: { $exists: true, $ne: null }, active: true } },
+                { 
+                    $group: {
+                        _id: "$school",
+                        totalStudentCount: { $sum: "$studentCount" }
+                    }
+                }
+            ]);
+
+            // Подготавливаем bulk операции для обновления
+            const bulkOperations = schoolStats.map(stat => ({
+                updateOne: {
+                    filter: { _id: stat._id },
+                    update: { $set: { studentCount: stat.totalStudentCount } }
+                }
+            }));
+
+            if (bulkOperations.length > 0) {
+                await School.bulkWrite(bulkOperations);
+                console.log(`✅ Обновлено studentCount для ${bulkOperations.length} школ`);
+            }
+        } catch (error) {
+            console.error("❌ Ошибка при обновлении studentCount школ:", error);
+        }
     }
 
     /**
@@ -211,7 +247,8 @@ export class SchoolService {
                 districtCode: Number(row[1]) || 0,
                 code: Number(row[2]),
                 name: String(row[3]),
-                address: String(row[4]) || ''
+                address: String(row[4]) || '',
+                studentCount: Number(row[5]) || 0
             }));
 
             // Filter correct schools
@@ -244,12 +281,30 @@ export class SchoolService {
                     address: schoolData.address,
                     districtCode: schoolData.districtCode,
                     district: district?._id as Types.ObjectId,
+                    studentCount: schoolData.studentCount || 0,
                     active: true
                 };
             });
 
             const createdSchools = await School.insertMany(schoolsToCreate);
             processedData.push(...createdSchools.map(s => s.toObject() as ISchool));
+
+            // Обновляем studentCount для существующих школ из Excel
+            if (existingSchoolCodes.length > 0) {
+                const existingSchoolsToUpdate = correctSchoolsToInsert.filter(data => existingSchoolCodes.includes(data.code));
+                
+                const bulkUpdateOperations = existingSchoolsToUpdate.map(schoolData => ({
+                    updateOne: {
+                        filter: { code: schoolData.code },
+                        update: { $set: { studentCount: schoolData.studentCount || 0 } }
+                    }
+                }));
+
+                if (bulkUpdateOperations.length > 0) {
+                    await School.bulkWrite(bulkUpdateOperations);
+                    console.log(`✅ Обновлено studentCount для ${bulkUpdateOperations.length} существующих школ`);
+                }
+            }
 
             // Clean up
             deleteFile(filePath);
