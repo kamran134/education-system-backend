@@ -250,8 +250,7 @@ export class SchoolService {
                 districtCode: Number(row[1]) || 0,
                 code: Number(row[2]),
                 name: String(row[3]),
-                address: String(row[4]) || '',
-                studentCount: Number(row[5]) || 0
+                studentCount: Number(row[4]) || 0
             }));
 
             // Filter correct schools
@@ -277,11 +276,9 @@ export class SchoolService {
             // Create schools
             const schoolsToCreate: ISchoolCreate[] = newSchools.map(schoolData => {
                 const district = districtMap.get(schoolData.districtCode);
-
                 return {
                     code: schoolData.code,
                     name: schoolData.name,
-                    address: schoolData.address,
                     districtCode: schoolData.districtCode,
                     district: district?._id as Types.ObjectId,
                     studentCount: schoolData.studentCount || 0,
