@@ -13,9 +13,13 @@ export class ExamController {
 
     getExams = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
+            console.log('Exam Controller - Query params:', req.query);
+            
             const pagination = RequestParser.parsePagination(req);
             const filters = RequestParser.parseFilterOptions(req);
             const sort = RequestParser.parseSorting(req, 'date', 'desc');
+
+            console.log('Exam Controller - Parsed filters:', filters);
 
             const result = await this.examUseCase.getFilteredExams(pagination, filters, sort);
 
@@ -24,6 +28,7 @@ export class ExamController {
                 totalCount: result.totalCount
             }, 'Exams retrieved successfully'));
         } catch (error) {
+            console.error('Exam Controller - Error:', error);
             next(error);
         }
     }

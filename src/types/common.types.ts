@@ -22,6 +22,8 @@ export interface FilterOptions {
     code?: number;
     examIds?: Types.ObjectId[];
     month?: string;
+    year?: string;
+    search?: string;
     active?: boolean;
     dateFrom?: string;
     dateTo?: string;
