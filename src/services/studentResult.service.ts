@@ -578,8 +578,9 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
                 disciplines: {
                     az: Number(result.az) || 0,
                     math: Number(result.math) || 0,
-                    lifeKnowledge: Number(result.lifeKnowledge) || 0,
-                    logic: Number(result.logic) || 0
+                    lifeKnowledge: Number(result.lifeKnowledge) || undefined,
+                    logic: Number(result.logic) || undefined,
+                    english: Number(result.english) || undefined
                 },
                 questionCounts: {
                     az: Number(result.azCount) || 0,
