@@ -499,12 +499,17 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
             lastName: String(row[4]),
             firstName: String(row[5]),
             middleName: String(row[6]),
-            az: Number(row[7]),
-            math: Number(row[8]),
-            lifeKnowledge: Number(row[2]) === 5 ? 0 : Number(row[9]),
-            logic: Number(row[2]) === 5 ? Number(row[9]) : Number(row[10]),
-            totalScore: Number(row[2]) === 5 ? Number(row[10]) : Number(row[11]),
-            level: Number(row[2]) === 5 ? String(row[11]) : String(row[12])
+            az: Number(row[2]) >= 5 ? Number(row[8]) : Number(row[7]), // 5+ sinif üçün az = row[8], digərləri üçün row[7]
+            math: Number(row[2]) >= 5 ? Number(row[10]) : Number(row[8]), // 5+ sinif üçün math = row[10], digərləri üçün row[8]
+            lifeKnowledge: Number(row[2]) >= 5 ? undefined : Number(row[9]), // 5+ sinif üçün lifeKnowledge mövcud deyil
+            logic: Number(row[2]) >= 5 ? undefined : Number(row[10]), // 5+ sinif üçün logic mövcud deyil
+            english: Number(row[2]) >= 5 ? Number(row[12]) : undefined, // 5+ sinif üçün english = row[12], digərləri üçün mövcud deyil
+            // ---------------------------------------------------------------------
+            azCount: Number(row[2]) >= 5 ? Number(row[7]) : undefined,
+            mathCount: Number(row[2]) >= 5 ? Number(row[9]) : undefined,
+            englishCount: Number(row[2]) >= 5 ? Number(row[11]) : undefined,
+            totalScore: Number(row[2]) >= 5 ? Number(row[13]) : Number(row[11]),
+            level: Number(row[2]) >= 5 ? String(row[14]) : String(row[12])
         }));
 
         const studentDataToInsert = rows.slice(3).map(row => ({
@@ -525,13 +530,13 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
         // нужны только те студенты, которые есть в базе и те, у кого totalScore = az + math + lifeKnowledge + logic
         const filtredResults = resultReadedData.filter(result => 
             students.map(student => student.code).includes(result.studentCode)
-            && result.totalScore === (result.az + result.math + result.lifeKnowledge + result.logic)
+            && result.totalScore === (result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0))
             && result.totalScore > 0
         );
 
         const studentsWithIncorrectResults = resultReadedData.filter(result => 
             students.map(student => student.code).includes(result.studentCode)
-            && result.totalScore !== (result.az + result.math + result.lifeKnowledge + result.logic)
+            && result.totalScore !== (result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0))
             && result.totalScore > 0
         );
 
@@ -575,6 +580,11 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
                     math: Number(result.math) || 0,
                     lifeKnowledge: Number(result.lifeKnowledge) || 0,
                     logic: Number(result.logic) || 0
+                },
+                questionCounts: {
+                    az: Number(result.azCount) || 0,
+                    math: Number(result.mathCount) || 0,
+                    english: Number(result.englishCount) || 0
                 },
                 totalScore: result.totalScore,
                 level: result.level,

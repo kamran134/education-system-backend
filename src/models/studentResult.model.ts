@@ -8,6 +8,7 @@ export interface IStudentResultInput {
     exam: mongoose.Types.ObjectId;
     grade: number;
     disciplines: IDiscipline;
+    questionCounts: IDiscipline;
     totalScore: number;
     level: string;
     participationScore: number;
@@ -25,8 +26,14 @@ export interface IStudentResultFileInput {
     middleName: string;
     az: number;
     math: number;
-    lifeKnowledge: number;
-    logic: number;
+    lifeKnowledge?: number;
+    logic?: number;
+    english?: number;
+    azCount: number;
+    mathCount: number;
+    lifeKnowledgeCount?: number;
+    logicCount?: number;
+    englishCount?: number;
     totalScore: number;
     participationScore: number;
     level: string;
@@ -36,12 +43,8 @@ export interface IStudentResult extends Document {
     student: IStudent;
     exam: IExam;
     grade: number;
-    disciplines: {
-        az: number;
-        math: number;
-        lifeKnowledge: number;
-        logic: number;
-    };
+    disciplines: IDiscipline;
+    questionCounts: IDiscipline;
     totalScore: number;
     level: string;
     score: number;
@@ -58,12 +61,8 @@ export interface IStudentResultDetails extends Document {
     student: IStudent;
     exam: IExam;
     grade: number;
-    disciplines: {
-        az: number;
-        math: number;
-        lifeKnowledge: number;
-        logic: number;
-    };
+    disciplines: IDiscipline;
+    questionCounts: IDiscipline;
     totalScore: number;
     level: string;
     score: number;
@@ -88,8 +87,16 @@ const StudentResultSchema: Schema = new Schema({
     disciplines: {
         az: { type: Number, required: true },
         math: { type: Number, required: true },
-        lifeKnowledge: { type: Number, required: true },
-        logic: { type: Number, required: true },
+        lifeKnowledge: { type: Number, required: false },
+        logic: { type: Number, required: false },
+        english: { type: Number, required: false },
+    },
+    questionCounts: {
+        az: { type: Number, required: true },
+        math: { type: Number, required: true },
+        lifeKnowledge: { type: Number, required: false },
+        logic: { type: Number, required: false },
+        english: { type: Number, required: false },
     },
     totalScore: { type: Number, required: true },
     score: { type: Number, required: true },
