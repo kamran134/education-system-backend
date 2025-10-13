@@ -694,15 +694,15 @@ export class StatsService {
             // Подготавливаем bulk операции для обновления места
             const bulkOperations = [];
             let currentPlace = 1;
-            let previousScore = null;
+            let previousScore = 0;
 
             for (let i = 0; i < students.length; i++) {
                 const student = students[i];
                 
                 // Если это первый студент или балл изменился
-                if (i === 0 || (previousScore !== null && student.score < previousScore)) {
+                if (student.score < previousScore) {
                     // Место = позиция в отсортированном списке + 1
-                    currentPlace = i + 1;
+                    currentPlace++;
                 }
                 // Если балл такой же, как у предыдущего, место остается тем же
 
