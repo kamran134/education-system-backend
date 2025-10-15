@@ -1,8 +1,9 @@
 import { Request } from "express";
-import Teacher, { ITeacher, ITeacherInput, ITeacherCreate } from "../models/teacher.model";
+import Teacher, { ITeacher, ITeacherCreate } from "../models/teacher.model";
+import Student from "../models/student.model";
 import School from "../models/school.model";
 import District from "../models/district.model";
-import { DeleteResult, Types } from "mongoose";
+import { Types } from "mongoose";
 import { deleteStudentsByTeacherId, deleteStudentsByTeachersIds } from "./student.service";
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult, FileProcessingResult } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
@@ -22,24 +23,23 @@ export class TeacherService {
         });
         
         // Получаем всех студентов с teacher и score
-        const Student = require('../models/student.model').default;
-        const students = await Student.find({}, { teacher: 1, score: 1 });
+        const students = await Student.find({}, { teacher: 1, score: 1 }).populate('teacher', 'studentCount');
+        
         // Группируем по teacher
-        const statsMap = new Map<string, { sum: number, count: number }>();
+        const statsMap = new Map<string, { sum: number, studentCount: number }>();
         for (const student of students) {
-            const teacherId = student.teacher?.toString();
+            const teacherId = student.teacher?._id?.toString();
             if (!teacherId) continue;
             const score = typeof student.score === 'number' ? student.score : 0;
             if (!statsMap.has(teacherId)) {
-                statsMap.set(teacherId, { sum: 0, count: 0 });
+                statsMap.set(teacherId, { sum: 0, studentCount: student.teacher?.studentCount || 0 });
             }
             const stat = statsMap.get(teacherId)!;
             stat.sum += score;
-            stat.count += 1;
         }
         // Обновляем каждого учителя
-        for (const [teacherId, { sum, count }] of statsMap.entries()) {
-            const average = count > 0 ? sum / count : 0;
+        for (const [teacherId, { sum, studentCount }] of statsMap.entries()) {
+            const average = sum > 0 ? sum / studentCount : 0;
             await Teacher.findByIdAndUpdate(teacherId, {
                 score: sum,
                 averageScore: average

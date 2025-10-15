@@ -22,23 +22,22 @@ export class DistrictService {
         });
         
         // Получаем всех студентов с district и score
-        const students = await Student.find({}, { district: 1, score: 1 });
+        const students = await Student.find({}, { district: 1, score: 1 }).populate('district', 'studentCount');
         // Группируем по district
-        const statsMap = new Map<string, { sum: number, count: number }>();
+        const statsMap = new Map<string, { sum: number, studentCount: number }>();
         for (const student of students) {
-            const districtId = student.district?.toString();
+            const districtId = student.district?._id?.toString();
             if (!districtId) continue;
             const score = typeof student.score === 'number' ? student.score : 0;
             if (!statsMap.has(districtId)) {
-                statsMap.set(districtId, { sum: 0, count: 0 });
+                statsMap.set(districtId, { sum: 0, studentCount: student.district?.studentCount || 0 });
             }
             const stat = statsMap.get(districtId)!;
             stat.sum += score;
-            stat.count += 1;
         }
         // Обновляем каждый район
-        for (const [districtId, { sum, count }] of statsMap.entries()) {
-            const average = count > 0 ? sum / count : 0;
+        for (const [districtId, { sum, studentCount }] of statsMap.entries()) {
+            const average = studentCount > 0 ? sum / studentCount : 0;
             await District.findByIdAndUpdate(districtId, {
                 score: sum,
                 averageScore: average

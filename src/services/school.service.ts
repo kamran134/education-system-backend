@@ -24,23 +24,22 @@ export class SchoolService {
         });
         
         // Получаем всех студентов с school и score
-        const students = await Student.find({}, { school: 1, score: 1 });
+        const students = await Student.find({}, { school: 1, score: 1 }).populate('school', 'studentCount');
         // Группируем по school
-        const statsMap = new Map<string, { sum: number, count: number }>();
+        const statsMap = new Map<string, { sum: number, studentCount: number }>();
         for (const student of students) {
-            const schoolId = student.school?.toString();
+            const schoolId = student.school?._id?.toString();
             if (!schoolId) continue;
             const score = typeof student.score === 'number' ? student.score : 0;
             if (!statsMap.has(schoolId)) {
-                statsMap.set(schoolId, { sum: 0, count: 0 });
+                statsMap.set(schoolId, { sum: 0, studentCount: student.school?.studentCount || 0 });
             }
             const stat = statsMap.get(schoolId)!;
             stat.sum += score;
-            stat.count += 1;
         }
         // Обновляем каждую школу
-        for (const [schoolId, { sum, count }] of statsMap.entries()) {
-            const average = count > 0 ? sum / count : 0;
+        for (const [schoolId, { sum, studentCount }] of statsMap.entries()) {
+            const average = studentCount > 0 ? sum / studentCount : 0;
             await School.findByIdAndUpdate(schoolId, {
                 score: sum,
                 averageScore: average
