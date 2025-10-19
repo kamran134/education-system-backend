@@ -19,8 +19,7 @@ export class SchoolService {
         console.log("🧹 Обнуляем статистику школ...");
         await School.updateMany({}, { 
             score: 0, 
-            averageScore: 0, 
-            studentCount: 0 
+            averageScore: 0,
         });
         
         // Получаем всех студентов с school и score
