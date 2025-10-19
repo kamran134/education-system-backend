@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDistrictStatistics = exports.getSchoolStatistics = exports.getTeacherStatistics = exports.getStatisticsByExam = exports.getStudentsStatistics = exports.updateStatistics = exports.StatsController = void 0;
+exports.getDistrictStatistics = exports.getSchoolStatistics = exports.getTeacherStatistics = exports.getStatisticsByExam = exports.getStudentsOfMonthByRepublic = exports.getStudentsOfMonth = exports.getDevelopingStudents = exports.getStudentsStatistics = exports.updateStatistics = exports.StatsController = void 0;
 const stats_usecase_1 = require("../usecases/stats.usecase");
 const stats_service_1 = require("../services/stats.service");
 const request_parser_util_1 = require("../utils/request-parser.util");
@@ -57,6 +57,69 @@ class StatsController {
             }
         });
     }
+    getDevelopingStudents(req, res) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { month: req.query.month, sortColumn: req.query.sortColumn, sortDirection: req.query.sortDirection });
+                const students = yield this.statsUseCase.getDevelopingStudents(filters);
+                res.status(200).json(response_handler_util_1.ResponseHandler.success(students));
+            }
+            catch (error) {
+                console.error('Error in getDevelopingStudents:', error);
+                if (error.message.includes('Month is required') || error.message.includes('format')) {
+                    res.status(400).json(response_handler_util_1.ResponseHandler.badRequest(error.message));
+                }
+                else if (error.message.includes('No exams found')) {
+                    res.status(404).json(response_handler_util_1.ResponseHandler.notFound(error.message));
+                }
+                else {
+                    res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Error fetching developing students', error));
+                }
+            }
+        });
+    }
+    getStudentsOfMonth(req, res) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { month: req.query.month, sortColumn: req.query.sortColumn, sortDirection: req.query.sortDirection });
+                const students = yield this.statsUseCase.getStudentsOfMonth(filters);
+                res.status(200).json(response_handler_util_1.ResponseHandler.success(students));
+            }
+            catch (error) {
+                console.error('Error in getStudentsOfMonth:', error);
+                if (error.message.includes('Month is required') || error.message.includes('format')) {
+                    res.status(400).json(response_handler_util_1.ResponseHandler.badRequest(error.message));
+                }
+                else if (error.message.includes('No exams found')) {
+                    res.status(404).json(response_handler_util_1.ResponseHandler.notFound(error.message));
+                }
+                else {
+                    res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Error fetching students of month', error));
+                }
+            }
+        });
+    }
+    getStudentsOfMonthByRepublic(req, res) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { month: req.query.month, sortColumn: req.query.sortColumn, sortDirection: req.query.sortDirection });
+                const students = yield this.statsUseCase.getStudentsOfMonthByRepublic(filters);
+                res.status(200).json(response_handler_util_1.ResponseHandler.success(students));
+            }
+            catch (error) {
+                console.error('Error in getStudentsOfMonthByRepublic:', error);
+                if (error.message.includes('Month is required') || error.message.includes('format')) {
+                    res.status(400).json(response_handler_util_1.ResponseHandler.badRequest(error.message));
+                }
+                else if (error.message.includes('No exams found')) {
+                    res.status(404).json(response_handler_util_1.ResponseHandler.notFound(error.message));
+                }
+                else {
+                    res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Error fetching students of month by republic', error));
+                }
+            }
+        });
+    }
     getStatisticsByExam(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
@@ -78,7 +141,7 @@ class StatsController {
     getTeacherStatistics(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 20 });
+                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 100 });
                 const statistics = yield this.statsUseCase.getTeacherStatistics(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(statistics));
             }
@@ -91,7 +154,7 @@ class StatsController {
     getSchoolStatistics(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 20 });
+                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 100 });
                 const statistics = yield this.statsUseCase.getSchoolStatistics(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(statistics));
             }
@@ -104,7 +167,7 @@ class StatsController {
     getDistrictStatistics(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
-                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 20 });
+                const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 100 });
                 const statistics = yield this.statsUseCase.getDistrictStatistics(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(statistics));
             }
@@ -122,12 +185,17 @@ const updateStatistics = (req, res) => statsController.updateStatistics(req, res
 exports.updateStatistics = updateStatistics;
 const getStudentsStatistics = (req, res) => statsController.getStudentsStatistics(req, res);
 exports.getStudentsStatistics = getStudentsStatistics;
+const getDevelopingStudents = (req, res) => statsController.getDevelopingStudents(req, res);
+exports.getDevelopingStudents = getDevelopingStudents;
+const getStudentsOfMonth = (req, res) => statsController.getStudentsOfMonth(req, res);
+exports.getStudentsOfMonth = getStudentsOfMonth;
+const getStudentsOfMonthByRepublic = (req, res) => statsController.getStudentsOfMonthByRepublic(req, res);
+exports.getStudentsOfMonthByRepublic = getStudentsOfMonthByRepublic;
 const getStatisticsByExam = (req, res) => statsController.getStatisticsByExam(req, res);
 exports.getStatisticsByExam = getStatisticsByExam;
 const getTeacherStatistics = (req, res) => statsController.getTeacherStatistics(req, res);
 exports.getTeacherStatistics = getTeacherStatistics;
 const getSchoolStatistics = (req, res) => statsController.getSchoolStatistics(req, res);
 exports.getSchoolStatistics = getSchoolStatistics;
-// Add district statistics export if it doesn't exist in the original controller
 const getDistrictStatistics = (req, res) => statsController.getDistrictStatistics(req, res);
 exports.getDistrictStatistics = getDistrictStatistics;

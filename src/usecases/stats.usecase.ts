@@ -33,6 +33,33 @@ export class StatsUseCase {
         return await this.statsService.getStudentStatistics(filters);
     }
 
+    async getDevelopingStudents(filters: StatisticsFilter): Promise<IStudentResult[]> {
+        const validation = this.validateStatisticsFilter(filters);
+        if (!validation.isValid) {
+            throw new Error(validation.errors.join(', '));
+        }
+
+        return await this.statsService.getDevelopingStudents(filters);
+    }
+
+    async getStudentsOfMonth(filters: StatisticsFilter): Promise<IStudentResult[]> {
+        const validation = this.validateStatisticsFilter(filters);
+        if (!validation.isValid) {
+            throw new Error(validation.errors.join(', '));
+        }
+
+        return await this.statsService.getStudentsOfMonth(filters);
+    }
+
+    async getStudentsOfMonthByRepublic(filters: StatisticsFilter): Promise<IStudentResult[]> {
+        const validation = this.validateStatisticsFilter(filters);
+        if (!validation.isValid) {
+            throw new Error(validation.errors.join(', '));
+        }
+
+        return await this.statsService.getStudentsOfMonthByRepublic(filters);
+    }
+
     async getStatisticsByExam(examId: string): Promise<{
         studentsOfMonth: IStudentResult[];
         studentsOfMonthByRepublic: IStudentResult[];

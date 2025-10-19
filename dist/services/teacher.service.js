@@ -14,6 +14,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.deleteTeachersByIds = exports.deleteTeacherById = exports.getFiltredTeachers = exports.checkExistingTeacherCodes = exports.checkExistingTeachers = exports.TeacherService = void 0;
 const teacher_model_1 = __importDefault(require("../models/teacher.model"));
+const student_model_1 = __importDefault(require("../models/student.model"));
 const school_model_1 = __importDefault(require("../models/school.model"));
 const district_model_1 = __importDefault(require("../models/district.model"));
 const mongoose_1 = require("mongoose");
@@ -27,32 +28,90 @@ class TeacherService {
      */
     updateTeachersStats() {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a;
+            var _a, _b, _c;
+            // Сначала обнуляем статистику всех учителей
+            console.log("🧹 Обнуляем статистику учителей...");
+            yield teacher_model_1.default.updateMany({}, {
+                score: 0,
+                averageScore: 0,
+            });
             // Получаем всех студентов с teacher и score
-            const Student = require('../models/student.model').default;
-            const students = yield Student.find({}, { teacher: 1, score: 1 });
+            const students = yield student_model_1.default.find({}, { teacher: 1, score: 1 }).populate('teacher', 'studentCount');
             // Группируем по teacher
             const statsMap = new Map();
             for (const student of students) {
-                const teacherId = (_a = student.teacher) === null || _a === void 0 ? void 0 : _a.toString();
+                const teacherId = (_b = (_a = student.teacher) === null || _a === void 0 ? void 0 : _a._id) === null || _b === void 0 ? void 0 : _b.toString();
                 if (!teacherId)
                     continue;
                 const score = typeof student.score === 'number' ? student.score : 0;
                 if (!statsMap.has(teacherId)) {
-                    statsMap.set(teacherId, { sum: 0, count: 0 });
+                    statsMap.set(teacherId, { sum: 0, studentCount: ((_c = student.teacher) === null || _c === void 0 ? void 0 : _c.studentCount) || 0 });
                 }
                 const stat = statsMap.get(teacherId);
                 stat.sum += score;
-                stat.count += 1;
             }
             // Обновляем каждого учителя
-            for (const [teacherId, { sum, count }] of statsMap.entries()) {
-                const average = count > 0 ? sum / count : 0;
+            for (const [teacherId, { sum, studentCount }] of statsMap.entries()) {
+                const average = sum > 0 ? sum / studentCount : 0;
                 yield teacher_model_1.default.findByIdAndUpdate(teacherId, {
-                    studentCount: count,
                     score: sum,
                     averageScore: average
                 });
+            }
+            // Обновляем место в рейтинге (place) для всех учителей
+            console.log("🏆 Обновляем рейтинг учителей (place)...");
+            yield this.updateTeacherPlaces();
+        });
+    }
+    /**
+     * Обновляет место в рейтинге (place) для всех учителей на основе их averageScore
+     */
+    updateTeacherPlaces() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                // Получаем всех учителей, отсортированных по averageScore в убывающем порядке
+                const teachers = yield teacher_model_1.default.find({ averageScore: { $exists: true }, active: true })
+                    .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                    .select('_id averageScore code');
+                if (teachers.length === 0) {
+                    console.log("Нет учителей с averageScore для установки места в рейтинге.");
+                    return;
+                }
+                // Подготавливаем bulk операции для обновления места
+                const bulkOperations = [];
+                let currentPlace = 0;
+                let previousScore = null;
+                for (let i = 0; i < teachers.length; i++) {
+                    const teacher = teachers[i];
+                    // Если это первый учитель или балл изменился
+                    if (i === 0 || (previousScore !== null && teacher.averageScore < previousScore)) {
+                        // Место = позиция в отсортированном списке + 1
+                        currentPlace++;
+                    }
+                    // Если балл такой же, как у предыдущего, место остается тем же
+                    bulkOperations.push({
+                        updateOne: {
+                            filter: { _id: teacher._id },
+                            update: { $set: { place: currentPlace } }
+                        }
+                    });
+                    previousScore = teacher.averageScore;
+                }
+                // Выполняем массовое обновление мест
+                if (bulkOperations.length > 0) {
+                    yield teacher_model_1.default.bulkWrite(bulkOperations);
+                    console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} учителей`);
+                    // Показываем статистику рейтинга
+                    const topTeacher = teachers[0];
+                    const lastTeacher = teachers[teachers.length - 1];
+                    console.log(`🥇 Лидер рейтинга учителей: ${topTeacher.averageScore} баллов (место 1)`);
+                    console.log(`📊 Всего в рейтинге: ${teachers.length} учителей`);
+                    console.log(`🔢 Диапазон баллов: ${lastTeacher.averageScore} - ${topTeacher.averageScore}`);
+                }
+            }
+            catch (error) {
+                console.error("❌ Ошибка при обновлении места в рейтинге учителей:", error);
+                throw error;
             }
         });
     }
@@ -143,7 +202,8 @@ class TeacherService {
                     districtCode: Number(row[1]) || 0,
                     schoolCode: Number(row[2]) || 0,
                     code: Number(row[3]),
-                    fullname: String(row[4])
+                    fullname: String(row[4]),
+                    studentCount: Number(row[5]) || 0
                 }));
                 // Filter correct teachers
                 const correctTeachersToInsert = dataToInsert.filter(data => data.code > 999999);
@@ -171,11 +231,26 @@ class TeacherService {
                         fullname: teacherData.fullname,
                         school: school === null || school === void 0 ? void 0 : school._id,
                         district: district === null || district === void 0 ? void 0 : district._id,
+                        studentCount: teacherData.studentCount || 0,
                         active: true
                     };
                 });
                 const createdTeachers = yield teacher_model_1.default.insertMany(teachersToCreate);
                 processedData.push(...createdTeachers.map(t => t.toObject()));
+                // Обновляем studentCount для существующих учителей из Excel
+                if (existingTeacherCodes.length > 0) {
+                    const existingTeachersToUpdate = correctTeachersToInsert.filter(data => existingTeacherCodes.includes(data.code));
+                    const bulkUpdateOperations = existingTeachersToUpdate.map(teacherData => ({
+                        updateOne: {
+                            filter: { code: teacherData.code },
+                            update: { $set: { studentCount: teacherData.studentCount || 0 } }
+                        }
+                    }));
+                    if (bulkUpdateOperations.length > 0) {
+                        yield teacher_model_1.default.bulkWrite(bulkUpdateOperations);
+                        console.log(`✅ Обновлено studentCount для ${bulkUpdateOperations.length} существующих учителей`);
+                    }
+                }
                 // Clean up
                 (0, file_service_1.deleteFile)(filePath);
                 return {

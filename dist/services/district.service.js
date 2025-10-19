@@ -27,31 +27,133 @@ class DistrictService {
      */
     updateDistrictsStats() {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a;
+            var _a, _b, _c;
+            // Сначала обнуляем статистику всех районов
+            console.log("🧹 Обнуляем статистику районов...");
+            yield district_model_1.default.updateMany({}, {
+                score: 0,
+                averageScore: 0,
+            });
             // Получаем всех студентов с district и score
-            const students = yield student_model_1.default.find({}, { district: 1, score: 1 });
+            const students = yield student_model_1.default.find({}, { district: 1, score: 1 }).populate('district', 'studentCount');
             // Группируем по district
             const statsMap = new Map();
             for (const student of students) {
-                const districtId = (_a = student.district) === null || _a === void 0 ? void 0 : _a.toString();
+                const districtId = (_b = (_a = student.district) === null || _a === void 0 ? void 0 : _a._id) === null || _b === void 0 ? void 0 : _b.toString();
                 if (!districtId)
                     continue;
                 const score = typeof student.score === 'number' ? student.score : 0;
                 if (!statsMap.has(districtId)) {
-                    statsMap.set(districtId, { sum: 0, count: 0 });
+                    statsMap.set(districtId, { sum: 0, studentCount: ((_c = student.district) === null || _c === void 0 ? void 0 : _c.studentCount) || 0 });
                 }
                 const stat = statsMap.get(districtId);
                 stat.sum += score;
-                stat.count += 1;
             }
             // Обновляем каждый район
-            for (const [districtId, { sum, count }] of statsMap.entries()) {
-                const average = count > 0 ? sum / count : 0;
+            for (const [districtId, { sum, studentCount }] of statsMap.entries()) {
+                const average = studentCount > 0 ? sum / studentCount : 0;
                 yield district_model_1.default.findByIdAndUpdate(districtId, {
-                    studentCount: count,
                     score: sum,
                     averageScore: average
                 });
+            }
+            // ЗАКОММЕНТИРОВАНО: Обновление studentCount из суммы школ (количество студентов устанавливается только вручную или через Excel)
+            // console.log("👥 Обновляем количество студентов районов из суммы школ...");
+            // await this.updateDistrictStudentCountFromSchools();
+            // Обновляем место в рейтинге (place) для всех районов
+            console.log("🏆 Обновляем рейтинг районов (place)...");
+            yield this.updateDistrictPlaces();
+        });
+    }
+    /**
+     * ЗАКОММЕНТИРОВАНО: Обновляет studentCount районов из суммы studentCount их школ
+     * (количество студентов устанавливается только вручную или через Excel)
+     */
+    /*
+    private async updateDistrictStudentCountFromSchools(): Promise<void> {
+        try {
+            // Получаем агрегацию по районам с суммой studentCount школ
+            const districtStats = await School.aggregate([
+                { $match: { district: { $exists: true, $ne: null }, active: true } },
+                {
+                    $group: {
+                        _id: "$district",
+                        totalStudentCount: { $sum: "$studentCount" }
+                    }
+                }
+            ]);
+
+            // Подготавливаем bulk операции для обновления
+            const bulkOperations = districtStats.map(stat => ({
+                updateOne: {
+                    filter: { _id: stat._id },
+                    update: { $set: { studentCount: stat.totalStudentCount } }
+                }
+            }));
+
+            if (bulkOperations.length > 0) {
+                await District.bulkWrite(bulkOperations);
+                console.log(`✅ Обновлено studentCount для ${bulkOperations.length} районов`);
+            }
+        } catch (error) {
+            console.error("❌ Ошибка при обновлении studentCount районов:", error);
+        }
+    }
+    */
+    /**
+     * Обновляет место в рейтинге (place) для всех районов на основе их averageScore
+     */
+    updateDistrictPlaces() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                console.log("🔍 DEBUG: Начинаем обновление мест районов...");
+                // Получаем все районы, отсортированные по averageScore в убывающем порядке
+                const districts = yield district_model_1.default.find({ averageScore: { $exists: true } })
+                    .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                    .select('_id averageScore code active');
+                console.log(`🔍 DEBUG: Найдено ${districts.length} районов с averageScore`);
+                if (districts.length > 0) {
+                    console.log(`🔍 DEBUG: Первые 3 района:`, districts.slice(0, 3).map(d => `${d.code}: ${d.averageScore} (active: ${d.active})`));
+                }
+                if (districts.length === 0) {
+                    console.log("❌ Нет районов с averageScore для установки места в рейтинге.");
+                    return;
+                }
+                // Подготавливаем bulk операции для обновления места
+                const bulkOperations = [];
+                let currentPlace = 0;
+                let previousScore = null;
+                for (let i = 0; i < districts.length; i++) {
+                    const district = districts[i];
+                    // Если это первый район или балл изменился
+                    if (i === 0 || (previousScore !== null && district.averageScore < previousScore)) {
+                        // Место = позиция в отсортированном списке + 1
+                        currentPlace++;
+                    }
+                    // Если балл такой же, как у предыдущего, место остается тем же
+                    bulkOperations.push({
+                        updateOne: {
+                            filter: { _id: district._id },
+                            update: { $set: { place: currentPlace } }
+                        }
+                    });
+                    previousScore = district.averageScore;
+                }
+                // Выполняем массовое обновление мест
+                if (bulkOperations.length > 0) {
+                    yield district_model_1.default.bulkWrite(bulkOperations);
+                    console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} районов`);
+                    // Показываем статистику рейтинга
+                    const topDistrict = districts[0];
+                    const lastDistrict = districts[districts.length - 1];
+                    console.log(`🥇 Лидер рейтинга районов: ${topDistrict.averageScore} баллов (место 1)`);
+                    console.log(`📊 Всего в рейтинге: ${districts.length} районов`);
+                    console.log(`🔢 Диапазон баллов: ${lastDistrict.averageScore} - ${topDistrict.averageScore}`);
+                }
+            }
+            catch (error) {
+                console.error("❌ Ошибка при обновлении места в рейтинге районов:", error);
+                throw error;
             }
         });
     }
@@ -153,7 +255,8 @@ class DistrictService {
                 const rows = data.slice(3); // Skip header rows
                 const dataToInsert = rows.map(row => ({
                     code: Number(row[1]),
-                    name: String(row[2])
+                    name: String(row[2]),
+                    studentCount: Number(row[3]) || 0
                 }));
                 // Filter valid districts
                 const validDistricts = dataToInsert.filter(data => data.code > 0 && data.name);
@@ -166,10 +269,25 @@ class DistrictService {
                 const districtsToCreate = newDistricts.map(districtData => ({
                     code: districtData.code,
                     name: districtData.name,
+                    studentCount: districtData.studentCount || 0,
                     active: true
                 }));
                 const createdDistricts = yield district_model_1.default.insertMany(districtsToCreate);
                 processedData.push(...createdDistricts.map(d => d.toObject()));
+                // Обновляем studentCount для существующих районов из Excel
+                if (existingDistrictCodes.length > 0) {
+                    const existingDistrictsToUpdate = validDistricts.filter(data => existingDistrictCodes.includes(data.code));
+                    const bulkUpdateOperations = existingDistrictsToUpdate.map(districtData => ({
+                        updateOne: {
+                            filter: { code: districtData.code },
+                            update: { $set: { studentCount: districtData.studentCount || 0 } }
+                        }
+                    }));
+                    if (bulkUpdateOperations.length > 0) {
+                        yield district_model_1.default.bulkWrite(bulkUpdateOperations);
+                        console.log(`✅ Обновлено studentCount для ${bulkUpdateOperations.length} существующих районов`);
+                    }
+                }
                 // Clean up
                 (0, file_service_1.deleteFile)(filePath);
                 return {

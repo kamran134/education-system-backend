@@ -44,6 +44,7 @@ const TeacherSchema = new mongoose_1.Schema({
     studentCount: { type: Number, required: false },
     status: { type: String, required: false },
     teacherOfTheYearScore: { type: Number, required: false, default: 0 },
+    place: { type: Number, required: false },
     active: { type: Boolean, required: false, default: true },
 });
 exports.default = mongoose_1.default.model("Teacher", TeacherSchema);

@@ -32,6 +32,33 @@ class StatsUseCase {
             return yield this.statsService.getStudentStatistics(filters);
         });
     }
+    getDevelopingStudents(filters) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const validation = this.validateStatisticsFilter(filters);
+            if (!validation.isValid) {
+                throw new Error(validation.errors.join(', '));
+            }
+            return yield this.statsService.getDevelopingStudents(filters);
+        });
+    }
+    getStudentsOfMonth(filters) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const validation = this.validateStatisticsFilter(filters);
+            if (!validation.isValid) {
+                throw new Error(validation.errors.join(', '));
+            }
+            return yield this.statsService.getStudentsOfMonth(filters);
+        });
+    }
+    getStudentsOfMonthByRepublic(filters) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const validation = this.validateStatisticsFilter(filters);
+            if (!validation.isValid) {
+                throw new Error(validation.errors.join(', '));
+            }
+            return yield this.statsService.getStudentsOfMonthByRepublic(filters);
+        });
+    }
     getStatisticsByExam(examId) {
         return __awaiter(this, void 0, void 0, function* () {
             const validation = validation_util_1.ValidationUtils.combine([

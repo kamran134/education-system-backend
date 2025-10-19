@@ -12,17 +12,17 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.logout = exports.checkRole = exports.approveUser = exports.register = exports.me = exports.refreshToken = exports.login = void 0;
+exports.forceCleanupTokens = exports.getTokenStatistics = exports.getActiveSessions = exports.logoutFromAllDevices = exports.logout = exports.checkRole = exports.approveUser = exports.register = exports.me = exports.refreshToken = exports.login = void 0;
 const bcrypt_1 = __importDefault(require("bcrypt"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const express_validator_1 = require("express-validator");
 const user_model_1 = __importDefault(require("../models/user.model"));
+const token_service_1 = __importDefault(require("../services/token.service"));
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "superrefreshsecret";
-// Хранилище refresh токенов (в продакшене должно быть в Redis/DB)
-const refreshTokens = new Set();
+// Refresh токены теперь хранятся в MongoDB в коллекции пользователей
 const generateTokens = (userId, role) => {
     const accessToken = jsonwebtoken_1.default.sign({ userId, role }, JWT_SECRET, { expiresIn: "15m" } // Короткий срок для access token
     );
@@ -49,16 +49,30 @@ const login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             return;
         }
         const { accessToken, refreshToken } = generateTokens(String(user._id), user.role);
-        // Сохраняем refresh token
-        refreshTokens.add(refreshToken);
+        console.log('[LOGIN] Generated tokens for user:', user.email);
+        // Сохраняем refresh token в базе данных и обновляем время последнего входа
+        yield user_model_1.default.findByIdAndUpdate(user._id, {
+            $push: { refreshTokens: refreshToken },
+            lastLoginAt: new Date()
+        });
+        console.log('[LOGIN] Saved refresh token to database');
+        // Ограничиваем количество активных сессий (максимум 5 устройств)
+        yield token_service_1.default.limitUserTokens(String(user._id), 5);
         // Устанавливаем refresh token в httpOnly cookie
-        res.cookie("refreshToken", refreshToken, {
+        const cookieOptions = {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
             maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
             path: "/"
-        });
+        };
+        // В production указываем domain для работы с поддоменами
+        if (process.env.NODE_ENV === "production") {
+            cookieOptions.domain = ".kpm.az";
+        }
+        // В development НЕ указываем domain - так cookie будет работать для всех портов localhost
+        res.cookie("refreshToken", refreshToken, cookieOptions);
+        console.log('[LOGIN] Set refresh token cookie with sameSite:', process.env.NODE_ENV === "production" ? "none" : "lax");
         res.json({
             success: true,
             message: "Uğurlu avtorizasiya",
@@ -85,7 +99,20 @@ exports.login = login;
 // Новый эндпоинт для обновления токена
 const refreshToken = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     const { refreshToken } = req.cookies;
-    if (!refreshToken || !refreshTokens.has(refreshToken)) {
+    console.log('[REFRESH TOKEN] Request received, token exists:', !!refreshToken);
+    if (!refreshToken) {
+        console.log('[REFRESH TOKEN] No refresh token found in cookies');
+        res.status(401).json({
+            success: false,
+            message: "Refresh token yoxdur və ya düzgün deyil!"
+        });
+        return;
+    }
+    // Проверяем токен в базе данных
+    const userWithToken = yield user_model_1.default.findOne({ refreshTokens: refreshToken });
+    console.log('[REFRESH TOKEN] User found with token:', !!userWithToken);
+    if (!userWithToken) {
+        console.log('[REFRESH TOKEN] No user found with this refresh token');
         res.status(401).json({
             success: false,
             message: "Refresh token yoxdur və ya düzgün deyil!"
@@ -93,30 +120,51 @@ const refreshToken = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         return;
     }
     try {
+        console.log('[REFRESH TOKEN] Verifying token...');
         const decoded = jsonwebtoken_1.default.verify(refreshToken, JWT_REFRESH_SECRET);
-        // Проверяем, что пользователь все еще существует и активен
-        const user = yield user_model_1.default.findById(decoded.userId);
-        if (!user || !user.isApproved) {
-            refreshTokens.delete(refreshToken);
-            res.clearCookie("refreshToken");
+        console.log('[REFRESH TOKEN] Token verified, user ID:', decoded.userId);
+        // Проверяем, что пользователь все еще существует и активен (дополнительная проверка)
+        if (!userWithToken.isApproved) {
+            // Удаляем токен из базы данных
+            yield user_model_1.default.findByIdAndUpdate(userWithToken._id, {
+                $pull: { refreshTokens: refreshToken }
+            });
+            const clearOptions = { path: "/" };
+            if (process.env.NODE_ENV === "production") {
+                clearOptions.domain = ".kpm.az";
+            }
+            res.clearCookie("refreshToken", clearOptions);
             res.status(401).json({
                 success: false,
-                message: "İstifadəçi tapılmadı və ya aktiv deyil!"
+                message: "İstifadəçi aktiv deyil!"
             });
             return;
         }
-        const { accessToken, refreshToken: newRefreshToken } = generateTokens(decoded.userId, decoded.role);
-        // Удаляем старый и добавляем новый refresh token
-        refreshTokens.delete(refreshToken);
-        refreshTokens.add(newRefreshToken);
+        console.log('[REFRESH TOKEN] Generating new tokens...');
+        const { accessToken, refreshToken: newRefreshToken } = generateTokens(String(userWithToken._id), userWithToken.role);
+        console.log('[REFRESH TOKEN] Updating tokens in database...');
+        // Сначала удаляем старый refresh token
+        yield user_model_1.default.findByIdAndUpdate(userWithToken._id, {
+            $pull: { refreshTokens: refreshToken }
+        });
+        // Затем добавляем новый refresh token
+        yield user_model_1.default.findByIdAndUpdate(userWithToken._id, {
+            $push: { refreshTokens: newRefreshToken }
+        });
+        console.log('[REFRESH TOKEN] Setting new refresh token cookie...');
         // Обновляем refresh token cookie
-        res.cookie("refreshToken", newRefreshToken, {
+        const cookieOptions = {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
             maxAge: 7 * 24 * 60 * 60 * 1000,
             path: "/"
-        });
+        };
+        if (process.env.NODE_ENV === "production") {
+            cookieOptions.domain = ".kpm.az";
+        }
+        res.cookie("refreshToken", newRefreshToken, cookieOptions);
+        console.log('[REFRESH TOKEN] Sending successful response...');
         res.json({
             success: true,
             data: {
@@ -125,8 +173,20 @@ const refreshToken = (req, res) => __awaiter(void 0, void 0, void 0, function* (
         });
     }
     catch (error) {
-        refreshTokens.delete(refreshToken);
-        res.clearCookie("refreshToken");
+        console.log('[REFRESH TOKEN] Error occurred:', error);
+        console.log('[REFRESH TOKEN] Error message:', error instanceof Error ? error.message : 'Unknown error');
+        console.log('[REFRESH TOKEN] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+        // Удаляем некорректный токен из базы данных
+        if (userWithToken) {
+            yield user_model_1.default.findByIdAndUpdate(userWithToken._id, {
+                $pull: { refreshTokens: refreshToken }
+            });
+        }
+        const clearOptions = { path: "/" };
+        if (process.env.NODE_ENV === "production") {
+            clearOptions.domain = ".kpm.az";
+        }
+        res.clearCookie("refreshToken", clearOptions);
         res.status(401).json({
             success: false,
             message: "Düzgün olmayan refresh token!"
@@ -233,9 +293,14 @@ const logout = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { refreshToken } = req.cookies;
         if (refreshToken) {
-            refreshTokens.delete(refreshToken);
+            // Удаляем токен из базы данных
+            yield user_model_1.default.updateOne({ refreshTokens: refreshToken }, { $pull: { refreshTokens: refreshToken } });
         }
-        res.clearCookie("refreshToken");
+        const clearOptions = { path: "/" };
+        if (process.env.NODE_ENV === "production") {
+            clearOptions.domain = ".kpm.az";
+        }
+        res.clearCookie("refreshToken", clearOptions);
         res.json({
             success: true,
             message: "Çıxış edildi!"
@@ -250,3 +315,112 @@ const logout = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     }
 });
 exports.logout = logout;
+// Выход из всех устройств (удаляет все refresh токены пользователя)
+const logoutFromAllDevices = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    try {
+        const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId; // Из middleware авторизации
+        if (!userId) {
+            res.status(401).json({
+                success: false,
+                message: "Avtorizasiya tələb olunur!"
+            });
+            return;
+        }
+        // Удаляем все refresh токены пользователя
+        yield user_model_1.default.findByIdAndUpdate(userId, {
+            $set: { refreshTokens: [] }
+        });
+        const clearOptions = { path: "/" };
+        if (process.env.NODE_ENV === "production") {
+            clearOptions.domain = ".kpm.az";
+        }
+        res.clearCookie("refreshToken", clearOptions);
+        res.json({
+            success: true,
+            message: "Bütün cihazlardan çıxış edildi!"
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            message: "Çıxış zamanı xəta!"
+        });
+        console.error(error);
+    }
+});
+exports.logoutFromAllDevices = logoutFromAllDevices;
+// Получить информацию об активных сессиях
+const getActiveSessions = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a, _b;
+    try {
+        const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
+        if (!userId) {
+            res.status(401).json({
+                success: false,
+                message: "Avtorizasiya tələb olunur!"
+            });
+            return;
+        }
+        const user = yield user_model_1.default.findById(userId).select('refreshTokens lastLoginAt');
+        if (!user) {
+            res.status(404).json({
+                success: false,
+                message: "İstifadəçi tapılmadı!"
+            });
+            return;
+        }
+        res.json({
+            success: true,
+            data: {
+                activeSessionsCount: ((_b = user.refreshTokens) === null || _b === void 0 ? void 0 : _b.length) || 0,
+                lastLoginAt: user.lastLoginAt,
+                currentSession: !!req.cookies.refreshToken
+            }
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            message: "Sessiya məlumatları alınarkən xəta!"
+        });
+        console.error(error);
+    }
+});
+exports.getActiveSessions = getActiveSessions;
+// Админский эндпоинт для статистики токенов
+const getTokenStatistics = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const stats = yield token_service_1.default.getTokenStatistics();
+        res.json({
+            success: true,
+            data: stats
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            message: "Token statistikası alınarkən xəta!"
+        });
+        console.error(error);
+    }
+});
+exports.getTokenStatistics = getTokenStatistics;
+// Админский эндпоинт для принудительной очистки токенов
+const forceCleanupTokens = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        yield token_service_1.default.cleanupExpiredTokens();
+        res.json({
+            success: true,
+            message: "Köhnə tokenlər təmizləndi!"
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            success: false,
+            message: "Token təmizlənməsi zamanı xəta!"
+        });
+        console.error(error);
+    }
+});
+exports.forceCleanupTokens = forceCleanupTokens;

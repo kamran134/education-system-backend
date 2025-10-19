@@ -17,6 +17,10 @@ const UserSchema = new mongoose_1.default.Schema({
     email: { type: String, required: true, unique: true },
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ["superadmin", "admin", "moderator", "teacher", "user"], default: "user" },
-    isApproved: { type: Boolean, default: false }
+    isApproved: { type: Boolean, default: false },
+    refreshTokens: { type: [String], default: [] }, // Массив активных refresh токенов
+    lastLoginAt: { type: Date } // Последний вход
+}, {
+    timestamps: true // Автоматически добавит createdAt и updatedAt
 });
 exports.default = mongoose_1.default.model("User", UserSchema);

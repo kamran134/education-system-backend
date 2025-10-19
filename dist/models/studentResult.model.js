@@ -41,8 +41,16 @@ const StudentResultSchema = new mongoose_1.Schema({
     disciplines: {
         az: { type: Number, required: true },
         math: { type: Number, required: true },
-        lifeKnowledge: { type: Number, required: true },
-        logic: { type: Number, required: true },
+        lifeKnowledge: { type: Number, required: false },
+        logic: { type: Number, required: false },
+        english: { type: Number, required: false },
+    },
+    questionCounts: {
+        az: { type: Number, required: true },
+        math: { type: Number, required: true },
+        lifeKnowledge: { type: Number, required: false },
+        logic: { type: Number, required: false },
+        english: { type: Number, required: false },
     },
     totalScore: { type: Number, required: true },
     score: { type: Number, required: true },

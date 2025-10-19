@@ -23,15 +23,23 @@ const morgan_1 = __importDefault(require("morgan"));
 const helmet_1 = __importDefault(require("helmet"));
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const errorHandler_1 = require("./middleware/errorHandler");
+const token_service_1 = require("./services/token.service");
 dotenv_1.default.config();
 (0, db_1.default)();
+// Запускаем планировщик очистки токенов
+(0, token_service_1.startTokenCleanupScheduler)();
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5000;
 // Middleware
 app.use((0, helmet_1.default)());
 app.use((0, morgan_1.default)("dev"));
 app.use((0, cors_1.default)({
-    origin: ['http://localhost:4200', 'http://localhost:5173', 'https://isim.kpm.az'],
+    origin: [
+        'http://localhost:4200',
+        'http://localhost:5173',
+        'https://isim.kpm.az',
+        'https://newisim.kpm.az'
+    ],
     credentials: true
 }));
 app.use(express_1.default.json());
@@ -56,7 +64,7 @@ app.use("/api/student-results", studentResult_routes_1.default);
 app.use("/api/stats", stat_routes_1.default);
 app.use("/api/users", user_routes_1.default);
 app.use("/api/user-settings", userSettings_routes_1.default);
-app.use("/auth", auth_routes_1.default);
+app.use("/api/auth", auth_routes_1.default);
 app.use((req, res, next) => {
     res.status(404).json({ message: 'Məlumat tapılmadı' });
 });

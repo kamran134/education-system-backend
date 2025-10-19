@@ -158,10 +158,60 @@ class ExamService {
             const { start, end } = request_parser_util_1.RequestParser.parseCodeRange(filters.code, 3);
             filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
         }
+        // Поиск по названию или коду экзамена
+        if (filters.search && filters.search.trim() !== '') {
+            const searchTerm = filters.search.trim();
+            console.log('Building search filter for:', searchTerm);
+            try {
+                const searchRegex = new RegExp(searchTerm, 'i'); // case-insensitive поиск
+                const searchConditions = [
+                    { name: searchRegex }
+                ];
+                // Если поиск содержит только цифры, ищем также по коду
+                const searchNumber = parseInt(searchTerm);
+                if (!isNaN(searchNumber)) {
+                    searchConditions.push({ code: searchNumber });
+                }
+                filter.$or = searchConditions;
+                console.log('Search filter built successfully:', filter.$or);
+            }
+            catch (regexError) {
+                console.error('Error building regex:', regexError);
+                // Если regex не может быть создан, ищем только по коду (если это число)
+                const searchNumber = parseInt(searchTerm);
+                if (!isNaN(searchNumber)) {
+                    filter.code = searchNumber;
+                }
+            }
+        }
+        // Фильтр по году
+        if (filters.year) {
+            const year = parseInt(filters.year);
+            if (!isNaN(year)) {
+                const startOfYear = new Date(year, 0, 1);
+                const endOfYear = new Date(year + 1, 0, 1);
+                filter.date = Object.assign(Object.assign({}, filter.date), { $gte: startOfYear, $lt: endOfYear });
+            }
+        }
+        // Фильтр по месяцу (работает вместе с годом или отдельно)
+        if (filters.month) {
+            const month = parseInt(filters.month);
+            if (!isNaN(month) && month >= 1 && month <= 12) {
+                // Если год не указан, используем текущий год
+                const year = filters.year ? parseInt(filters.year) : new Date().getFullYear();
+                const startOfMonth = new Date(year, month - 1, 1);
+                const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
+                filter.date = {
+                    $gte: startOfMonth,
+                    $lte: endOfMonth
+                };
+            }
+        }
         if (filters.active !== undefined) {
             filter.active = filters.active;
         }
-        if (filters.dateFrom || filters.dateTo) {
+        // Поддержка для dateFrom/dateTo (если не используются year/month фильтры)
+        if (!filters.year && !filters.month && (filters.dateFrom || filters.dateTo)) {
             filter.date = {};
             if (filters.dateFrom) {
                 filter.date.$gte = new Date(filters.dateFrom);
@@ -170,6 +220,7 @@ class ExamService {
                 filter.date.$lte = new Date(filters.dateTo);
             }
         }
+        console.log('Exam filter built:', JSON.stringify(filter, null, 2)); // Для отладки
         return filter;
     }
 }

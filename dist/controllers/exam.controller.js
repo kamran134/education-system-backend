@@ -18,9 +18,11 @@ class ExamController {
     constructor() {
         this.getExams = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
             try {
+                console.log('Exam Controller - Query params:', req.query);
                 const pagination = request_parser_util_1.RequestParser.parsePagination(req);
                 const filters = request_parser_util_1.RequestParser.parseFilterOptions(req);
                 const sort = request_parser_util_1.RequestParser.parseSorting(req, 'date', 'desc');
+                console.log('Exam Controller - Parsed filters:', filters);
                 const result = yield this.examUseCase.getFilteredExams(pagination, filters, sort);
                 res.json(response_handler_util_1.ResponseHandler.success({
                     data: result.data,
@@ -28,6 +30,7 @@ class ExamController {
                 }, 'Exams retrieved successfully'));
             }
             catch (error) {
+                console.error('Exam Controller - Error:', error);
                 next(error);
             }
         });

@@ -330,6 +330,90 @@ export class StatsService {
         return { studentsOfMonth, studentsOfMonthByRepublic, developingStudents };
     }
 
+    // Отдельный метод для получения развивающихся студентов
+    async getDevelopingStudents(filters: StatisticsFilter): Promise<IStudentResult[]> {
+        if (!filters.month) {
+            throw new Error('Month is required');
+        }
+
+        const { startDate, endDate } = RequestParser.parseMonthRange(filters.month);
+
+        let examIds: Types.ObjectId[];
+        if (filters.examIds && filters.examIds.length > 0) {
+            examIds = filters.examIds;
+        } else {
+            const exams = await Exam.find({ date: { $gte: startDate, $lt: endDate } }).select('_id');
+            examIds = exams.map(e => e._id as Types.ObjectId);
+        }
+
+        if (examIds.length === 0) {
+            throw new Error('No exams found for the specified month');
+        }
+
+        // Build aggregation pipeline
+        const pipeline = this.buildStudentStatsPipeline(filters, examIds);
+        const studentResults = await StudentResult.aggregate(pipeline);
+        
+        // Фильтруем только развивающихся студентов
+        return studentResults.filter(r => r.developmentScore && r.developmentScore > 0);
+    }
+
+    // Отдельный метод для получения студентов месяца
+    async getStudentsOfMonth(filters: StatisticsFilter): Promise<IStudentResult[]> {
+        if (!filters.month) {
+            throw new Error('Month is required');
+        }
+
+        const { startDate, endDate } = RequestParser.parseMonthRange(filters.month);
+
+        let examIds: Types.ObjectId[];
+        if (filters.examIds && filters.examIds.length > 0) {
+            examIds = filters.examIds;
+        } else {
+            const exams = await Exam.find({ date: { $gte: startDate, $lt: endDate } }).select('_id');
+            examIds = exams.map(e => e._id as Types.ObjectId);
+        }
+
+        if (examIds.length === 0) {
+            throw new Error('No exams found for the specified month');
+        }
+
+        // Build aggregation pipeline
+        const pipeline = this.buildStudentStatsPipeline(filters, examIds);
+        const studentResults = await StudentResult.aggregate(pipeline);
+        
+        // Фильтруем только студентов месяца (по районам)
+        return studentResults.filter(r => r.studentOfTheMonthScore && r.studentOfTheMonthScore > 0);
+    }
+
+    // Отдельный метод для получения студентов месяца по республике
+    async getStudentsOfMonthByRepublic(filters: StatisticsFilter): Promise<IStudentResult[]> {
+        if (!filters.month) {
+            throw new Error('Month is required');
+        }
+
+        const { startDate, endDate } = RequestParser.parseMonthRange(filters.month);
+
+        let examIds: Types.ObjectId[];
+        if (filters.examIds && filters.examIds.length > 0) {
+            examIds = filters.examIds;
+        } else {
+            const exams = await Exam.find({ date: { $gte: startDate, $lt: endDate } }).select('_id');
+            examIds = exams.map(e => e._id as Types.ObjectId);
+        }
+
+        if (examIds.length === 0) {
+            throw new Error('No exams found for the specified month');
+        }
+
+        // Build aggregation pipeline
+        const pipeline = this.buildStudentStatsPipeline(filters, examIds);
+        const studentResults = await StudentResult.aggregate(pipeline);
+        
+        // Фильтруем только студентов месяца по республике
+        return studentResults.filter(r => r.republicWideStudentOfTheMonthScore && r.republicWideStudentOfTheMonthScore > 0);
+    }
+
     async getStatisticsByExam(examId: string): Promise<{
         studentsOfMonth: IStudentResult[];
         studentsOfMonthByRepublic: IStudentResult[];

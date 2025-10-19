@@ -49,6 +49,75 @@ export class StatsController {
         }
     }
 
+    async getDevelopingStudents(req: Request, res: Response): Promise<void> {
+        try {
+            const filters = {
+                ...RequestParser.parseFilterOptions(req),
+                month: req.query.month as string,
+                sortColumn: req.query.sortColumn as string,
+                sortDirection: req.query.sortDirection as string
+            };
+
+            const students = await this.statsUseCase.getDevelopingStudents(filters);
+            res.status(200).json(ResponseHandler.success(students));
+        } catch (error: any) {
+            console.error('Error in getDevelopingStudents:', error);
+            if (error.message.includes('Month is required') || error.message.includes('format')) {
+                res.status(400).json(ResponseHandler.badRequest(error.message));
+            } else if (error.message.includes('No exams found')) {
+                res.status(404).json(ResponseHandler.notFound(error.message));
+            } else {
+                res.status(500).json(ResponseHandler.internalError('Error fetching developing students', error));
+            }
+        }
+    }
+
+    async getStudentsOfMonth(req: Request, res: Response): Promise<void> {
+        try {
+            const filters = {
+                ...RequestParser.parseFilterOptions(req),
+                month: req.query.month as string,
+                sortColumn: req.query.sortColumn as string,
+                sortDirection: req.query.sortDirection as string
+            };
+
+            const students = await this.statsUseCase.getStudentsOfMonth(filters);
+            res.status(200).json(ResponseHandler.success(students));
+        } catch (error: any) {
+            console.error('Error in getStudentsOfMonth:', error);
+            if (error.message.includes('Month is required') || error.message.includes('format')) {
+                res.status(400).json(ResponseHandler.badRequest(error.message));
+            } else if (error.message.includes('No exams found')) {
+                res.status(404).json(ResponseHandler.notFound(error.message));
+            } else {
+                res.status(500).json(ResponseHandler.internalError('Error fetching students of month', error));
+            }
+        }
+    }
+
+    async getStudentsOfMonthByRepublic(req: Request, res: Response): Promise<void> {
+        try {
+            const filters = {
+                ...RequestParser.parseFilterOptions(req),
+                month: req.query.month as string,
+                sortColumn: req.query.sortColumn as string,
+                sortDirection: req.query.sortDirection as string
+            };
+
+            const students = await this.statsUseCase.getStudentsOfMonthByRepublic(filters);
+            res.status(200).json(ResponseHandler.success(students));
+        } catch (error: any) {
+            console.error('Error in getStudentsOfMonthByRepublic:', error);
+            if (error.message.includes('Month is required') || error.message.includes('format')) {
+                res.status(400).json(ResponseHandler.badRequest(error.message));
+            } else if (error.message.includes('No exams found')) {
+                res.status(404).json(ResponseHandler.notFound(error.message));
+            } else {
+                res.status(500).json(ResponseHandler.internalError('Error fetching students of month by republic', error));
+            }
+        }
+    }
+
     async getStatisticsByExam(req: Request, res: Response): Promise<void> {
         try {
             const { examId } = req.params;
@@ -124,9 +193,10 @@ const statsController = new StatsController();
 
 export const updateStatistics = (req: Request, res: Response) => statsController.updateStatistics(req, res);
 export const getStudentsStatistics = (req: Request, res: Response) => statsController.getStudentsStatistics(req, res);
+export const getDevelopingStudents = (req: Request, res: Response) => statsController.getDevelopingStudents(req, res);
+export const getStudentsOfMonth = (req: Request, res: Response) => statsController.getStudentsOfMonth(req, res);
+export const getStudentsOfMonthByRepublic = (req: Request, res: Response) => statsController.getStudentsOfMonthByRepublic(req, res);
 export const getStatisticsByExam = (req: Request, res: Response) => statsController.getStatisticsByExam(req, res);
 export const getTeacherStatistics = (req: Request, res: Response) => statsController.getTeacherStatistics(req, res);
 export const getSchoolStatistics = (req: Request, res: Response) => statsController.getSchoolStatistics(req, res);
-
-// Add district statistics export if it doesn't exist in the original controller
 export const getDistrictStatistics = (req: Request, res: Response) => statsController.getDistrictStatistics(req, res);

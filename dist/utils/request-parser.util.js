@@ -5,7 +5,7 @@ const mongoose_1 = require("mongoose");
 class RequestParser {
     static parsePagination(req) {
         const page = Math.max(1, parseInt(req.query.page) || 1);
-        const size = Math.max(1, Math.min(100, parseInt(req.query.size) || 10));
+        const size = Math.max(1, Math.min(100, parseInt(req.query.size) || 100));
         const skip = (page - 1) * size;
         return { page, size, skip };
     }
@@ -32,6 +32,8 @@ class RequestParser {
             : undefined;
         const code = req.query.code ? parseInt(req.query.code) : undefined;
         const month = req.query.month;
+        const year = req.query.year;
+        const search = req.query.search;
         const active = req.query.active !== undefined ? req.query.active === 'true' : undefined;
         return {
             districtIds,
@@ -41,6 +43,8 @@ class RequestParser {
             grades,
             code,
             month,
+            year,
+            search,
             active
         };
     }

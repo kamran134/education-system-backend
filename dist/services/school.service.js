@@ -28,31 +28,122 @@ class SchoolService {
      */
     updateSchoolsStats() {
         return __awaiter(this, void 0, void 0, function* () {
-            var _a;
+            var _a, _b, _c;
+            // Сначала обнуляем статистику всех школ
+            console.log("🧹 Обнуляем статистику школ...");
+            yield school_model_1.default.updateMany({}, {
+                score: 0,
+                averageScore: 0,
+            });
             // Получаем всех студентов с school и score
-            const students = yield student_model_1.default.find({}, { school: 1, score: 1 });
+            const students = yield student_model_1.default.find({}, { school: 1, score: 1 }).populate('school', 'studentCount');
             // Группируем по school
             const statsMap = new Map();
             for (const student of students) {
-                const schoolId = (_a = student.school) === null || _a === void 0 ? void 0 : _a.toString();
+                const schoolId = (_b = (_a = student.school) === null || _a === void 0 ? void 0 : _a._id) === null || _b === void 0 ? void 0 : _b.toString();
                 if (!schoolId)
                     continue;
                 const score = typeof student.score === 'number' ? student.score : 0;
                 if (!statsMap.has(schoolId)) {
-                    statsMap.set(schoolId, { sum: 0, count: 0 });
+                    statsMap.set(schoolId, { sum: 0, studentCount: ((_c = student.school) === null || _c === void 0 ? void 0 : _c.studentCount) || 0 });
                 }
                 const stat = statsMap.get(schoolId);
                 stat.sum += score;
-                stat.count += 1;
             }
             // Обновляем каждую школу
-            for (const [schoolId, { sum, count }] of statsMap.entries()) {
-                const average = count > 0 ? sum / count : 0;
+            for (const [schoolId, { sum, studentCount }] of statsMap.entries()) {
+                const average = studentCount > 0 ? sum / studentCount : 0;
                 yield school_model_1.default.findByIdAndUpdate(schoolId, {
-                    studentCount: count,
                     score: sum,
                     averageScore: average
                 });
+            }
+            // ЗАКОММЕНТИРОВАНО: Обновление studentCount из суммы учителей (количество студентов устанавливается только вручную или через Excel)
+            // console.log("👥 Обновляем количество студентов школ из суммы учителей...");
+            // await this.updateSchoolStudentCountFromTeachers();
+            // Обновляем место в рейтинге (place) для всех школ
+            console.log("🏆 Обновляем рейтинг школ (place)...");
+            yield this.updateSchoolPlaces();
+        });
+    }
+    /**
+     * ЗАКОММЕНТИРОВАНО: Обновляет studentCount школ из суммы studentCount их учителей
+     * (количество студентов устанавливается только вручную или через Excel)
+     */
+    /*
+    private async updateSchoolStudentCountFromTeachers(): Promise<void> {
+        try {
+            // Получаем агрегацию по школам с суммой studentCount учителей
+            const schoolStats = await Teacher.aggregate([
+                { $match: { school: { $exists: true, $ne: null }, active: true } },
+                {
+                    $group: {
+                        _id: "$school",
+                        totalStudentCount: { $sum: "$studentCount" }
+                    }
+                }
+            ]);
+
+            // Подготавливаем bulk операции для обновления
+            const bulkOperations = schoolStats.map(stat => ({
+                updateOne: {
+                    filter: { _id: stat._id },
+                    update: { $set: { studentCount: stat.totalStudentCount } }
+                }
+            }));
+
+            if (bulkOperations.length > 0) {
+                await School.bulkWrite(bulkOperations);
+                console.log(`✅ Обновлено studentCount для ${bulkOperations.length} школ`);
+            }
+        } catch (error) {
+            console.error("❌ Ошибка при обновлении studentCount школ:", error);
+        }
+    }
+    */
+    /**
+     * Обновляет место в рейтинге (place) для всех школ на основе их averageScore
+     */
+    updateSchoolPlaces() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                // Получаем все школы, отсортированные по averageScore в убывающем порядке
+                const schools = yield school_model_1.default.find({ averageScore: { $exists: true }, active: true })
+                    .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                    .select('_id averageScore code');
+                if (schools.length === 0) {
+                    console.log("Нет школ с averageScore для установки места в рейтинге.");
+                    return;
+                }
+                // Подготавливаем bulk операции для обновления места
+                const bulkOperations = [];
+                let currentPlace = 0;
+                let previousScore = null;
+                for (let i = 0; i < schools.length; i++) {
+                    const school = schools[i];
+                    // Если это первая школа или балл изменился
+                    if (i === 0 || (previousScore !== null && school.averageScore < previousScore)) {
+                        // Место = позиция в отсортированном списке + 1
+                        currentPlace++;
+                    }
+                    // Если балл такой же, как у предыдущей, место остается тем же
+                    bulkOperations.push({
+                        updateOne: {
+                            filter: { _id: school._id },
+                            update: { $set: { place: currentPlace } }
+                        }
+                    });
+                    previousScore = school.averageScore;
+                }
+                // Выполняем массовое обновление мест
+                if (bulkOperations.length > 0) {
+                    yield school_model_1.default.bulkWrite(bulkOperations);
+                    console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} школ`);
+                }
+            }
+            catch (error) {
+                console.error("❌ Ошибка при обновлении места в рейтинге школ:", error);
+                throw error;
             }
         });
     }
@@ -152,7 +243,7 @@ class SchoolService {
                     districtCode: Number(row[1]) || 0,
                     code: Number(row[2]),
                     name: String(row[3]),
-                    address: String(row[4]) || ''
+                    studentCount: Number(row[4]) || 0
                 }));
                 // Filter correct schools
                 const correctSchoolsToInsert = dataToInsert.filter(data => data.code > 9999);
@@ -174,14 +265,28 @@ class SchoolService {
                     return {
                         code: schoolData.code,
                         name: schoolData.name,
-                        address: schoolData.address,
                         districtCode: schoolData.districtCode,
                         district: district === null || district === void 0 ? void 0 : district._id,
+                        studentCount: schoolData.studentCount || 0,
                         active: true
                     };
                 });
                 const createdSchools = yield school_model_1.default.insertMany(schoolsToCreate);
                 processedData.push(...createdSchools.map(s => s.toObject()));
+                // Обновляем studentCount для существующих школ из Excel
+                if (existingSchoolCodes.length > 0) {
+                    const existingSchoolsToUpdate = correctSchoolsToInsert.filter(data => existingSchoolCodes.includes(data.code));
+                    const bulkUpdateOperations = existingSchoolsToUpdate.map(schoolData => ({
+                        updateOne: {
+                            filter: { code: schoolData.code },
+                            update: { $set: { studentCount: schoolData.studentCount || 0 } }
+                        }
+                    }));
+                    if (bulkUpdateOperations.length > 0) {
+                        yield school_model_1.default.bulkWrite(bulkUpdateOperations);
+                        console.log(`✅ Обновлено studentCount для ${bulkUpdateOperations.length} существующих школ`);
+                    }
+                }
                 // Clean up
                 (0, file_service_1.deleteFile)(filePath);
                 return {
