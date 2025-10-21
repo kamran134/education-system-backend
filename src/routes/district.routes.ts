@@ -1,5 +1,5 @@
 import express from "express";
-import { createAllDistricts, createDistrict, deleteDistrict, getDistricts, updateDistrictsStats } from "../controllers/district.controller";
+import { createAllDistricts, createDistrict, deleteDistrict, getDistricts, updateDistrict, updateDistrictsStats } from "../controllers/district.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 
 const router = express.Router();
@@ -9,9 +9,10 @@ router.route("/")
     .post(authMiddleware(["superadmin", "admin"]), createDistrict);
 router.route("/addAll")
     .post(authMiddleware(["superadmin", "admin"]), createAllDistricts);
-router.route("/:id")
-    .delete(authMiddleware(["superadmin", "admin"]), deleteDistrict);
 router.route("/update-stats")
     .post(authMiddleware(["superadmin", "admin"]), updateDistrictsStats);
+router.route("/:id")
+    .put(authMiddleware(["superadmin", "admin"]), updateDistrict)
+    .delete(authMiddleware(["superadmin", "admin"]), deleteDistrict);
 
 export default router;
