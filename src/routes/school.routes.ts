@@ -8,6 +8,7 @@ const upload = multer({ dest: "uploads/" });
 
 router.route("/").get(getSchools).post(authMiddleware(["superadmin", "admin"]), createSchool);
 router.route("/filter").get(getSchoolsForFilter);
+router.route("/search").get(authMiddleware(["superadmin", "admin"]), getSchools); // For user creation search
 router.route("/upload").post(upload.single("file"), authMiddleware(["superadmin", "admin"]), createAllSchools);
 router.route("/repair").get(authMiddleware(["superadmin", "admin"]), repairSchools);
 router.route("/delete/:schoolIds").delete(authMiddleware(["superadmin", "admin"]), deleteSchools);

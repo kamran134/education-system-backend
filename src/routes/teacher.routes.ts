@@ -11,6 +11,8 @@ router.route("/")
     .post(authMiddleware(["superadmin", "admin"]), createTeacher);
 router.route("/filter")
     .get(getTeachersForFilter);
+router.route("/search")
+    .get(authMiddleware(["superadmin", "admin"]), getTeachers); // For user creation search
 router.route("/upload")
     .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), createAllTeachers);
 router.route("/repair")

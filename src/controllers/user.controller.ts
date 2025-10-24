@@ -22,11 +22,38 @@ export const createUser = async (req: Request, res: Response) => {
             return;
         }
 
+        // Check role permissions - admin cannot create superadmin
+        if (req.user?.role === 'admin' && newUser.role === 'superadmin') {
+            res.status(403).json({ message: "Admin superadmin yarada bilməz!" });
+            return;
+        }
+
         // Check if the user already exists
         const existingUser = await getUserByEmail(newUser.email);
 
         if (existingUser) {
             res.status(400).json({ message: "İstifadəçi artıq mövcuddur" });
+            return;
+        }
+
+        // Validate role-specific fields
+        if (newUser.role === 'districtRepresenter' && !newUser.districtId) {
+            res.status(400).json({ message: "Rayon nümayəndəsi üçün rayon seçilməlidir" });
+            return;
+        }
+
+        if (newUser.role === 'schoolDirector' && !newUser.schoolId) {
+            res.status(400).json({ message: "Məktəb direktoru üçün məktəb seçilməlidir" });
+            return;
+        }
+
+        if (newUser.role === 'teacher' && !newUser.teacherId) {
+            res.status(400).json({ message: "Müəllim üçün müəllim profili seçilməlidir" });
+            return;
+        }
+
+        if (newUser.role === 'student' && !newUser.studentId) {
+            res.status(400).json({ message: "Şagird üçün şagird profili seçilməlidir" });
             return;
         }
 
@@ -71,8 +98,29 @@ export const updateUser = async (req: Request, res: Response) => {
             return;
         }
 
-        if (updateRole === "superadmin") {
+        if (updateRole === "superadmin" && req.user?.role !== "superadmin") {
             res.status(403).json({ message: "Superadmin bu üsulla təyin edilə bilməz! Texniki dəstəyə müraciət edin!" });
+            return;
+        }
+
+        // Validate role-specific fields when changing role
+        if (updateRole === 'districtRepresenter' && !updateData.districtId) {
+            res.status(400).json({ message: "Rayon nümayəndəsi üçün rayon seçilməlidir" });
+            return;
+        }
+
+        if (updateRole === 'schoolDirector' && !updateData.schoolId) {
+            res.status(400).json({ message: "Məktəb direktoru üçün məktəb seçilməlidir" });
+            return;
+        }
+
+        if (updateRole === 'teacher' && !updateData.teacherId) {
+            res.status(400).json({ message: "Müəllim üçün müəllim profili seçilməlidir" });
+            return;
+        }
+
+        if (updateRole === 'student' && !updateData.studentId) {
+            res.status(400).json({ message: "Şagird üçün şagird profili seçilməlidir" });
             return;
         }
 

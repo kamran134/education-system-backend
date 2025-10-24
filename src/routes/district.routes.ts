@@ -7,6 +7,8 @@ const router = express.Router();
 router.route("/")
     .get(getDistricts)
     .post(authMiddleware(["superadmin", "admin"]), createDistrict);
+router.route("/search")
+    .get(authMiddleware(["superadmin", "admin"]), getDistricts); // Uses same endpoint with search query
 router.route("/addAll")
     .post(authMiddleware(["superadmin", "admin"]), createAllDistricts);
 router.route("/update-stats")

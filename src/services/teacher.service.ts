@@ -361,6 +361,11 @@ export class TeacherService {
             filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
         }
 
+        if (filters.search) {
+            // Search by teacher fullname (case-insensitive)
+            filter.fullname = { $regex: filters.search, $options: 'i' };
+        }
+
         if (filters.active !== undefined) {
             filter.active = filters.active;
         }

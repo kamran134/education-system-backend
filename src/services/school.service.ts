@@ -335,6 +335,11 @@ export class SchoolService {
             filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
         }
 
+        if (filters.search) {
+            // Search by school name (case-insensitive)
+            filter.name = { $regex: filters.search, $options: 'i' };
+        }
+
         if (filters.active !== undefined) {
             filter.active = filters.active;
         }
