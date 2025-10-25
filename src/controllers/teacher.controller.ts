@@ -26,6 +26,18 @@ export class TeacherController {
             const filters = RequestParser.parseFilterOptions(req);
             const sort = RequestParser.parseSorting(req, 'name', 'asc');
 
+            // Role-based filtering
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                // District representer sees teachers from their district schools
+                filters.districtIds = [req.user.districtId as any];
+            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+                // School director sees only teachers from their school
+                filters.schoolIds = [req.user.schoolId as any];
+            } else if (req.user?.role === 'teacher' && req.user.teacherId) {
+                // Teacher sees only themselves
+                filters.teacherIds = [req.user.teacherId as any];
+            }
+
             const result = await this.teacherUseCase.getTeachers(pagination, filters, sort);
 
             res.json(ResponseHandler.success({

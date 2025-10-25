@@ -26,6 +26,15 @@ export class SchoolController {
             const filters = RequestParser.parseFilterOptions(req);
             const sort = RequestParser.parseSorting(req, 'averageScore', 'desc');
 
+            // Role-based filtering
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                // District representer sees only schools in their district
+                filters.districtIds = [req.user.districtId as any];
+            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+                // School director sees only their school
+                filters.schoolIds = [req.user.schoolId as any];
+            }
+
             const result = await this.schoolUseCase.getSchools(pagination, filters, sort);
 
             res.json(ResponseHandler.success({

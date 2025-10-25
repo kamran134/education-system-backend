@@ -7,12 +7,12 @@ const router = express.Router();
 const upload = multer({ dest: "uploads/" });
 
 router.route("/")
-    .get(getTeachers)
+    .get(authMiddleware([]), getTeachers) // Allow all authenticated users
     .post(authMiddleware(["superadmin", "admin"]), createTeacher);
 router.route("/filter")
-    .get(getTeachersForFilter);
+    .get(authMiddleware([]), getTeachersForFilter); // Allow all authenticated users
 router.route("/search")
-    .get(authMiddleware(["superadmin", "admin"]), getTeachers); // For user creation search
+    .get(authMiddleware([]), getTeachers); // Allow all authenticated users
 router.route("/upload")
     .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), createAllTeachers);
 router.route("/repair")
@@ -22,7 +22,7 @@ router.route("/update-stats")
 router.route("/delete/:teacherIds")
     .delete(authMiddleware(["superadmin", "admin"]), deleteTeachers);
 router.route("/:id")
-    .get(getTeacherById)
+    .get(authMiddleware([]), getTeacherById) // Allow all authenticated users
     .put(authMiddleware(["superadmin", "admin"]), updateTeacher)
     .delete(authMiddleware(["superadmin", "admin"]), deleteTeacher);
 

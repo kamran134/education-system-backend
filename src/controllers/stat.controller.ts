@@ -35,6 +35,15 @@ export class StatsController {
                 sortDirection: req.query.sortDirection as string
             };
 
+            // Apply RBAC filtering
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [req.user.districtId as any];
+            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+                filters.schoolIds = [req.user.schoolId as any];
+            } else if (req.user?.role === 'teacher' && req.user.teacherId) {
+                filters.teacherIds = [req.user.teacherId as any];
+            }
+
             const statistics = await this.statsUseCase.getStudentStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));
         } catch (error: any) {
@@ -57,6 +66,15 @@ export class StatsController {
                 sortColumn: req.query.sortColumn as string,
                 sortDirection: req.query.sortDirection as string
             };
+
+            // Apply RBAC filtering
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [req.user.districtId as any];
+            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+                filters.schoolIds = [req.user.schoolId as any];
+            } else if (req.user?.role === 'teacher' && req.user.teacherId) {
+                filters.teacherIds = [req.user.teacherId as any];
+            }
 
             const students = await this.statsUseCase.getDevelopingStudents(filters);
             res.status(200).json(ResponseHandler.success(students));
@@ -81,6 +99,15 @@ export class StatsController {
                 sortDirection: req.query.sortDirection as string
             };
 
+            // Apply RBAC filtering
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [req.user.districtId as any];
+            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+                filters.schoolIds = [req.user.schoolId as any];
+            } else if (req.user?.role === 'teacher' && req.user.teacherId) {
+                filters.teacherIds = [req.user.teacherId as any];
+            }
+
             const students = await this.statsUseCase.getStudentsOfMonth(filters);
             res.status(200).json(ResponseHandler.success(students));
         } catch (error: any) {
@@ -103,6 +130,15 @@ export class StatsController {
                 sortColumn: req.query.sortColumn as string,
                 sortDirection: req.query.sortDirection as string
             };
+
+            // Apply RBAC filtering
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [req.user.districtId as any];
+            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+                filters.schoolIds = [req.user.schoolId as any];
+            } else if (req.user?.role === 'teacher' && req.user.teacherId) {
+                filters.teacherIds = [req.user.teacherId as any];
+            }
 
             const students = await this.statsUseCase.getStudentsOfMonthByRepublic(filters);
             res.status(200).json(ResponseHandler.success(students));
@@ -143,6 +179,15 @@ export class StatsController {
                 size: parseInt(req.query.size as string) || 100
             };
 
+            // Apply RBAC filtering
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [req.user.districtId as any];
+            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+                filters.schoolIds = [req.user.schoolId as any];
+            } else if (req.user?.role === 'teacher' && req.user.teacherId) {
+                filters.teacherIds = [req.user.teacherId as any];
+            }
+
             const statistics = await this.statsUseCase.getTeacherStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));
         } catch (error: any) {
@@ -161,6 +206,13 @@ export class StatsController {
                 size: parseInt(req.query.size as string) || 100
             };
 
+            // Apply RBAC filtering
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [req.user.districtId as any];
+            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+                filters.schoolIds = [req.user.schoolId as any];
+            }
+
             const statistics = await this.statsUseCase.getSchoolStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));
         } catch (error: any) {
@@ -178,6 +230,11 @@ export class StatsController {
                 page: parseInt(req.query.page as string) || 1,
                 size: parseInt(req.query.size as string) || 100
             };
+
+            // Apply RBAC filtering
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [req.user.districtId as any];
+            }
 
             const statistics = await this.statsUseCase.getDistrictStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));

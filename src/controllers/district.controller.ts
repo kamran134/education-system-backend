@@ -26,6 +26,11 @@ export class DistrictController {
             const filters = RequestParser.parseFilterOptions(req);
             const sort = RequestParser.parseSorting(req, 'name', 'asc');
 
+            // Role-based filtering: district representer sees only their district
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [req.user.districtId as any];
+            }
+
             const result = await this.districtUseCase.getFilteredDistricts(pagination, filters, sort);
 
             res.json(ResponseHandler.success({

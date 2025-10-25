@@ -10,7 +10,14 @@ const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 declare global {
     namespace Express {
         interface Request {
-            user?: { userId: string; role: string };
+            user?: { 
+                userId: string; 
+                role: string;
+                districtId?: string;
+                schoolId?: string;
+                teacherId?: string;
+                studentId?: string;
+            };
         }
     }
 }
@@ -29,7 +36,14 @@ export const authMiddleware = (roles: string[] = []) => (req: Request, res: Resp
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string; }
+        const decoded = jwt.verify(token, JWT_SECRET) as { 
+            userId: string; 
+            role: string;
+            districtId?: string;
+            schoolId?: string;
+            teacherId?: string;
+            studentId?: string;
+        }
 
         // Если роли указаны, проверяем их
         if (roles.length > 0 && !roles.includes(decoded.role)) {
@@ -65,7 +79,14 @@ export const checkAdminRole = (req: Request, res: Response, next: NextFunction) 
     const token = authHeader.substring(7);
 
     try {
-        const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string; }
+        const decoded = jwt.verify(token, JWT_SECRET) as { 
+            userId: string; 
+            role: string;
+            districtId?: string;
+            schoolId?: string;
+            teacherId?: string;
+            studentId?: string;
+        }
 
         if (decoded.role !== "admin" && decoded.role !== "superadmin") {
             res.status(403).json({ 
@@ -81,6 +102,40 @@ export const checkAdminRole = (req: Request, res: Response, next: NextFunction) 
         res.status(401).json({ 
             success: false,
             message: "Düzgün olmayan token" 
+        });
+        console.error(error);
+    }
+}
+
+export const allRegisteredRoles = (req: Request, res: Response, next: NextFunction) => {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        res.status(401).json({
+            success: false,
+            message: "Access token tələb olunur"
+        });
+        return;
+    }
+
+    const token = authHeader.substring(7);
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET) as {
+            userId: string;
+            role: string;
+            districtId?: string;
+            schoolId?: string;
+            teacherId?: string;
+            studentId?: string;
+        }
+
+        req.user = decoded;
+        next();
+    } catch (error) {
+        res.status(401).json({
+            success: false,
+            message: "Düzgün olmayan token"
         });
         console.error(error);
     }

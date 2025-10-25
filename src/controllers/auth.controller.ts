@@ -13,15 +13,23 @@ const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "superrefreshsecret
 
 // Refresh токены теперь хранятся в MongoDB в коллекции пользователей
 
-const generateTokens = (userId: string, role: string) => {
+const generateTokens = (userId: string, role: string, districtId?: string, schoolId?: string, teacherId?: string, studentId?: string) => {
+    const payload: any = { userId, role };
+    
+    // Add entity IDs based on role
+    if (districtId) payload.districtId = districtId;
+    if (schoolId) payload.schoolId = schoolId;
+    if (teacherId) payload.teacherId = teacherId;
+    if (studentId) payload.studentId = studentId;
+    
     const accessToken = jwt.sign(
-        { userId, role },
+        payload,
         JWT_SECRET,
         { expiresIn: "15m" } // Короткий срок для access token
     );
     
     const refreshToken = jwt.sign(
-        { userId, role },
+        payload,
         JWT_REFRESH_SECRET,
         { expiresIn: "7d" } // Долгий срок для refresh token
     );
@@ -50,7 +58,14 @@ export const login = async (req: Request, res: Response) => {
             return;
         }
 
-        const { accessToken, refreshToken } = generateTokens(String(user._id), user.role);
+        const { accessToken, refreshToken } = generateTokens(
+            String(user._id), 
+            user.role,
+            user.districtId ? String(user.districtId) : undefined,
+            user.schoolId ? String(user.schoolId) : undefined,
+            user.teacherId ? String(user.teacherId) : undefined,
+            user.studentId ? String(user.studentId) : undefined
+        );
         
         console.log('[LOGIN] Generated tokens for user:', user.email);
         
@@ -161,7 +176,14 @@ export const refreshToken = async (req: Request, res: Response) => {
         }
 
         console.log('[REFRESH TOKEN] Generating new tokens...');
-        const { accessToken, refreshToken: newRefreshToken } = generateTokens(String(userWithToken._id), userWithToken.role);
+        const { accessToken, refreshToken: newRefreshToken } = generateTokens(
+            String(userWithToken._id), 
+            userWithToken.role,
+            userWithToken.districtId ? String(userWithToken.districtId) : undefined,
+            userWithToken.schoolId ? String(userWithToken.schoolId) : undefined,
+            userWithToken.teacherId ? String(userWithToken.teacherId) : undefined,
+            userWithToken.studentId ? String(userWithToken.studentId) : undefined
+        );
         
         console.log('[REFRESH TOKEN] Updating tokens in database...');
         // Сначала удаляем старый refresh token

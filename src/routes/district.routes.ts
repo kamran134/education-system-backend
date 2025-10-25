@@ -5,16 +5,16 @@ import { authMiddleware } from "../middleware/auth.middleware";
 const router = express.Router();
 
 router.route("/")
-    .get(getDistricts)
+    .get(authMiddleware([]), getDistricts) // Allow all authenticated users
     .post(authMiddleware(["superadmin", "admin"]), createDistrict);
 router.route("/search")
-    .get(authMiddleware(["superadmin", "admin"]), getDistricts); // Uses same endpoint with search query
+    .get(authMiddleware([]), getDistricts); // Allow all authenticated users
 router.route("/addAll")
     .post(authMiddleware(["superadmin", "admin"]), createAllDistricts);
 router.route("/update-stats")
     .post(authMiddleware(["superadmin", "admin"]), updateDistrictsStats);
 router.route("/:id")
-    .get(getDistrictById)
+    .get(authMiddleware([]), getDistrictById) // Allow all authenticated users
     .put(authMiddleware(["superadmin", "admin"]), updateDistrict)
     .delete(authMiddleware(["superadmin", "admin"]), deleteDistrict);
 
