@@ -1,5 +1,5 @@
 import express from "express";
-import { createAllDistricts, createDistrict, deleteDistrict, getDistricts, updateDistrict, updateDistrictsStats } from "../controllers/district.controller";
+import { createAllDistricts, createDistrict, deleteDistrict, getDistrictById, getDistricts, updateDistrict, updateDistrictsStats } from "../controllers/district.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 
 const router = express.Router();
@@ -14,6 +14,7 @@ router.route("/addAll")
 router.route("/update-stats")
     .post(authMiddleware(["superadmin", "admin"]), updateDistrictsStats);
 router.route("/:id")
+    .get(getDistrictById)
     .put(authMiddleware(["superadmin", "admin"]), updateDistrict)
     .delete(authMiddleware(["superadmin", "admin"]), deleteDistrict);
 

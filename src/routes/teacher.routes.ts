@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import { createAllTeachers, createTeacher, deleteTeacher, deleteTeachers, getTeachers, getTeachersForFilter, repairTeachers, updateTeacher, updateTeachersStats } from "../controllers/teacher.controller";
+import { createAllTeachers, createTeacher, deleteTeacher, deleteTeachers, getTeacherById, getTeachers, getTeachersForFilter, repairTeachers, updateTeacher, updateTeachersStats } from "../controllers/teacher.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 
 const router = express.Router();
@@ -22,6 +22,7 @@ router.route("/update-stats")
 router.route("/delete/:teacherIds")
     .delete(authMiddleware(["superadmin", "admin"]), deleteTeachers);
 router.route("/:id")
+    .get(getTeacherById)
     .put(authMiddleware(["superadmin", "admin"]), updateTeacher)
     .delete(authMiddleware(["superadmin", "admin"]), deleteTeacher);
 
