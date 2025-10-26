@@ -1,5 +1,5 @@
 import express from 'express';
-import { allRegisteredRoles, authMiddleware } from '../middleware/auth.middleware';
+import { allRegisteredRoles } from '../middleware/auth.middleware';
 import { getUserSettings, updateUserSettings } from '../controllers/userSettings.controller';
 
 const router = express.Router();
