@@ -44,12 +44,16 @@ app.use(cors({
 app.use(express.json());
 app.use(cookieParser());
 
-// Limit requests
-const limiter = rateLimit({
+// Общий лимит для всех запросов (более мягкий)
+const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 минут
-    max: 300 // Ограничивает 100 запросов с одного IP за 15 минут
+    max: 1000, // 1000 запросов за 15 минут (~66 запросов в минуту)
+    message: { success: false, message: 'Çox sayda sorğu göndərdiniz. Zəhmət olmasa bir az gözləyin.' },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
-app.use(limiter);
+
+app.use(generalLimiter);
 
 app.get("/", (req, res) => {
     res.send("API is running!");
@@ -66,7 +70,7 @@ app.use("/api/student-results", studentResultRoutes);
 app.use("/api/stats", statRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/user-settings", userSettingsRoutes);
-app.use("/api/auth", authRoutes);
+app.use("/api/auth", authRoutes); // Auth роуты без дополнительных ограничений
 
 app.use((req, res, next) => {
     res.status(404).json({ message: 'Məlumat tapılmadı' });
