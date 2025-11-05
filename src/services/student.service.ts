@@ -125,6 +125,7 @@ export class StudentService {
 
         const [data, totalCount] = await Promise.all([
             Student.find(filter)
+                .collation({ locale: 'az', strength: 2 })
                 .populate('district school teacher')
                 .sort(sortOptions)
                 .skip(pagination.skip)
