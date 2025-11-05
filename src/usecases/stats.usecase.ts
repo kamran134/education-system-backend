@@ -20,6 +20,13 @@ export class StatsUseCase {
         }
     }
 
+    async updateAllStatistics(): Promise<void> {
+        const result = await this.statsService.updateAllStats();
+        if (result === 404) {
+            throw new Error('No results found to update statistics');
+        }
+    }
+
     async getStudentStatistics(filters: StatisticsFilter): Promise<{
         studentsOfMonth: IStudentResult[];
         studentsOfMonthByRepublic: IStudentResult[];

@@ -26,6 +26,20 @@ export class StatsController {
         }
     }
 
+    async updateAllStatistics(req: Request, res: Response): Promise<void> {
+        try {
+            await this.statsUseCase.updateAllStatistics();
+            res.status(200).json(ResponseHandler.success({}, 'All statistics updated successfully for the entire academic year'));
+        } catch (error: any) {
+            console.error('Error in updateAllStatistics:', error);
+            if (error.message.includes('No results found')) {
+                res.status(404).json(ResponseHandler.notFound(error.message));
+            } else {
+                res.status(500).json(ResponseHandler.internalError('Error updating all statistics', error));
+            }
+        }
+    }
+
     async getStudentsStatistics(req: Request, res: Response): Promise<void> {
         try {
             const filters = {
@@ -249,6 +263,7 @@ export class StatsController {
 const statsController = new StatsController();
 
 export const updateStatistics = (req: Request, res: Response) => statsController.updateStatistics(req, res);
+export const updateAllStatistics = (req: Request, res: Response) => statsController.updateAllStatistics(req, res);
 export const getStudentsStatistics = (req: Request, res: Response) => statsController.getStudentsStatistics(req, res);
 export const getDevelopingStudents = (req: Request, res: Response) => statsController.getDevelopingStudents(req, res);
 export const getStudentsOfMonth = (req: Request, res: Response) => statsController.getStudentsOfMonth(req, res);

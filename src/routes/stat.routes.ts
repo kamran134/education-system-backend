@@ -7,7 +7,8 @@ import {
     getStudentsOfMonthByRepublic,
     getStatisticsByExam, 
     getTeacherStatistics, 
-    updateStatistics, 
+    updateStatistics,
+    updateAllStatistics, 
     getDistrictStatistics 
 } from "../controllers/stat.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
@@ -15,6 +16,7 @@ import { authMiddleware } from "../middleware/auth.middleware";
 const router = express.Router();
 
 router.route("/").post(authMiddleware(["superadmin", "admin"]), updateStatistics);
+router.route("/all").post(authMiddleware(["superadmin", "admin"]), updateAllStatistics);
 router.route("/students").get(authMiddleware([]), getStudentsStatistics);
 router.route("/students/developing").get(authMiddleware([]), getDevelopingStudents);
 router.route("/students/month").get(authMiddleware([]), getStudentsOfMonth);
