@@ -1,0 +1,65 @@
+import { Request, Response, NextFunction } from "express";
+import { ExamResultsUseCase } from "../usecases/examResults.usecase";
+import { ExamResultsService } from "../services/examResults.service";
+import { RequestParser } from "../utils/request-parser.util";
+import { ResponseHandler } from "../utils/response-handler.util";
+
+export class ExamResultsController {
+    private examResultsUseCase: ExamResultsUseCase;
+
+    constructor() {
+        this.examResultsUseCase = new ExamResultsUseCase();
+    }
+
+    getExamResults = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const pagination = RequestParser.parsePagination(req);
+            const sort = RequestParser.parseSorting(req, 'exam.date', 'desc');
+            
+            // Parse filters
+            const params = {
+                search: req.query.search as string,
+                code: req.query.code ? parseInt(req.query.code as string) : undefined,
+                dateFrom: req.query.dateFrom as string,
+                dateTo: req.query.dateTo as string,
+                districtIds: req.query.districtIds ? (req.query.districtIds as string).split(',') : undefined,
+                schoolIds: req.query.schoolIds ? (req.query.schoolIds as string).split(',') : undefined,
+                teacherIds: req.query.teacherIds ? (req.query.teacherIds as string).split(',') : undefined,
+                sortColumn: sort.sortColumn,
+                sortDirection: sort.sortDirection as 'asc' | 'desc',
+                page: pagination.page,
+                size: pagination.size
+            };
+
+            const result = await this.examResultsUseCase.getExamResults(params);
+
+            res.json(ResponseHandler.success({
+                data: result.data,
+                totalCount: result.totalCount
+            }, 'Exam results retrieved successfully'));
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    getExamResultById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+            const result = await this.examResultsUseCase.getExamResultById(id);
+
+            if (!result) {
+                res.status(404).json(ResponseHandler.notFound('Exam result not found'));
+                return;
+            }
+
+            res.json(ResponseHandler.success(result, 'Exam result retrieved successfully'));
+        } catch (error) {
+            next(error);
+        }
+    }
+}
+
+const examResultsController = new ExamResultsController();
+
+export const getExamResults = examResultsController.getExamResults;
+export const getExamResultById = examResultsController.getExamResultById;
