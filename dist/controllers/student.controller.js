@@ -23,10 +23,37 @@ class StudentController {
     }
     getStudents(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c, _d;
             try {
                 const pagination = request_parser_util_1.RequestParser.parsePagination(req);
                 const filters = request_parser_util_1.RequestParser.parseFilterOptions(req);
                 const sort = request_parser_util_1.RequestParser.parseSorting(req, 'averageScore', 'desc');
+                // Role-based filtering
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    // District representer sees students from their district schools
+                    filters.districtIds = [req.user.districtId];
+                }
+                else if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) === 'schoolDirector' && req.user.schoolId) {
+                    // School director sees students from their school
+                    filters.schoolIds = [req.user.schoolId];
+                }
+                else if (((_c = req.user) === null || _c === void 0 ? void 0 : _c.role) === 'teacher' && req.user.teacherId) {
+                    // Teacher sees only their students
+                    filters.teacherIds = [req.user.teacherId];
+                }
+                else if (((_d = req.user) === null || _d === void 0 ? void 0 : _d.role) === 'student' && req.user.studentId) {
+                    // Student sees only themselves - filter by student ID
+                    // We'll need to add this filter type
+                    const studentResult = yield this.studentUseCase.getStudentById(req.user.studentId);
+                    res.status(200).json(response_handler_util_1.ResponseHandler.success({
+                        data: [studentResult],
+                        totalCount: 1,
+                        page: 1,
+                        size: 1,
+                        totalPages: 1
+                    }));
+                    return;
+                }
                 const result = yield this.studentUseCase.getStudents(pagination, filters, sort);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(result));
             }

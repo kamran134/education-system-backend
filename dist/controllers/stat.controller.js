@@ -9,7 +9,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDistrictStatistics = exports.getSchoolStatistics = exports.getTeacherStatistics = exports.getStatisticsByExam = exports.getStudentsOfMonthByRepublic = exports.getStudentsOfMonth = exports.getDevelopingStudents = exports.getStudentsStatistics = exports.updateStatistics = exports.StatsController = void 0;
+exports.getDistrictStatistics = exports.getSchoolStatistics = exports.getTeacherStatistics = exports.getStatisticsByExam = exports.getStudentsOfMonthByRepublic = exports.getStudentsOfMonth = exports.getDevelopingStudents = exports.getStudentsStatistics = exports.updateAllStatistics = exports.updateStatistics = exports.StatsController = void 0;
 const stats_usecase_1 = require("../usecases/stats.usecase");
 const stats_service_1 = require("../services/stats.service");
 const request_parser_util_1 = require("../utils/request-parser.util");
@@ -36,10 +36,38 @@ class StatsController {
             }
         });
     }
-    getStudentsStatistics(req, res) {
+    updateAllStatistics(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
             try {
+                yield this.statsUseCase.updateAllStatistics();
+                res.status(200).json(response_handler_util_1.ResponseHandler.success({}, 'All statistics updated successfully for the entire academic year'));
+            }
+            catch (error) {
+                console.error('Error in updateAllStatistics:', error);
+                if (error.message.includes('No results found')) {
+                    res.status(404).json(response_handler_util_1.ResponseHandler.notFound(error.message));
+                }
+                else {
+                    res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Error updating all statistics', error));
+                }
+            }
+        });
+    }
+    getStudentsStatistics(req, res) {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c;
+            try {
                 const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { month: req.query.month, sortColumn: req.query.sortColumn, sortDirection: req.query.sortDirection });
+                // Apply RBAC filtering
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    filters.districtIds = [req.user.districtId];
+                }
+                else if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) === 'schoolDirector' && req.user.schoolId) {
+                    filters.schoolIds = [req.user.schoolId];
+                }
+                else if (((_c = req.user) === null || _c === void 0 ? void 0 : _c.role) === 'teacher' && req.user.teacherId) {
+                    filters.teacherIds = [req.user.teacherId];
+                }
                 const statistics = yield this.statsUseCase.getStudentStatistics(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(statistics));
             }
@@ -59,8 +87,19 @@ class StatsController {
     }
     getDevelopingStudents(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c;
             try {
                 const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { month: req.query.month, sortColumn: req.query.sortColumn, sortDirection: req.query.sortDirection });
+                // Apply RBAC filtering
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    filters.districtIds = [req.user.districtId];
+                }
+                else if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) === 'schoolDirector' && req.user.schoolId) {
+                    filters.schoolIds = [req.user.schoolId];
+                }
+                else if (((_c = req.user) === null || _c === void 0 ? void 0 : _c.role) === 'teacher' && req.user.teacherId) {
+                    filters.teacherIds = [req.user.teacherId];
+                }
                 const students = yield this.statsUseCase.getDevelopingStudents(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(students));
             }
@@ -80,8 +119,19 @@ class StatsController {
     }
     getStudentsOfMonth(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c;
             try {
                 const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { month: req.query.month, sortColumn: req.query.sortColumn, sortDirection: req.query.sortDirection });
+                // Apply RBAC filtering
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    filters.districtIds = [req.user.districtId];
+                }
+                else if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) === 'schoolDirector' && req.user.schoolId) {
+                    filters.schoolIds = [req.user.schoolId];
+                }
+                else if (((_c = req.user) === null || _c === void 0 ? void 0 : _c.role) === 'teacher' && req.user.teacherId) {
+                    filters.teacherIds = [req.user.teacherId];
+                }
                 const students = yield this.statsUseCase.getStudentsOfMonth(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(students));
             }
@@ -101,8 +151,19 @@ class StatsController {
     }
     getStudentsOfMonthByRepublic(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c;
             try {
                 const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { month: req.query.month, sortColumn: req.query.sortColumn, sortDirection: req.query.sortDirection });
+                // Apply RBAC filtering
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    filters.districtIds = [req.user.districtId];
+                }
+                else if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) === 'schoolDirector' && req.user.schoolId) {
+                    filters.schoolIds = [req.user.schoolId];
+                }
+                else if (((_c = req.user) === null || _c === void 0 ? void 0 : _c.role) === 'teacher' && req.user.teacherId) {
+                    filters.teacherIds = [req.user.teacherId];
+                }
                 const students = yield this.statsUseCase.getStudentsOfMonthByRepublic(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(students));
             }
@@ -140,8 +201,19 @@ class StatsController {
     }
     getTeacherStatistics(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c;
             try {
                 const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 100 });
+                // Apply RBAC filtering
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    filters.districtIds = [req.user.districtId];
+                }
+                else if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) === 'schoolDirector' && req.user.schoolId) {
+                    filters.schoolIds = [req.user.schoolId];
+                }
+                else if (((_c = req.user) === null || _c === void 0 ? void 0 : _c.role) === 'teacher' && req.user.teacherId) {
+                    filters.teacherIds = [req.user.teacherId];
+                }
                 const statistics = yield this.statsUseCase.getTeacherStatistics(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(statistics));
             }
@@ -153,8 +225,16 @@ class StatsController {
     }
     getSchoolStatistics(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b;
             try {
                 const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 100 });
+                // Apply RBAC filtering
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    filters.districtIds = [req.user.districtId];
+                }
+                else if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) === 'schoolDirector' && req.user.schoolId) {
+                    filters.schoolIds = [req.user.schoolId];
+                }
                 const statistics = yield this.statsUseCase.getSchoolStatistics(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(statistics));
             }
@@ -166,8 +246,13 @@ class StatsController {
     }
     getDistrictStatistics(req, res) {
         return __awaiter(this, void 0, void 0, function* () {
+            var _a;
             try {
                 const filters = Object.assign(Object.assign({}, request_parser_util_1.RequestParser.parseFilterOptions(req)), { sortColumn: req.query.sortColumn || 'averageScore', sortDirection: req.query.sortDirection || 'desc', page: parseInt(req.query.page) || 1, size: parseInt(req.query.size) || 100 });
+                // Apply RBAC filtering
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    filters.districtIds = [req.user.districtId];
+                }
                 const statistics = yield this.statsUseCase.getDistrictStatistics(filters);
                 res.status(200).json(response_handler_util_1.ResponseHandler.success(statistics));
             }
@@ -183,6 +268,8 @@ exports.StatsController = StatsController;
 const statsController = new StatsController();
 const updateStatistics = (req, res) => statsController.updateStatistics(req, res);
 exports.updateStatistics = updateStatistics;
+const updateAllStatistics = (req, res) => statsController.updateAllStatistics(req, res);
+exports.updateAllStatistics = updateAllStatistics;
 const getStudentsStatistics = (req, res) => statsController.getStudentsStatistics(req, res);
 exports.getStudentsStatistics = getStudentsStatistics;
 const getDevelopingStudents = (req, res) => statsController.getDevelopingStudents(req, res);

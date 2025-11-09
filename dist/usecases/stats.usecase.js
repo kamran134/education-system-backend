@@ -23,6 +23,14 @@ class StatsUseCase {
             }
         });
     }
+    updateAllStatistics() {
+        return __awaiter(this, void 0, void 0, function* () {
+            const result = yield this.statsService.updateAllStats();
+            if (result === 404) {
+                throw new Error('No results found to update statistics');
+            }
+        });
+    }
     getStudentStatistics(filters) {
         return __awaiter(this, void 0, void 0, function* () {
             const validation = this.validateStatisticsFilter(filters);

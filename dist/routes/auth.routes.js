@@ -4,11 +4,21 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
+const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
 const auth_controller_1 = require("../controllers/auth.controller");
 const auth_middleware_1 = require("../middleware/auth.middleware");
 const router = express_1.default.Router();
+// Строгий лимит только для логина (защита от брутфорса)
+const loginLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000, // 15 минут
+    max: 10, // Максимум 10 попыток логина за 15 минут
+    message: { success: false, message: 'Çox sayda giriş cəhdi. Zəhmət olmasa 15 dəqiqə gözləyin.' },
+    skipSuccessfulRequests: true, // Не считаем успешные попытки
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 router.get("/check-role/:id", auth_controller_1.checkRole);
-router.post("/login", auth_controller_1.login);
+router.post("/login", loginLimiter, auth_controller_1.login); // Применяем строгий лимит только к login
 router.post("/register", auth_controller_1.register);
 router.post("/approve/:id", (0, auth_middleware_1.authMiddleware)(["superadmin"]), auth_controller_1.approveUser);
 router.post("/logout", auth_controller_1.logout);

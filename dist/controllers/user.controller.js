@@ -27,16 +27,39 @@ const getUsers = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
 });
 exports.getUsers = getUsers;
 const createUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     try {
         const newUser = req.body;
         if (!newUser || typeof newUser !== 'object') {
             res.status(400).json({ message: "İstifadəçi məlumatları səhvdir" });
             return;
         }
+        // Check role permissions - admin cannot create superadmin
+        if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'admin' && newUser.role === 'superadmin') {
+            res.status(403).json({ message: "Admin superadmin yarada bilməz!" });
+            return;
+        }
         // Check if the user already exists
         const existingUser = yield (0, user_service_1.getUserByEmail)(newUser.email);
         if (existingUser) {
             res.status(400).json({ message: "İstifadəçi artıq mövcuddur" });
+            return;
+        }
+        // Validate role-specific fields
+        if (newUser.role === 'districtRepresenter' && !newUser.districtId) {
+            res.status(400).json({ message: "Rayon nümayəndəsi üçün rayon seçilməlidir" });
+            return;
+        }
+        if (newUser.role === 'schoolDirector' && !newUser.schoolId) {
+            res.status(400).json({ message: "Məktəb direktoru üçün məktəb seçilməlidir" });
+            return;
+        }
+        if (newUser.role === 'teacher' && !newUser.teacherId) {
+            res.status(400).json({ message: "Müəllim üçün müəllim profili seçilməlidir" });
+            return;
+        }
+        if (newUser.role === 'student' && !newUser.studentId) {
+            res.status(400).json({ message: "Şagird üçün şagird profili seçilməlidir" });
             return;
         }
         newUser.passwordHash = yield bcrypt_1.default.hash(newUser.password, 10); // Hash the password
@@ -51,6 +74,7 @@ const createUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
 });
 exports.createUser = createUser;
 const updateUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
     try {
         const updateData = req.body;
         const id = updateData._id;
@@ -74,8 +98,25 @@ const updateUser = (req, res) => __awaiter(void 0, void 0, void 0, function* () 
             res.status(403).json({ message: "Superadmini digər istifadəçi redaktə edə bilməz!" });
             return;
         }
-        if (updateRole === "superadmin") {
+        if (updateRole === "superadmin" && ((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) !== "superadmin") {
             res.status(403).json({ message: "Superadmin bu üsulla təyin edilə bilməz! Texniki dəstəyə müraciət edin!" });
+            return;
+        }
+        // Validate role-specific fields when changing role
+        if (updateRole === 'districtRepresenter' && !updateData.districtId) {
+            res.status(400).json({ message: "Rayon nümayəndəsi üçün rayon seçilməlidir" });
+            return;
+        }
+        if (updateRole === 'schoolDirector' && !updateData.schoolId) {
+            res.status(400).json({ message: "Məktəb direktoru üçün məktəb seçilməlidir" });
+            return;
+        }
+        if (updateRole === 'teacher' && !updateData.teacherId) {
+            res.status(400).json({ message: "Müəllim üçün müəllim profili seçilməlidir" });
+            return;
+        }
+        if (updateRole === 'student' && !updateData.studentId) {
+            res.status(400).json({ message: "Şagird üçün şagird profili seçilməlidir" });
             return;
         }
         yield (0, user_service_1.editUser)(id, updateData);

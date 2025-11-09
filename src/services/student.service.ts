@@ -136,32 +136,122 @@ export class StudentService {
         return { data, totalCount };
     }
 
-    async repairStudentAssignments(): Promise<{ repairedStudents: number[], studentsWithoutTeacher: number[] }> {
-        const students = await Student.find({});
+    async repairStudentAssignments(): Promise<{ 
+        repairedStudents: number[], 
+        failedStudents: Array<{ code: number, reason: string }>,
+        missedDistricts: number[],
+        missedSchools: number[],
+        missedTeachers: number[]
+    }> {
+        // Find students with missing teacher, school, or district
+        const students = await Student.find({
+            $or: [
+                { teacher: { $exists: false } },
+                { teacher: null },
+                { school: { $exists: false } },
+                { school: null },
+                { district: { $exists: false } },
+                { district: null }
+            ]
+        });
+
+        console.log(`Found ${students.length} students with missing assignments`);
+
         const repairedStudents: number[] = [];
-        const studentsWithoutTeacher: number[] = [];
+        const failedStudents: Array<{ code: number, reason: string }> = [];
+        const missedDistricts: number[] = [];
+        const missedSchools: number[] = [];
+        const missedTeachers: number[] = [];
+
+        // Pre-fetch all teachers, schools, and districts
+        const allTeachers = await Teacher.find({});
+        const allSchools = await School.find({});
+        const allDistricts = await District.find({});
+
+        // Create maps for quick lookup by CODE
+        const teacherMap = new Map(allTeachers.map(t => [t.code, t]));
+        const schoolMap = new Map(allSchools.map(s => [s.code, s]));
+        const districtMap = new Map(allDistricts.map(d => [d.code, d]));
 
         for (const student of students) {
-            const originalStudent = { ...student.toObject() };
-            await this.assignTeacherToStudent(student);
+            try {
+                const studentCode = student.code;
+                let hasChanges = false;
+                
+                // Extract codes from student code
+                const teacherCode = Math.floor(studentCode / 1000); // 1500188
+                const schoolCode = Math.floor(studentCode / 100000); // 15001
+                const districtCode = Math.floor(studentCode / 10000000); // 150
 
-            // Check if anything changed
-            const hasChanged = 
-                String(originalStudent.teacher) !== String(student.teacher) ||
-                String(originalStudent.school) !== String(student.school) ||
-                String(originalStudent.district) !== String(student.district);
+                console.log(`Processing student ${studentCode}: teacher=${teacherCode}, school=${schoolCode}, district=${districtCode}`);
 
-            if (hasChanged) {
-                await student.save();
-                repairedStudents.push(student.code);
-            }
+                // Assign teacher if missing
+                if (!(student as any).teacher) {
+                    const teacher = teacherMap.get(teacherCode);
+                    if (teacher) {
+                        (student as any).teacher = teacher._id;
+                        hasChanges = true;
+                        console.log(`  ✓ Assigned teacher ${teacherCode}`);
+                    } else {
+                        console.log(`  ✗ Teacher ${teacherCode} not found`);
+                        missedTeachers.push(studentCode);
+                    }
+                }
 
-            if (!student.teacher) {
-                studentsWithoutTeacher.push(student.code);
+                // Assign school if missing
+                if (!(student as any).school) {
+                    const school = schoolMap.get(schoolCode);
+                    if (school) {
+                        (student as any).school = school._id;
+                        hasChanges = true;
+                        console.log(`  ✓ Assigned school ${schoolCode}`);
+                    } else {
+                        console.log(`  ✗ School ${schoolCode} not found`);
+                        missedSchools.push(studentCode);
+                    }
+                }
+
+                // Assign district if missing
+                if (!(student as any).district) {
+                    const district = districtMap.get(districtCode);
+                    if (district) {
+                        (student as any).district = district._id;
+                        hasChanges = true;
+                        console.log(`  ✓ Assigned district ${districtCode}`);
+                    } else {
+                        console.log(`  ✗ District ${districtCode} not found`);
+                        missedDistricts.push(studentCode);
+                    }
+                }
+
+                // Save if there were changes
+                if (hasChanges) {
+                    await student.save();
+                    repairedStudents.push(studentCode);
+                    console.log(`✓ Saved student ${studentCode}`);
+                }
+
+            } catch (error) {
+                console.error(`Error processing student ${student.code}:`, error);
+                failedStudents.push({ 
+                    code: student.code, 
+                    reason: `Error: ${error instanceof Error ? error.message : 'Unknown'}` 
+                });
             }
         }
 
-        return { repairedStudents, studentsWithoutTeacher };
+        console.log(`Repair complete: ${repairedStudents.length} repaired`);
+        console.log(`  Missed teachers: ${missedTeachers.length}`);
+        console.log(`  Missed schools: ${missedSchools.length}`);
+        console.log(`  Missed districts: ${missedDistricts.length}`);
+        
+        return { 
+            repairedStudents, 
+            failedStudents,
+            missedDistricts,
+            missedSchools,
+            missedTeachers
+        };
     }
 
     private async assignTeacherToStudent(student: IStudentInput | IStudent): Promise<void> {

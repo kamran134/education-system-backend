@@ -159,7 +159,12 @@ class SchoolService {
     }
     create(schoolData) {
         return __awaiter(this, void 0, void 0, function* () {
-            const school = new school_model_1.default(schoolData);
+            // Remove empty _id if present
+            const cleanData = Object.assign({}, schoolData);
+            if ('_id' in cleanData && (!cleanData._id || cleanData._id === '')) {
+                delete cleanData._id;
+            }
+            const school = new school_model_1.default(cleanData);
             return yield school.save();
         });
     }
@@ -212,6 +217,7 @@ class SchoolService {
             sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
             const [data, totalCount] = yield Promise.all([
                 school_model_1.default.find(filter)
+                    .collation({ locale: 'az', strength: 2 })
                     .populate('district')
                     .sort(sortOptions)
                     .skip(pagination.skip)
@@ -315,6 +321,10 @@ class SchoolService {
         if (filters.code) {
             const { start, end } = request_parser_util_1.RequestParser.parseCodeRange(filters.code, 5);
             filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
+        }
+        if (filters.search) {
+            // Search by school name (case-insensitive)
+            filter.name = { $regex: filters.search, $options: 'i' };
         }
         if (filters.active !== undefined) {
             filter.active = filters.active;

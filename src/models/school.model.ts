@@ -13,7 +13,7 @@ export interface ISchoolCreate {
     name: string;
     address?: string;
     code: number;
-    districtCode?: number;
+    districtCode: number;
     district: Types.ObjectId;
     score?: number;
     averageScore?: number;
@@ -45,7 +45,7 @@ const SchoolSchema: Schema = new Schema({
     address: { type: String, required: false },
     code: { type: Number, required: true, unique: true },
     districtCode: { type: Number, required: true },
-    district: { type: Types.ObjectId, ref: 'District' },
+    district: { type: Types.ObjectId, ref: 'District', required: true },
     score: { type: Number, required: false },
     averageScore: { type: Number, required: false },
     studentCount: { type: Number, required: false },

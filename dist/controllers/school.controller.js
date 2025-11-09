@@ -26,10 +26,20 @@ class SchoolController {
             }
         });
         this.getSchools = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
+            var _a, _b;
             try {
                 const pagination = request_parser_util_1.RequestParser.parsePagination(req);
                 const filters = request_parser_util_1.RequestParser.parseFilterOptions(req);
                 const sort = request_parser_util_1.RequestParser.parseSorting(req, 'averageScore', 'desc');
+                // Role-based filtering
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    // District representer sees only schools in their district
+                    filters.districtIds = [req.user.districtId];
+                }
+                else if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) === 'schoolDirector' && req.user.schoolId) {
+                    // School director sees only their school
+                    filters.schoolIds = [req.user.schoolId];
+                }
                 const result = yield this.schoolUseCase.getSchools(pagination, filters, sort);
                 res.json(response_handler_util_1.ResponseHandler.success({
                     data: result.data,

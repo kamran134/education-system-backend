@@ -18,6 +18,7 @@ const stat_routes_1 = __importDefault(require("./routes/stat.routes"));
 const user_routes_1 = __importDefault(require("./routes/user.routes"));
 const userSettings_routes_1 = __importDefault(require("./routes/userSettings.routes"));
 const auth_routes_1 = __importDefault(require("./routes/auth.routes"));
+const examResults_routes_1 = __importDefault(require("./routes/examResults.routes"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const morgan_1 = __importDefault(require("morgan"));
 const helmet_1 = __importDefault(require("helmet"));
@@ -44,12 +45,15 @@ app.use((0, cors_1.default)({
 }));
 app.use(express_1.default.json());
 app.use((0, cookie_parser_1.default)());
-// Limit requests
-const limiter = (0, express_rate_limit_1.default)({
+// Общий лимит для всех запросов (более мягкий)
+const generalLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 минут
-    max: 300 // Ограничивает 100 запросов с одного IP за 15 минут
+    max: 1000, // 1000 запросов за 15 минут (~66 запросов в минуту)
+    message: { success: false, message: 'Çox sayda sorğu göndərdiniz. Zəhmət olmasa bir az gözləyin.' },
+    standardHeaders: true,
+    legacyHeaders: false,
 });
-app.use(limiter);
+app.use(generalLimiter);
 app.get("/", (req, res) => {
     res.send("API is running!");
 });
@@ -61,10 +65,11 @@ app.use("/api/booklets", booklet_routes_1.default);
 app.use("/api/exams", exam_routes_1.default);
 app.use("/api/students", student_routes_1.default);
 app.use("/api/student-results", studentResult_routes_1.default);
+app.use("/api/exam-results", examResults_routes_1.default);
 app.use("/api/stats", stat_routes_1.default);
 app.use("/api/users", user_routes_1.default);
 app.use("/api/user-settings", userSettings_routes_1.default);
-app.use("/api/auth", auth_routes_1.default);
+app.use("/api/auth", auth_routes_1.default); // Auth роуты без дополнительных ограничений
 app.use((req, res, next) => {
     res.status(404).json({ message: 'Məlumat tapılmadı' });
 });

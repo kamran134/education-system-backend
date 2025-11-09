@@ -49,7 +49,23 @@ export class SchoolUseCase {
         return school;
     }
 
-    async createSchool(schoolData: ISchoolCreate): Promise<ISchool> {
+    async createSchool(schoolData: any): Promise<ISchool> {
+        // If district is an object (from frontend), extract _id and code
+        if (schoolData.district && typeof schoolData.district === 'object') {
+            const districtObj = schoolData.district;
+            schoolData.district = districtObj._id;
+            schoolData.districtCode = districtObj.code;
+        }
+        // If districtCode is provided but not district, find district by code
+        else if (schoolData.districtCode && !schoolData.district) {
+            const District = (await import('../models/district.model')).default;
+            const district = await District.findOne({ code: schoolData.districtCode });
+            if (!district) {
+                throw new Error(`District with code ${schoolData.districtCode} not found`);
+            }
+            schoolData.district = district._id;
+        }
+
         const validation = this.validateSchoolData(schoolData);
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
@@ -63,7 +79,7 @@ export class SchoolUseCase {
         return await this.schoolService.create(schoolData);
     }
 
-    async updateSchool(id: string, updateData: Partial<ISchoolCreate>): Promise<ISchool> {
+    async updateSchool(id: string, updateData: any): Promise<ISchool> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'School ID'),
             ValidationUtils.validateObjectId(id, 'School ID')
@@ -76,6 +92,22 @@ export class SchoolUseCase {
         const existingSchool = await this.schoolService.findById(id);
         if (!existingSchool) {
             throw new Error('School not found');
+        }
+
+        // If district is an object (from frontend), extract _id and code
+        if (updateData.district && typeof updateData.district === 'object') {
+            const districtObj = updateData.district;
+            updateData.district = districtObj._id;
+            updateData.districtCode = districtObj.code;
+        }
+        // If districtCode is provided but not district, find district by code
+        else if (updateData.districtCode && !updateData.district) {
+            const District = (await import('../models/district.model')).default;
+            const district = await District.findOne({ code: updateData.districtCode });
+            if (!district) {
+                throw new Error(`District with code ${updateData.districtCode} not found`);
+            }
+            updateData.district = district._id;
         }
 
         if (updateData.code && updateData.code !== existingSchool.code) {
@@ -132,8 +164,7 @@ export class SchoolUseCase {
         return ValidationUtils.combine([
             ValidationUtils.validateRequired(data.name, 'School name'),
             ValidationUtils.validateRequired(data.code, 'School code'),
-            ValidationUtils.validateCode(data.code, 5, 5),
-            ValidationUtils.validateRequired(data.district, 'District')
+            ValidationUtils.validateCode(data.code, 5, 5)
         ]);
     }
 }

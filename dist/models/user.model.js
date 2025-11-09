@@ -10,16 +10,26 @@ var UserRole;
     UserRole["SUPERADMIN"] = "superadmin";
     UserRole["ADMIN"] = "admin";
     UserRole["MODERATOR"] = "moderator";
+    UserRole["DISTRICT_REPRESENTER"] = "districtRepresenter";
+    UserRole["SCHOOL_DIRECTOR"] = "schoolDirector";
     UserRole["TEACHER"] = "teacher";
-    UserRole["USER"] = "user";
+    UserRole["STUDENT"] = "student";
 })(UserRole || (exports.UserRole = UserRole = {}));
 const UserSchema = new mongoose_1.default.Schema({
     email: { type: String, required: true, unique: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ["superadmin", "admin", "moderator", "teacher", "user"], default: "user" },
+    role: {
+        type: String,
+        enum: ["superadmin", "admin", "moderator", "districtRepresenter", "schoolDirector", "teacher", "student"],
+        default: "student"
+    },
     isApproved: { type: Boolean, default: false },
     refreshTokens: { type: [String], default: [] }, // Массив активных refresh токенов
-    lastLoginAt: { type: Date } // Последний вход
+    lastLoginAt: { type: Date }, // Последний вход
+    districtId: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'District', required: false },
+    schoolId: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'School', required: false },
+    teacherId: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'Teacher', required: false },
+    studentId: { type: mongoose_1.default.Schema.Types.ObjectId, ref: 'Student', required: false }
 }, {
     timestamps: true // Автоматически добавит createdAt и updatedAt
 });

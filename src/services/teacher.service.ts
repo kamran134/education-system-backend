@@ -159,6 +159,103 @@ export class TeacherService {
         };
     }
 
+    async repairTeacherAssignments(): Promise<{ 
+        repairedTeachers: number[], 
+        failedTeachers: Array<{ code: number, reason: string }>,
+        missedDistricts: number[],
+        missedSchools: number[]
+    }> {
+        // Find teachers with missing school or district
+        const teachers = await Teacher.find({
+            $or: [
+                { school: { $exists: false } },
+                { school: null },
+                { district: { $exists: false } },
+                { district: null }
+            ]
+        });
+
+        console.log(`Found ${teachers.length} teachers with missing assignments`);
+
+        const repairedTeachers: number[] = [];
+        const failedTeachers: Array<{ code: number, reason: string }> = [];
+        const missedDistricts: number[] = [];
+        const missedSchools: number[] = [];
+
+        // Pre-fetch all schools and districts
+        const allSchools = await School.find({});
+        const allDistricts = await District.find({});
+
+        // Create maps for quick lookup by CODE
+        const schoolMap = new Map(allSchools.map(s => [s.code, s]));
+        const districtMap = new Map(allDistricts.map(d => [d.code, d]));
+
+        for (const teacher of teachers) {
+            try {
+                const teacherCode = teacher.code;
+                let hasChanges = false;
+                
+                // Extract codes from teacher code (7 digits)
+                // Example: 1500188 -> school=15001 (first 5 digits), district=150 (first 3 digits)
+                const schoolCode = Math.floor(teacherCode / 100); // 15001
+                const districtCode = Math.floor(teacherCode / 10000); // 150
+
+                console.log(`Processing teacher ${teacherCode}: school=${schoolCode}, district=${districtCode}`);
+
+                // Assign school if missing
+                if (!(teacher as any).school) {
+                    const school = schoolMap.get(schoolCode);
+                    if (school) {
+                        (teacher as any).school = school._id;
+                        hasChanges = true;
+                        console.log(`  ✓ Assigned school ${schoolCode}`);
+                    } else {
+                        console.log(`  ✗ School ${schoolCode} not found`);
+                        missedSchools.push(teacherCode);
+                    }
+                }
+
+                // Assign district if missing
+                if (!(teacher as any).district) {
+                    const district = districtMap.get(districtCode);
+                    if (district) {
+                        (teacher as any).district = district._id;
+                        hasChanges = true;
+                        console.log(`  ✓ Assigned district ${districtCode}`);
+                    } else {
+                        console.log(`  ✗ District ${districtCode} not found`);
+                        missedDistricts.push(teacherCode);
+                    }
+                }
+
+                // Save if there were changes
+                if (hasChanges) {
+                    await teacher.save();
+                    repairedTeachers.push(teacherCode);
+                    console.log(`✓ Saved teacher ${teacherCode}`);
+                }
+
+            } catch (error) {
+                console.error(`Error processing teacher ${teacher.code}:`, error);
+                failedTeachers.push({ 
+                    code: teacher.code, 
+                    reason: `Error: ${error instanceof Error ? error.message : 'Unknown'}` 
+                });
+            }
+        }
+
+        console.log(`Repair complete: ${repairedTeachers.length} repaired`);
+        console.log(`  Missed schools: ${missedSchools.length}`);
+        console.log(`  Missed districts: ${missedDistricts.length}`);
+        
+        return { 
+            repairedTeachers, 
+            failedTeachers,
+            missedDistricts,
+            missedSchools
+        };
+    }
+
     async getFilteredTeachers(
         pagination: PaginationOptions,
         filters: FilterOptions,
@@ -282,63 +379,6 @@ export class TeacherService {
             deleteFile(filePath);
             throw error;
         }
-    }
-
-    async repairTeacherAssignments(): Promise<{ repairedTeachers: number[], teachersWithoutSchool: number[] }> {
-        const teachers = await Teacher.find({});
-        const repairedTeachers: number[] = [];
-        const teachersWithoutSchool: number[] = [];
-        const bulkOps: any[] = [];
-
-        for (const teacher of teachers) {
-            const teacherCode = teacher.code.toString();
-
-            if (teacherCode.length !== 7) {
-                continue;
-            }
-
-            let isUpdated = false;
-            let newDistrictId: Types.ObjectId | null = null;
-            let newSchoolId: Types.ObjectId | null = null;
-
-            // Check and fix district
-            if (!teacher.district) {
-                const districtCode = teacherCode.substring(0, 3);
-                const district = await District.findOne({ code: parseInt(districtCode) });
-                if (district) {
-                    newDistrictId = district._id as Types.ObjectId;
-                    isUpdated = true;
-                }
-            }
-
-            // Check and fix school
-            if (!teacher.school) {
-                const schoolCode = teacherCode.substring(0, 5);
-                const school = await School.findOne({ code: parseInt(schoolCode) });
-                if (school) {
-                    newSchoolId = school._id as Types.ObjectId;
-                    isUpdated = true;
-                } else {
-                    teachersWithoutSchool.push(teacher.code);
-                }
-            }
-
-            if (isUpdated) {
-                bulkOps.push({
-                    updateOne: {
-                        filter: { _id: teacher._id },
-                        update: { $set: { district: newDistrictId, school: newSchoolId } }
-                    }
-                });
-                repairedTeachers.push(teacher.code);
-            }
-        }
-
-        if (bulkOps.length > 0) {
-            await Teacher.bulkWrite(bulkOps);
-        }
-
-        return { repairedTeachers, teachersWithoutSchool };
     }
 
     async checkExistingTeacherCodes(codes: number[]): Promise<number[]> {

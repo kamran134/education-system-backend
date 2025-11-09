@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateStats = exports.resetStats = exports.StatsService = void 0;
+exports.updateAllStats = exports.updateStats = exports.resetStats = exports.StatsService = void 0;
 const exam_model_1 = __importDefault(require("../models/exam.model"));
 const district_model_1 = __importDefault(require("../models/district.model"));
 const school_model_1 = __importDefault(require("../models/school.model"));
@@ -105,6 +105,268 @@ class StatsService {
             }
             catch (error) {
                 console.error("Ошибка при обновлении статистики:", error);
+                throw error;
+            }
+        });
+    }
+    /**
+     * Обновляет статистику для всех месяцев учебного года (сентябрь-июнь)
+     * Проходит по каждому месяцу от сентября до июня и вызывает обновление статистики
+     * После завершения обновляет статистику районов, школ и учителей
+     */
+    updateAllStats() {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                console.log("🔄 Начинаем полное обновление статистики за весь учебный год...");
+                // Получаем текущую дату для определения учебного года
+                const currentDate = new Date();
+                const currentMonth = currentDate.getMonth() + 1; // 1-12
+                const currentYear = currentDate.getFullYear();
+                // Определяем учебный год: если сейчас сентябрь-декабрь, то учебный год текущий->следующий
+                // если январь-август, то учебный год предыдущий->текущий
+                let academicYearStart;
+                let academicYearEnd;
+                if (currentMonth >= 9) { // сентябрь-декабрь
+                    academicYearStart = currentYear;
+                    academicYearEnd = currentYear + 1;
+                }
+                else { // январь-август
+                    academicYearStart = currentYear - 1;
+                    academicYearEnd = currentYear;
+                }
+                console.log(`📅 Учебный год: ${academicYearStart}/${academicYearEnd}`);
+                // ============================================================
+                // ШАГ 1: ОБНУЛЕНИЕ ВСЕХ БАЛЛОВ И СТАТИСТИКИ
+                // ============================================================
+                console.log("\n🔄 Обнуляем все баллы и статистику...");
+                // Обнуляем баллы студентов
+                console.log("👨‍🎓 Обнуляем баллы студентов...");
+                yield student_model_1.default.updateMany({}, {
+                    $set: {
+                        score: 0,
+                        averageScore: 0,
+                        participationScore: 0,
+                        developmentScore: 0,
+                        studentOfTheMonthScore: 0,
+                        republicWideStudentOfTheMonthScore: 0,
+                        place: null,
+                        status: ''
+                    }
+                });
+                console.log("✅ Баллы студентов обнулены");
+                // Обнуляем баллы учителей
+                console.log("👨‍🏫 Обнуляем баллы учителей...");
+                yield teacher_model_1.default.updateMany({}, {
+                    $set: {
+                        score: 0,
+                        averageScore: 0,
+                        studentCount: 0,
+                        teacherOfTheYearScore: 0,
+                        place: null,
+                        status: ''
+                    }
+                });
+                console.log("✅ Баллы учителей обнулены");
+                // Обнуляем баллы школ
+                console.log("🏫 Обнуляем баллы школ...");
+                yield school_model_1.default.updateMany({}, {
+                    $set: {
+                        score: 0,
+                        averageScore: 0,
+                        studentCount: 0,
+                        schoolOfTheYearScore: 0,
+                        place: null,
+                        status: ''
+                    }
+                });
+                console.log("✅ Баллы школ обнулены");
+                // Обнуляем баллы районов
+                console.log("🏛️ Обнуляем баллы районов...");
+                yield district_model_1.default.updateMany({}, {
+                    $set: {
+                        score: 0,
+                        averageScore: 0,
+                        studentCount: 0,
+                        rate: 0,
+                        districtOfTheYearScore: 0,
+                        place: null
+                    }
+                });
+                console.log("✅ Баллы районов обнулены");
+                // Месяцы учебного года: сентябрь-декабрь (текущего года), январь-июнь (следующего года)
+                const academicMonths = [
+                    { month: 9, year: academicYearStart }, // сентябрь
+                    { month: 10, year: academicYearStart }, // октябрь
+                    { month: 11, year: academicYearStart }, // ноябрь
+                    { month: 12, year: academicYearStart }, // декабрь
+                    { month: 1, year: academicYearEnd }, // январь
+                    { month: 2, year: academicYearEnd }, // февраль
+                    { month: 3, year: academicYearEnd }, // март
+                    { month: 4, year: academicYearEnd }, // апрель
+                    { month: 5, year: academicYearEnd }, // май
+                    { month: 6, year: academicYearEnd } // июнь
+                ];
+                // Обнуляем баллы для всех результатов учебного года
+                console.log("� Обнуляем баллы студентов месяца за весь учебный год...");
+                yield studentResult_model_1.default.updateMany({
+                    $or: [
+                        { year: academicYearStart, month: { $gte: 9, $lte: 12 } },
+                        { year: academicYearEnd, month: { $gte: 1, $lte: 6 } }
+                    ]
+                }, {
+                    $set: {
+                        studentOfTheMonthScore: 0,
+                        republicWideStudentOfTheMonthScore: 0,
+                        developmentScore: 0
+                    }
+                });
+                console.log("✅ Баллы результатов обнулены");
+                // ============================================================
+                // ШАГ 2: ОБРАБОТКА КАЖДОГО МЕСЯЦА УЧЕБНОГО ГОДА
+                // ============================================================
+                // Обрабатываем каждый месяц учебного года
+                for (const monthData of academicMonths) {
+                    console.log(`\n${'='.repeat(60)}`);
+                    console.log(`📅 Обрабатываем месяц: ${monthData.month}/${monthData.year}`);
+                    console.log(`${'='.repeat(60)}`);
+                    try {
+                        // Проверяем, есть ли результаты за этот месяц
+                        const resultsCount = yield studentResult_model_1.default.countDocuments({
+                            month: monthData.month,
+                            year: monthData.year
+                        });
+                        if (resultsCount === 0) {
+                            console.log(`⚠️ Нет результатов за ${monthData.month}/${monthData.year}, пропускаем...`);
+                            continue;
+                        }
+                        console.log(`📊 Найдено ${resultsCount} результатов за ${monthData.month}/${monthData.year}`);
+                        // Вызываем функцию обновления статистики для конкретного месяца
+                        yield this.updateStatsForMonth(monthData.month, monthData.year);
+                        console.log(`✅ Месяц ${monthData.month}/${monthData.year} обработан успешно`);
+                    }
+                    catch (error) {
+                        console.error(`❌ Ошибка при обработке месяца ${monthData.month}/${monthData.year}:`, error);
+                        // Продолжаем обработку других месяцев
+                    }
+                }
+                console.log(`\n${'='.repeat(60)}`);
+                console.log("🏁 Обработка всех месяцев завершена");
+                console.log(`${'='.repeat(60)}\n`);
+                // ============================================================
+                // ШАГ 3: ФИНАЛЬНЫЕ ПОДСЧЁТЫ
+                // ============================================================
+                // После обработки всех месяцев обновляем статистику районов, школ и учителей
+                console.log("🔢 Подсчитываем общий score для всех студентов...");
+                yield this.updateStudentScores();
+                console.log("🏆 Обновляем рейтинг студентов (place)...");
+                yield this.updateStudentPlaces();
+                // Здесь можно добавить обновление статистики для учителей, школ и районов
+                // если эти методы существуют
+                // console.log("👨‍🏫 Обновляем статистику учителей...");
+                // await this.updateTeachersStats();
+                // console.log("🏫 Обновляем статистику школ...");
+                // await this.updateSchoolsStats();
+                // console.log("🏛️ Обновляем статистику районов...");
+                // await this.updateDistrictsStats();
+                console.log("\n✅ Полное обновление статистики за учебный год завершено!");
+                return 200;
+            }
+            catch (error) {
+                console.error("❌ Ошибка при полном обновлении статистики:", error);
+                throw error;
+            }
+        });
+    }
+    /**
+     * Обновляет статистику для конкретного месяца
+     * Это вспомогательная функция, которая выполняет ту же логику, что и updateStats(),
+     * но для указанного месяца, а не текущего
+     */
+    updateStatsForMonth(month, year) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                // Шаг 1: Получаем все результаты студентов за указанный месяц
+                const studentResults = yield studentResult_model_1.default.find({
+                    month: month,
+                    year: year
+                }).populate({
+                    path: 'student',
+                    populate: {
+                        path: 'district'
+                    }
+                });
+                if (studentResults.length === 0) {
+                    console.log(`⚠️ Нет результатов за ${month}/${year}`);
+                    return;
+                }
+                // Шаг 2: Группируем по классам (grade) и районам (district)
+                const gradeDistrictGroups = new Map();
+                const gradeGroups = new Map();
+                for (const result of studentResults) {
+                    if (!result.student || !result.student.district)
+                        continue;
+                    const grade = result.grade;
+                    const districtId = result.student.district._id.toString();
+                    const gradeDistrictKey = `${grade}-${districtId}`;
+                    // Группировка по классам и районам
+                    if (!gradeDistrictGroups.has(gradeDistrictKey)) {
+                        gradeDistrictGroups.set(gradeDistrictKey, []);
+                    }
+                    gradeDistrictGroups.get(gradeDistrictKey).push(result);
+                    // Группировка только по классам (для республиканского уровня)
+                    if (!gradeGroups.has(grade)) {
+                        gradeGroups.set(grade, []);
+                    }
+                    gradeGroups.get(grade).push(result);
+                }
+                // Шаг 3: Находим лучших студентов в каждом классе и районе
+                const districtTopStudentUpdates = [];
+                for (const [gradeDistrictKey, results] of gradeDistrictGroups.entries()) {
+                    const [grade, districtId] = gradeDistrictKey.split('-');
+                    const maxTotalScore = Math.max(...results.map(r => r.totalScore));
+                    const studentsWithMaxScore = results.filter(r => r.totalScore === maxTotalScore);
+                    const liceyStudentsWithMaxScore = studentsWithMaxScore.filter(r => this.isLiceyLevel(r.level));
+                    if (liceyStudentsWithMaxScore.length > 0) {
+                        for (const student of liceyStudentsWithMaxScore) {
+                            districtTopStudentUpdates.push({
+                                updateOne: {
+                                    filter: { _id: student._id },
+                                    update: { $set: { studentOfTheMonthScore: 5 } }
+                                }
+                            });
+                        }
+                    }
+                }
+                // Применяем обновления для студентов месяца по районам
+                if (districtTopStudentUpdates.length > 0) {
+                    yield studentResult_model_1.default.bulkWrite(districtTopStudentUpdates);
+                    console.log(`✅ Обновлено ${districtTopStudentUpdates.length} студентов месяца по районам`);
+                }
+                // Шаг 4: Находим лучших студентов в каждом классе по всей республике
+                const republicTopStudentUpdates = [];
+                for (const [grade, results] of gradeGroups.entries()) {
+                    const maxTotalScore = Math.max(...results.map(r => r.totalScore));
+                    const studentsWithMaxScore = results.filter(r => r.totalScore === maxTotalScore);
+                    const liceyStudentsWithMaxScore = studentsWithMaxScore.filter(r => this.isLiceyLevel(r.level));
+                    if (liceyStudentsWithMaxScore.length > 0) {
+                        for (const student of liceyStudentsWithMaxScore) {
+                            republicTopStudentUpdates.push({
+                                updateOne: {
+                                    filter: { _id: student._id },
+                                    update: { $set: { republicWideStudentOfTheMonthScore: 5 } }
+                                }
+                            });
+                        }
+                    }
+                }
+                // Применяем обновления для студентов месяца по республике
+                if (republicTopStudentUpdates.length > 0) {
+                    yield studentResult_model_1.default.bulkWrite(republicTopStudentUpdates);
+                    console.log(`✅ Обновлено ${republicTopStudentUpdates.length} студентов месяца по республике`);
+                }
+            }
+            catch (error) {
+                console.error(`❌ Ошибка при обновлении статистики для месяца ${month}/${year}:`, error);
                 throw error;
             }
         });
@@ -718,3 +980,5 @@ const resetStats = () => statsService.resetStats();
 exports.resetStats = resetStats;
 const updateStats = () => statsService.updateStats();
 exports.updateStats = updateStats;
+const updateAllStats = () => statsService.updateAllStats();
+exports.updateAllStats = updateAllStats;

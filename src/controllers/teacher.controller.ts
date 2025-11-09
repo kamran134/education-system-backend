@@ -147,8 +147,8 @@ export class TeacherController {
 
     repairTeachers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            // This would need to be implemented based on business logic
-            res.json(ResponseHandler.success({}, 'Teacher repair functionality not yet implemented'));
+            const result = await this.teacherUseCase.repairTeachers();
+            res.json(ResponseHandler.success(result, `Successfully repaired ${result.repairedTeachers.length} teacher(s)`));
         } catch (error) {
             next(error);
         }

@@ -12,6 +12,8 @@ const upload = (0, multer_1.default)({ dest: "uploads/" });
 router.route("/").get(studentResult_controller_1.getStudentResults);
 router.route("/upload")
     .post(upload.single("file"), (0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), studentResult_controller_1.createAllResults);
-router.route("/:examId")
+router.route("/:id")
+    .put((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), studentResult_controller_1.updateStudentResult);
+router.route("/exam/:examId")
     .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), studentResult_controller_1.deleteResults);
 exports.default = router;

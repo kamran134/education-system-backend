@@ -170,6 +170,7 @@ class TeacherService {
             sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
             const [data, totalCount] = yield Promise.all([
                 teacher_model_1.default.find(filter)
+                    .collation({ locale: 'az', strength: 2 })
                     .populate('district school')
                     .sort(sortOptions)
                     .skip(pagination.skip)
@@ -333,6 +334,10 @@ class TeacherService {
         if (filters.code) {
             const { start, end } = request_parser_util_1.RequestParser.parseCodeRange(filters.code, 7);
             filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
+        }
+        if (filters.search) {
+            // Search by teacher fullname (case-insensitive)
+            filter.fullname = { $regex: filters.search, $options: 'i' };
         }
         if (filters.active !== undefined) {
             filter.active = filters.active;

@@ -23,10 +23,20 @@ dotenv_1.default.config();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "superrefreshsecret";
 // Refresh токены теперь хранятся в MongoDB в коллекции пользователей
-const generateTokens = (userId, role) => {
-    const accessToken = jsonwebtoken_1.default.sign({ userId, role }, JWT_SECRET, { expiresIn: "15m" } // Короткий срок для access token
+const generateTokens = (userId, role, districtId, schoolId, teacherId, studentId) => {
+    const payload = { userId, role };
+    // Add entity IDs based on role
+    if (districtId)
+        payload.districtId = districtId;
+    if (schoolId)
+        payload.schoolId = schoolId;
+    if (teacherId)
+        payload.teacherId = teacherId;
+    if (studentId)
+        payload.studentId = studentId;
+    const accessToken = jsonwebtoken_1.default.sign(payload, JWT_SECRET, { expiresIn: "15m" } // Короткий срок для access token
     );
-    const refreshToken = jsonwebtoken_1.default.sign({ userId, role }, JWT_REFRESH_SECRET, { expiresIn: "7d" } // Долгий срок для refresh token
+    const refreshToken = jsonwebtoken_1.default.sign(payload, JWT_REFRESH_SECRET, { expiresIn: "7d" } // Долгий срок для refresh token
     );
     return { accessToken, refreshToken };
 };
@@ -48,7 +58,7 @@ const login = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
             });
             return;
         }
-        const { accessToken, refreshToken } = generateTokens(String(user._id), user.role);
+        const { accessToken, refreshToken } = generateTokens(String(user._id), user.role, user.districtId ? String(user.districtId) : undefined, user.schoolId ? String(user.schoolId) : undefined, user.teacherId ? String(user.teacherId) : undefined, user.studentId ? String(user.studentId) : undefined);
         console.log('[LOGIN] Generated tokens for user:', user.email);
         // Сохраняем refresh token в базе данных и обновляем время последнего входа
         yield user_model_1.default.findByIdAndUpdate(user._id, {
@@ -141,7 +151,7 @@ const refreshToken = (req, res) => __awaiter(void 0, void 0, void 0, function* (
             return;
         }
         console.log('[REFRESH TOKEN] Generating new tokens...');
-        const { accessToken, refreshToken: newRefreshToken } = generateTokens(String(userWithToken._id), userWithToken.role);
+        const { accessToken, refreshToken: newRefreshToken } = generateTokens(String(userWithToken._id), userWithToken.role, userWithToken.districtId ? String(userWithToken.districtId) : undefined, userWithToken.schoolId ? String(userWithToken.schoolId) : undefined, userWithToken.teacherId ? String(userWithToken.teacherId) : undefined, userWithToken.studentId ? String(userWithToken.studentId) : undefined);
         console.log('[REFRESH TOKEN] Updating tokens in database...');
         // Сначала удаляем старый refresh token
         yield user_model_1.default.findByIdAndUpdate(userWithToken._id, {

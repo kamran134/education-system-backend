@@ -26,10 +26,15 @@ class DistrictController {
             }
         });
         this.getDistricts = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
+            var _a;
             try {
                 const pagination = request_parser_util_1.RequestParser.parsePagination(req);
                 const filters = request_parser_util_1.RequestParser.parseFilterOptions(req);
                 const sort = request_parser_util_1.RequestParser.parseSorting(req, 'name', 'asc');
+                // Role-based filtering: district representer sees only their district
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    filters.districtIds = [req.user.districtId];
+                }
                 const result = yield this.districtUseCase.getFilteredDistricts(pagination, filters, sort);
                 res.json(response_handler_util_1.ResponseHandler.success({
                     data: result.data,

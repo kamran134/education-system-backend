@@ -150,7 +150,13 @@ export class SchoolService {
     }
 
     async create(schoolData: ISchoolCreate): Promise<ISchool> {
-        const school = new School(schoolData);
+        // Remove empty _id if present
+        const cleanData = { ...schoolData };
+        if ('_id' in cleanData && (!cleanData._id || cleanData._id === '')) {
+            delete (cleanData as any)._id;
+        }
+        
+        const school = new School(cleanData);
         return await school.save();
     }
 

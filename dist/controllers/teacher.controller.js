@@ -26,10 +26,24 @@ class TeacherController {
             }
         });
         this.getTeachers = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
+            var _a, _b, _c;
             try {
                 const pagination = request_parser_util_1.RequestParser.parsePagination(req);
                 const filters = request_parser_util_1.RequestParser.parseFilterOptions(req);
                 const sort = request_parser_util_1.RequestParser.parseSorting(req, 'name', 'asc');
+                // Role-based filtering
+                if (((_a = req.user) === null || _a === void 0 ? void 0 : _a.role) === 'districtRepresenter' && req.user.districtId) {
+                    // District representer sees teachers from their district schools
+                    filters.districtIds = [req.user.districtId];
+                }
+                else if (((_b = req.user) === null || _b === void 0 ? void 0 : _b.role) === 'schoolDirector' && req.user.schoolId) {
+                    // School director sees only teachers from their school
+                    filters.schoolIds = [req.user.schoolId];
+                }
+                else if (((_c = req.user) === null || _c === void 0 ? void 0 : _c.role) === 'teacher' && req.user.teacherId) {
+                    // Teacher sees only themselves
+                    filters.teacherIds = [req.user.teacherId];
+                }
                 const result = yield this.teacherUseCase.getTeachers(pagination, filters, sort);
                 res.json(response_handler_util_1.ResponseHandler.success({
                     data: result.data,

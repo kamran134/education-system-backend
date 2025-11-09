@@ -139,7 +139,13 @@ export class StudentUseCase {
         return await this.studentService.search(searchString.trim());
     }
 
-    async repairStudents(): Promise<{ repairedStudents: number[], studentsWithoutTeacher: number[] }> {
+    async repairStudents(): Promise<{ 
+        repairedStudents: number[], 
+        failedStudents: Array<{ code: number, reason: string }>,
+        missedDistricts: number[],
+        missedSchools: number[],
+        missedTeachers: number[]
+    }> {
         return await this.studentService.repairStudentAssignments();
     }
 

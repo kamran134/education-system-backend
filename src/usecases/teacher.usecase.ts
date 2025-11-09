@@ -124,7 +124,12 @@ export class TeacherUseCase {
         return await this.teacherService.processTeachersFromExcel(filePath);
     }
 
-    async repairTeachers(): Promise<{ repairedTeachers: number[], teachersWithoutSchool: number[] }> {
+    async repairTeachers(): Promise<{ 
+        repairedTeachers: number[], 
+        failedTeachers: Array<{ code: number, reason: string }>,
+        missedDistricts: number[],
+        missedSchools: number[]
+    }> {
         return await this.teacherService.repairTeacherAssignments();
     }
 

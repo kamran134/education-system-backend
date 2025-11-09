@@ -131,6 +131,7 @@ class StudentService {
             sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
             const [data, totalCount] = yield Promise.all([
                 student_model_1.default.find(filter)
+                    .collation({ locale: 'az', strength: 2 })
                     .populate('district school teacher')
                     .sort(sortOptions)
                     .skip(pagination.skip)
@@ -142,25 +143,105 @@ class StudentService {
     }
     repairStudentAssignments() {
         return __awaiter(this, void 0, void 0, function* () {
-            const students = yield student_model_1.default.find({});
+            // Find students with missing teacher, school, or district
+            const students = yield student_model_1.default.find({
+                $or: [
+                    { teacher: { $exists: false } },
+                    { teacher: null },
+                    { school: { $exists: false } },
+                    { school: null },
+                    { district: { $exists: false } },
+                    { district: null }
+                ]
+            });
+            console.log(`Found ${students.length} students with missing assignments`);
             const repairedStudents = [];
-            const studentsWithoutTeacher = [];
+            const failedStudents = [];
+            const missedDistricts = [];
+            const missedSchools = [];
+            const missedTeachers = [];
+            // Pre-fetch all teachers, schools, and districts
+            const allTeachers = yield teacher_model_1.default.find({});
+            const allSchools = yield school_model_1.default.find({});
+            const allDistricts = yield district_model_1.default.find({});
+            // Create maps for quick lookup by CODE
+            const teacherMap = new Map(allTeachers.map(t => [t.code, t]));
+            const schoolMap = new Map(allSchools.map(s => [s.code, s]));
+            const districtMap = new Map(allDistricts.map(d => [d.code, d]));
             for (const student of students) {
-                const originalStudent = Object.assign({}, student.toObject());
-                yield this.assignTeacherToStudent(student);
-                // Check if anything changed
-                const hasChanged = String(originalStudent.teacher) !== String(student.teacher) ||
-                    String(originalStudent.school) !== String(student.school) ||
-                    String(originalStudent.district) !== String(student.district);
-                if (hasChanged) {
-                    yield student.save();
-                    repairedStudents.push(student.code);
+                try {
+                    const studentCode = student.code;
+                    let hasChanges = false;
+                    // Extract codes from student code
+                    const teacherCode = Math.floor(studentCode / 1000); // 1500188
+                    const schoolCode = Math.floor(studentCode / 100000); // 15001
+                    const districtCode = Math.floor(studentCode / 10000000); // 150
+                    console.log(`Processing student ${studentCode}: teacher=${teacherCode}, school=${schoolCode}, district=${districtCode}`);
+                    // Assign teacher if missing
+                    if (!student.teacher) {
+                        const teacher = teacherMap.get(teacherCode);
+                        if (teacher) {
+                            student.teacher = teacher._id;
+                            hasChanges = true;
+                            console.log(`  ✓ Assigned teacher ${teacherCode}`);
+                        }
+                        else {
+                            console.log(`  ✗ Teacher ${teacherCode} not found`);
+                            missedTeachers.push(studentCode);
+                        }
+                    }
+                    // Assign school if missing
+                    if (!student.school) {
+                        const school = schoolMap.get(schoolCode);
+                        if (school) {
+                            student.school = school._id;
+                            hasChanges = true;
+                            console.log(`  ✓ Assigned school ${schoolCode}`);
+                        }
+                        else {
+                            console.log(`  ✗ School ${schoolCode} not found`);
+                            missedSchools.push(studentCode);
+                        }
+                    }
+                    // Assign district if missing
+                    if (!student.district) {
+                        const district = districtMap.get(districtCode);
+                        if (district) {
+                            student.district = district._id;
+                            hasChanges = true;
+                            console.log(`  ✓ Assigned district ${districtCode}`);
+                        }
+                        else {
+                            console.log(`  ✗ District ${districtCode} not found`);
+                            missedDistricts.push(studentCode);
+                        }
+                    }
+                    // Save if there were changes
+                    if (hasChanges) {
+                        yield student.save();
+                        repairedStudents.push(studentCode);
+                        console.log(`✓ Saved student ${studentCode}`);
+                    }
                 }
-                if (!student.teacher) {
-                    studentsWithoutTeacher.push(student.code);
+                catch (error) {
+                    console.error(`Error processing student ${student.code}:`, error);
+                    failedStudents.push({
+                        code: student.code,
+                        reason: `Error: ${error instanceof Error ? error.message : 'Unknown'}`
+                    });
                 }
             }
-            return { repairedStudents, studentsWithoutTeacher };
+            console.log(`Repair complete: ${repairedStudents.length} repaired`);
+            console.log(`  Missed teachers: ${missedTeachers.length}`);
+            console.log(`  Missed schools: ${missedSchools.length}`);
+            console.log(`  Missed districts: ${missedDistricts.length}`);
+            return {
+                repairedStudents,
+                failedStudents,
+                missedDistricts,
+                missedSchools,
+                missedTeachers
+            };
         });
     }
     assignTeacherToStudent(student) {
@@ -202,6 +283,14 @@ class StudentService {
         if (filters.code) {
             const { start, end } = request_parser_util_1.RequestParser.parseCodeRange(filters.code, 10);
             filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
+        }
+        // Поиск по имени, фамилии или отчеству
+        if (filters.search) {
+            filter.$or = [
+                { firstName: { $regex: filters.search, $options: 'i' } },
+                { lastName: { $regex: filters.search, $options: 'i' } },
+                { middleName: { $regex: filters.search, $options: 'i' } }
+            ];
         }
         return filter;
     }
