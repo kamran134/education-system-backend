@@ -211,6 +211,15 @@ export class StudentService {
             filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
         }
 
+        // Поиск по имени, фамилии или отчеству
+        if (filters.search) {
+            filter.$or = [
+                { firstName: { $regex: filters.search, $options: 'i' } },
+                { lastName: { $regex: filters.search, $options: 'i' } },
+                { middleName: { $regex: filters.search, $options: 'i' } }
+            ];
+        }
+
         return filter;
     }
 
