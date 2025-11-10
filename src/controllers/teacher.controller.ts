@@ -108,7 +108,8 @@ export class TeacherController {
 
     deleteTeachers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const { ids } = req.body;
+            const { teacherIds } = req.params;
+            const ids = teacherIds.split(',');
             const result = await this.teacherUseCase.deleteTeachers(ids);
 
             res.json(ResponseHandler.success(result, `${result.deletedCount} teacher(s) deleted successfully`));

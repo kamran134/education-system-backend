@@ -118,7 +118,8 @@ export class SchoolController {
 
     deleteSchools = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const { ids } = req.body;
+            const { schoolIds } = req.params;
+            const ids = schoolIds.split(',');
             const result = await this.schoolUseCase.deleteSchools(ids);
 
             res.json(ResponseHandler.success(result, `${result.deletedCount} school(s) deleted successfully`));
