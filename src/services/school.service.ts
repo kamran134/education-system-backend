@@ -20,6 +20,7 @@ export class SchoolService {
         await School.updateMany({}, { 
             score: 0, 
             averageScore: 0,
+            $unset: { place: "" }
         });
         
         // Получаем всех студентов с school и score
@@ -96,27 +97,30 @@ export class SchoolService {
     private async updateSchoolPlaces(): Promise<void> {
         try {
             // Получаем все школы, отсортированные по averageScore в убывающем порядке
-            const schools = await School.find({ averageScore: { $exists: true }, active: true })
-                                       .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
-                                       .select('_id averageScore code');
+            const schools = await School.find({ 
+                active: true,
+                averageScore: { $gt: 0 } // Только школы с баллом больше 0
+            })
+                .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                .select('_id averageScore code');
 
             if (schools.length === 0) {
-                console.log("Нет школ с averageScore для установки места в рейтинге.");
+                console.log("Нет школ с averageScore > 0 для установки места в рейтинге.");
                 return;
             }
 
             // Подготавливаем bulk операции для обновления места
             const bulkOperations = [];
-            let currentPlace = 0;
+            let currentPlace = 1; // Начинаем с 1
             let previousScore = null;
 
             for (let i = 0; i < schools.length; i++) {
                 const school = schools[i];
                 
                 // Если это первая школа или балл изменился
-                if (i === 0 || (previousScore !== null && school.averageScore < previousScore)) {
-                    // Место = позиция в отсортированном списке + 1
-                    currentPlace++;
+                if (i > 0 && previousScore !== null && school.averageScore < previousScore) {
+                    // Место = текущая позиция + 1
+                    currentPlace = i + 1;
                 }
                 // Если балл такой же, как у предыдущей, место остается тем же
 

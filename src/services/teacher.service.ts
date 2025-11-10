@@ -20,6 +20,7 @@ export class TeacherService {
         await Teacher.updateMany({}, { 
             score: 0, 
             averageScore: 0,
+            $unset: { place: "" }
         });
         
         // Получаем всех студентов с teacher и score
@@ -57,27 +58,30 @@ export class TeacherService {
     private async updateTeacherPlaces(): Promise<void> {
         try {
             // Получаем всех учителей, отсортированных по averageScore в убывающем порядке
-            const teachers = await Teacher.find({ averageScore: { $exists: true }, active: true })
-                                         .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
-                                         .select('_id averageScore code');
+            const teachers = await Teacher.find({ 
+                active: true,
+                averageScore: { $gt: 0 } // Только учителя с баллом больше 0
+            })
+                .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                .select('_id averageScore code');
 
             if (teachers.length === 0) {
-                console.log("Нет учителей с averageScore для установки места в рейтинге.");
+                console.log("Нет учителей с averageScore > 0 для установки места в рейтинге.");
                 return;
             }
 
             // Подготавливаем bulk операции для обновления места
             const bulkOperations = [];
-            let currentPlace = 0;
+            let currentPlace = 1; // Начинаем с 1
             let previousScore = null;
 
             for (let i = 0; i < teachers.length; i++) {
                 const teacher = teachers[i];
                 
                 // Если это первый учитель или балл изменился
-                if (i === 0 || (previousScore !== null && teacher.averageScore < previousScore)) {
-                    // Место = позиция в отсортированном списке + 1
-                    currentPlace++;
+                if (i > 0 && previousScore !== null && teacher.averageScore < previousScore) {
+                    // Место = текущая позиция + 1
+                    currentPlace = i + 1;
                 }
                 // Если балл такой же, как у предыдущего, место остается тем же
 
