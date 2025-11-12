@@ -295,6 +295,8 @@ export class TeacherService {
         const processedData: ITeacher[] = [];
         const errors: string[] = [];
         const skippedItems: any[] = [];
+        const invalidDistrictCodes: number[] = [];
+        const invalidSchoolCodes: number[] = [];
 
         try {
             const data = readExcel(filePath);
@@ -327,8 +329,8 @@ export class TeacherService {
                 : correctTeachersToInsert;
 
             // Validate districts and schools
-            const districtCodes = newTeachers.filter(item => item.districtCode > 0).map(item => item.districtCode);
-            const schoolCodes = newTeachers.filter(item => item.schoolCode > 0).map(item => item.schoolCode);
+            const districtCodes = [...new Set(newTeachers.filter(item => item.districtCode > 0).map(item => item.districtCode))];
+            const schoolCodes = [...new Set(newTeachers.filter(item => item.schoolCode > 0).map(item => item.schoolCode))];
 
             const existingDistricts = await District.find({ code: { $in: districtCodes } });
             const existingSchools = await School.find({ code: { $in: schoolCodes } });
@@ -336,7 +338,20 @@ export class TeacherService {
             const schoolMap = new Map(existingSchools.map(s => [s.code, s]));
             const districtMap = new Map(existingDistricts.map(d => [d.code, d]));
 
-            // Create teachers
+            // Find missing districts and schools
+            districtCodes.forEach(code => {
+                if (!districtMap.has(code)) {
+                    invalidDistrictCodes.push(code);
+                }
+            });
+
+            schoolCodes.forEach(code => {
+                if (!schoolMap.has(code)) {
+                    invalidSchoolCodes.push(code);
+                }
+            });
+
+            // Create teachers (даже если район или школа не найдены - создаём учителя с null)
             const teachersToCreate: ITeacherCreate[] = newTeachers.map(teacherData => {
                 const school = schoolMap.get(teacherData.schoolCode);
                 const district = districtMap.get(teacherData.districtCode);
@@ -377,7 +392,12 @@ export class TeacherService {
             return {
                 processedData,
                 errors: incorrectTeacherCodes.map(code => `Invalid teacher code: ${code}`),
-                skippedItems: existingTeacherCodes.map(code => ({ code, reason: 'Already exists' }))
+                skippedItems: existingTeacherCodes.map(code => ({ code, reason: 'Already exists' })),
+                validationErrors: {
+                    invalidDistrictCodes: [...new Set(invalidDistrictCodes)],
+                    invalidSchoolCodes: [...new Set(invalidSchoolCodes)],
+                    invalidTeacherCodes: incorrectTeacherCodes
+                }
             };
         } catch (error) {
             deleteFile(filePath);

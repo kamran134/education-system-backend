@@ -2,6 +2,9 @@ import { DeleteResult, Types } from "mongoose";
 import Exam from "../models/exam.model";
 import Student, { IStudent, IStudentInput } from "../models/student.model";
 import StudentResult, { IStudentResult, IStudentResultsGrouped, IStudentResultInput } from "../models/studentResult.model";
+import Teacher from "../models/teacher.model";
+import School from "../models/school.model";
+import District from "../models/district.model";
 import { calculateLevel, calculateLevelNumb } from "./common.service";
 import { getExamsByMonthYear } from "./exam.service";
 import { assignTeacherToStudent } from "./student.service";
@@ -522,23 +525,71 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
             maxLevel: calculateParticipationScore(Number(row[2]) === 5 ? String(row[11]) : String(row[12]))
         }));
 
-        const correctStudentDataToInsert = studentDataToInsert.filter(data => data.code > 999999999);
-        const incorrectStudentCodes = studentDataToInsert.filter(data => data.code <= 999999999).map(data => data.code);
+        // Валидация кодов студентов (10 цифр: 1000000000-9999999999)
+        const correctStudentDataToInsert = studentDataToInsert.filter(data => data.code >= 1000000000 && data.code <= 9999999999);
+        const invalidStudentCodes = studentDataToInsert
+            .filter(data => data.code < 1000000000 || data.code > 9999999999)
+            .map(data => data.code);
+
+        // Валидация кодов учителей (извлекаем из кода студента: первые 7 цифр)
+        const invalidTeacherCodes: number[] = [];
+        const teacherCodesToCheck = [...new Set(correctStudentDataToInsert.map(s => Math.floor(s.code / 1000)))];
+        const existingTeachers = await Teacher.find({ code: { $in: teacherCodesToCheck } });
+        const existingTeacherCodes = new Set(existingTeachers.map(t => t.code));
+        
+        teacherCodesToCheck.forEach(teacherCode => {
+            if (!existingTeacherCodes.has(teacherCode)) {
+                invalidTeacherCodes.push(teacherCode);
+            }
+        });
+
+        // Валидация кодов школ (извлекаем из кода учителя: первые 5 цифр)
+        const invalidSchoolCodes: number[] = [];
+        const schoolCodesToCheck = [...new Set(existingTeachers.map(t => Math.floor(t.code / 100)))];
+        const existingSchools = await School.find({ code: { $in: schoolCodesToCheck } });
+        const existingSchoolCodes = new Set(existingSchools.map(s => s.code));
+        
+        schoolCodesToCheck.forEach(schoolCode => {
+            if (!existingSchoolCodes.has(schoolCode)) {
+                invalidSchoolCodes.push(schoolCode);
+            }
+        });
+
+        // Валидация кодов районов (извлекаем из кода школы: первые 3 цифры)
+        const invalidDistrictCodes: number[] = [];
+        const districtCodesToCheck = [...new Set(existingSchools.map(s => Math.floor(s.code / 100)))];
+        const existingDistricts = await District.find({ code: { $in: districtCodesToCheck } });
+        const existingDistrictCodes = new Set(existingDistricts.map(d => d.code));
+        
+        districtCodesToCheck.forEach(districtCode => {
+            if (!existingDistrictCodes.has(districtCode)) {
+                invalidDistrictCodes.push(districtCode);
+            }
+        });
 
         const {students, studentsWithoutTeacher} = await processStudentResults(correctStudentDataToInsert);
 
-        // нужны только те студенты, которые есть в базе и те, у кого totalScore = az + math + lifeKnowledge + logic
+        // нужны только те студенты, которые есть в базе и те, у кого totalScore = az + math + lifeKnowledge + logic + english
         const filtredResults = resultReadedData.filter(result => 
             students.map(student => student.code).includes(result.studentCode)
             && result.totalScore === (result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0))
             && result.totalScore > 0
         );
 
+        // Студенты с некорректными результатами (неправильная сумма баллов)
         const studentsWithIncorrectResults = resultReadedData.filter(result => 
             students.map(student => student.code).includes(result.studentCode)
             && result.totalScore !== (result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0))
-            && result.totalScore > 0
-        );
+        ).map(result => ({
+            studentCode: result.studentCode,
+            totalScore: result.totalScore,
+            calculatedTotal: result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0),
+            az: result.az,
+            math: result.math,
+            lifeKnowledge: result.lifeKnowledge,
+            logic: result.logic,
+            english: result.english
+        }));
 
         // Подготавливаем массив обновлений для существующих студентов
         const studentUpdates: any[] = [];
@@ -619,8 +670,13 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
             processedData: resultsToInsert,
             results,
             studentsWithoutTeacher,
-            incorrectStudentCodes,
-            studentsWithIncorrectResults
+            studentsWithIncorrectResults,
+            validationErrors: {
+                invalidStudentCodes: [...new Set(invalidStudentCodes)],
+                invalidTeacherCodes: [...new Set(invalidTeacherCodes)],
+                invalidSchoolCodes: [...new Set(invalidSchoolCodes)],
+                invalidDistrictCodes: [...new Set(invalidDistrictCodes)]
+            }
         };
     } catch (error) {
         deleteFile(filePath);

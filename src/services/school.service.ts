@@ -247,6 +247,7 @@ export class SchoolService {
         const processedData: ISchool[] = [];
         const errors: string[] = [];
         const skippedItems: any[] = [];
+        const invalidDistrictCodes: number[] = [];
 
         try {
             const data = readExcel(filePath);
@@ -262,10 +263,10 @@ export class SchoolService {
                 studentCount: Number(row[4]) || 0
             }));
 
-            // Filter correct schools
-            const correctSchoolsToInsert = dataToInsert.filter(data => data.code > 9999);
+            // Filter correct schools (5 digits: 10000-99999)
+            const correctSchoolsToInsert = dataToInsert.filter(data => data.code >= 10000 && data.code <= 99999);
             const incorrectSchoolCodes = dataToInsert
-                .filter(data => data.code <= 9999)
+                .filter(data => data.code < 10000 || data.code > 99999)
                 .map(data => data.code);
 
             // Check existing schools
@@ -278,9 +279,16 @@ export class SchoolService {
                 : correctSchoolsToInsert;
 
             // Validate districts
-            const districtCodes = newSchools.filter(item => item.districtCode > 0).map(item => item.districtCode);
+            const districtCodes = [...new Set(newSchools.filter(item => item.districtCode > 0).map(item => item.districtCode))];
             const existingDistricts = await District.find({ code: { $in: districtCodes } });
             const districtMap = new Map(existingDistricts.map(d => [d.code, d]));
+
+            // Find missing districts
+            districtCodes.forEach(code => {
+                if (!districtMap.has(code)) {
+                    invalidDistrictCodes.push(code);
+                }
+            });
 
             // Create schools
             const schoolsToCreate: ISchoolCreate[] = newSchools.map(schoolData => {
@@ -321,7 +329,11 @@ export class SchoolService {
             return {
                 processedData,
                 errors: incorrectSchoolCodes.map(code => `Invalid school code: ${code}`),
-                skippedItems: existingSchoolCodes.map(code => ({ code, reason: 'Already exists' }))
+                skippedItems: existingSchoolCodes.map(code => ({ code, reason: 'Already exists' })),
+                validationErrors: {
+                    invalidDistrictCodes: [...new Set(invalidDistrictCodes)],
+                    invalidSchoolCodes: incorrectSchoolCodes
+                }
             };
         } catch (error) {
             deleteFile(filePath);

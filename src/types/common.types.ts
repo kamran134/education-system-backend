@@ -52,6 +52,12 @@ export interface FileProcessingResult<T> {
     processedData: T[];
     errors: string[];
     skippedItems: any[];
+    validationErrors?: {
+        invalidDistrictCodes?: number[];
+        invalidSchoolCodes?: number[];
+        invalidTeacherCodes?: number[];
+        invalidStudentCodes?: number[];
+    };
 }
 
 export interface ValidationResult {
