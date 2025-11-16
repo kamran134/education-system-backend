@@ -1,6 +1,6 @@
 import express from 'express';
 import { createUser, deleteUser, getUsers, updateUser } from '../controllers/user.controller';
-import { authMiddleware, checkAdminRole } from '../middleware/auth.middleware';
+import { authMiddleware, checkAdminRole, canDelete } from '../middleware/auth.middleware';
 
 const router = express.Router();
 
@@ -9,6 +9,6 @@ router.route("/")
     .post(checkAdminRole, createUser)
     .put(checkAdminRole, updateUser);
 router.route("/:id")
-    .delete(authMiddleware(["superadmin", "admin"]), deleteUser);
+    .delete(canDelete, deleteUser);
 
 export default router;

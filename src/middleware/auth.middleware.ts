@@ -140,3 +140,50 @@ export const allRegisteredRoles = (req: Request, res: Response, next: NextFuncti
         console.error(error);
     }
 }
+
+/**
+ * Middleware для защиты операций удаления
+ * Модераторы НЕ могут удалять данные
+ */
+export const canDelete = (req: Request, res: Response, next: NextFunction) => {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        res.status(401).json({
+            success: false,
+            message: "Access token tələb olunur"
+        });
+        return;
+    }
+
+    const token = authHeader.substring(7);
+
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET) as {
+            userId: string;
+            role: string;
+            districtId?: string;
+            schoolId?: string;
+            teacherId?: string;
+            studentId?: string;
+        }
+
+        // Модератор НЕ может удалять
+        if (decoded.role === "moderator") {
+            res.status(403).json({
+                success: false,
+                message: "Moderatorlar silmə əməliyyatı edə bilməz"
+            });
+            return;
+        }
+
+        req.user = decoded;
+        next();
+    } catch (error) {
+        res.status(401).json({
+            success: false,
+            message: "Düzgün olmayan token"
+        });
+        console.error(error);
+    }
+}
