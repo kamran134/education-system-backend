@@ -116,7 +116,21 @@ export class ExamResultsService {
         pipeline.push({
             $addFields: {
                 studentData: { $arrayElemAt: ['$studentData', 0] },
-                exam: { $arrayElemAt: ['$exam', 0] }
+                exam: { $arrayElemAt: ['$exam', 0] },
+                // Add level priority for custom sorting: Lisey=1, A=2, B=3, C=4, D=5, E=6
+                levelPriority: {
+                    $switch: {
+                        branches: [
+                            { case: { $eq: ['$level', 'Lisey'] }, then: 1 },
+                            { case: { $eq: ['$level', 'A'] }, then: 2 },
+                            { case: { $eq: ['$level', 'B'] }, then: 3 },
+                            { case: { $eq: ['$level', 'C'] }, then: 4 },
+                            { case: { $eq: ['$level', 'D'] }, then: 5 },
+                            { case: { $eq: ['$level', 'E'] }, then: 6 }
+                        ],
+                        default: 999 // for null/undefined or unknown levels
+                    }
+                }
             }
         });
 
@@ -209,16 +223,25 @@ export class ExamResultsService {
         const sortStage: any = {};
         if (sortColumn === 'exam.date') {
             sortStage['exam.date'] = sortDirection === 'asc' ? 1 : -1;
-        } else if (sortColumn === 'student.code') {
+        } else if (sortColumn === 'studentData.code') {
             sortStage['studentData.code'] = sortDirection === 'asc' ? 1 : -1;
-        } else if (sortColumn === 'student.lastName') {
+        } else if (sortColumn === 'studentData.lastName') {
             sortStage['studentData.lastName'] = sortDirection === 'asc' ? 1 : -1;
+        } else if (sortColumn === 'studentData.firstName') {
+            sortStage['studentData.firstName'] = sortDirection === 'asc' ? 1 : -1;
+        } else if (sortColumn === 'studentData.school.name') {
+            sortStage['studentData.school.name'] = sortDirection === 'asc' ? 1 : -1;
+        } else if (sortColumn === 'studentData.teacher.fullname') {
+            sortStage['studentData.teacher.fullname'] = sortDirection === 'asc' ? 1 : -1;
+        } else if (sortColumn === 'studentData.district.name') {
+            sortStage['studentData.district.name'] = sortDirection === 'asc' ? 1 : -1;
         } else if (sortColumn === 'grade') {
             sortStage['grade'] = sortDirection === 'asc' ? 1 : -1;
         } else if (sortColumn === 'totalScore') {
             sortStage['totalScore'] = sortDirection === 'asc' ? 1 : -1;
         } else if (sortColumn === 'level') {
-            sortStage['level'] = sortDirection === 'asc' ? 1 : -1;
+            // Use custom levelPriority for proper hierarchy sorting
+            sortStage['levelPriority'] = sortDirection === 'asc' ? 1 : -1;
         } else {
             // Default sort
             sortStage['exam.date'] = -1;
