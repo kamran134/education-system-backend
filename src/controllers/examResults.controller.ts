@@ -16,12 +16,15 @@ export class ExamResultsController {
             const pagination = RequestParser.parsePagination(req);
             const sort = RequestParser.parseSorting(req, 'exam.date', 'desc');
             
+            console.log('📥 Query params:', req.query);
+            
             // Parse filters
             const params = {
                 search: req.query.search as string,
                 code: req.query.code ? parseInt(req.query.code as string) : undefined,
                 dateFrom: req.query.dateFrom as string,
                 dateTo: req.query.dateTo as string,
+                examIds: req.query.examIds ? (req.query.examIds as string).split(',') : undefined,
                 districtIds: req.query.districtIds ? (req.query.districtIds as string).split(',') : undefined,
                 schoolIds: req.query.schoolIds ? (req.query.schoolIds as string).split(',') : undefined,
                 teacherIds: req.query.teacherIds ? (req.query.teacherIds as string).split(',') : undefined,
@@ -30,6 +33,8 @@ export class ExamResultsController {
                 page: pagination.page,
                 size: pagination.size
             };
+
+            console.log('🔍 Parsed params:', params);
 
             const result = await this.examResultsUseCase.getExamResults(params);
 

@@ -6,6 +6,7 @@ export interface ExamResultsParams {
     code?: number;
     dateFrom?: string;
     dateTo?: string;
+    examIds?: string[];
     districtIds?: string[];
     schoolIds?: string[];
     teacherIds?: string[];
@@ -29,6 +30,7 @@ export class ExamResultsUseCase {
             code,
             dateFrom,
             dateTo,
+            examIds,
             districtIds,
             schoolIds,
             teacherIds,
@@ -43,6 +45,7 @@ export class ExamResultsUseCase {
             code,
             dateFrom,
             dateTo,
+            examIds,
             districtIds,
             schoolIds,
             teacherIds

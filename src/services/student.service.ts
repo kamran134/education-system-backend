@@ -57,16 +57,37 @@ export class StudentService {
     }
 
     async search(searchString: string): Promise<IStudent[]> {
+        const searchTerms = searchString.trim().split(/\s+/);
+        let matchCondition: any;
+        
+        if (searchTerms.length === 1) {
+            // Single word search
+            matchCondition = {
+                $or: [
+                    { firstName: { $regex: searchTerms[0], $options: 'i' } },
+                    { lastName: { $regex: searchTerms[0], $options: 'i' } },
+                    { middleName: { $regex: searchTerms[0], $options: 'i' } },
+                    { code: parseInt(searchTerms[0]) || 0 }
+                ]
+            };
+        } else {
+            // Multiple words - each word must be found in firstName, lastName, or middleName
+            const nameConditions = searchTerms.map(term => ({
+                $or: [
+                    { firstName: { $regex: term, $options: 'i' } },
+                    { lastName: { $regex: term, $options: 'i' } },
+                    { middleName: { $regex: term, $options: 'i' } }
+                ]
+            }));
+            
+            matchCondition = {
+                $and: nameConditions
+            };
+        }
+        
         return await Student.aggregate([
             {
-                $match: {
-                    $or: [
-                        { firstName: { $regex: searchString, $options: 'i' } },
-                        { lastName: { $regex: searchString, $options: 'i' } },
-                        { middleName: { $regex: searchString, $options: 'i' } },
-                        { code: parseInt(searchString) || 0 }
-                    ]
-                }
+                $match: matchCondition
             },
             {
                 $lookup: {
@@ -303,11 +324,27 @@ export class StudentService {
 
         // Поиск по имени, фамилии или отчеству
         if (filters.search) {
-            filter.$or = [
-                { firstName: { $regex: filters.search, $options: 'i' } },
-                { lastName: { $regex: filters.search, $options: 'i' } },
-                { middleName: { $regex: filters.search, $options: 'i' } }
-            ];
+            const searchTerms = filters.search.trim().split(/\s+/);
+            
+            if (searchTerms.length === 1) {
+                // Single word search
+                filter.$or = [
+                    { firstName: { $regex: searchTerms[0], $options: 'i' } },
+                    { lastName: { $regex: searchTerms[0], $options: 'i' } },
+                    { middleName: { $regex: searchTerms[0], $options: 'i' } }
+                ];
+            } else {
+                // Multiple words - each word must be found in firstName, lastName, or middleName
+                const nameConditions = searchTerms.map(term => ({
+                    $or: [
+                        { firstName: { $regex: term, $options: 'i' } },
+                        { lastName: { $regex: term, $options: 'i' } },
+                        { middleName: { $regex: term, $options: 'i' } }
+                    ]
+                }));
+                
+                filter.$and = nameConditions;
+            }
         }
 
         return filter;

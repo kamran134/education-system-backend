@@ -6,6 +6,7 @@ export interface ExamResultsFilter {
     code?: number;
     dateFrom?: string;
     dateTo?: string;
+    examIds?: string[];
     districtIds?: string[];
     schoolIds?: string[];
     teacherIds?: string[];
@@ -20,6 +21,8 @@ export class ExamResultsService {
         page: number = 1,
         size: number = 25
     ): Promise<{ data: IStudentResult[], totalCount: number }> {
+        
+        console.log('🎯 ExamResults Service - Filters:', filters);
         
         const pipeline: any[] = [];
 
@@ -122,12 +125,29 @@ export class ExamResultsService {
 
         // Search by student name
         if (filters.search) {
-            filterConditions.push({
-                $or: [
-                    { 'studentData.firstName': { $regex: filters.search, $options: 'i' } },
-                    { 'studentData.lastName': { $regex: filters.search, $options: 'i' } }
-                ]
-            });
+            const searchTerms = filters.search.trim().split(/\s+/);
+            
+            if (searchTerms.length === 1) {
+                // Single word search - check firstName OR lastName
+                filterConditions.push({
+                    $or: [
+                        { 'studentData.firstName': { $regex: searchTerms[0], $options: 'i' } },
+                        { 'studentData.lastName': { $regex: searchTerms[0], $options: 'i' } }
+                    ]
+                });
+            } else {
+                // Multiple words - check if all words are found in firstName+lastName combination
+                const nameConditions = searchTerms.map(term => ({
+                    $or: [
+                        { 'studentData.firstName': { $regex: term, $options: 'i' } },
+                        { 'studentData.lastName': { $regex: term, $options: 'i' } }
+                    ]
+                }));
+                
+                filterConditions.push({
+                    $and: nameConditions
+                });
+            }
         }
 
         // Filter by student code
@@ -161,7 +181,18 @@ export class ExamResultsService {
             });
         }
 
+        // Filter by exam
+        if (filters.examIds && filters.examIds.length > 0) {
+            console.log('🔥 Filtering by examIds:', filters.examIds);
+            const examObjectIds = filters.examIds.map(id => new Types.ObjectId(id));
+            console.log('🔥 Exam ObjectIds:', examObjectIds);
+            filterConditions.push({
+                'exam._id': { $in: examObjectIds }
+            });
+        }
+
         if (filterConditions.length > 0) {
+            console.log('📋 Filter Conditions:', JSON.stringify(filterConditions, null, 2));
             pipeline.push({
                 $match: {
                     $and: filterConditions
