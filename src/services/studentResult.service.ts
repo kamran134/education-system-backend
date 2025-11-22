@@ -317,7 +317,7 @@ export const markDevelopingStudents = async (month: number, year: number): Promi
                             update: {
                                 $set: {
                                     status: "İnkişaf edən şagird",
-                                    score: currentResult.score + 10
+                                    developmentScore: 10
                                 }
                             }
                         }

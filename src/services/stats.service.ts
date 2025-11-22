@@ -413,6 +413,9 @@ export class StatsService {
                 console.log(`✅ Обновлено ${republicTopStudentUpdates.length} студентов месяца по республике`);
             }
 
+            // Шаг 5: Находим развивающихся студентов за этот месяц
+            await markDevelopingStudents(month, year);
+
         } catch (error) {
             console.error(`❌ Ошибка при обновлении статистики для месяца ${month}/${year}:`, error);
             throw error;
