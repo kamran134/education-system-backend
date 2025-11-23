@@ -28,6 +28,7 @@ export class ExamResultsController {
                 districtIds: req.query.districtIds ? (req.query.districtIds as string).split(',') : undefined,
                 schoolIds: req.query.schoolIds ? (req.query.schoolIds as string).split(',') : undefined,
                 teacherIds: req.query.teacherIds ? (req.query.teacherIds as string).split(',') : undefined,
+                grades: req.query.grades ? (req.query.grades as string).split(',').map(g => parseInt(g)) : undefined,
                 sortColumn: sort.sortColumn,
                 sortDirection: sort.sortDirection as 'asc' | 'desc',
                 page: pagination.page,
@@ -35,6 +36,8 @@ export class ExamResultsController {
             };
 
             console.log('🔍 Parsed params:', params);
+            console.log('🎓 Grades from query:', req.query.grades);
+            console.log('🎓 Parsed grades:', params.grades);
 
             const result = await this.examResultsUseCase.getExamResults(params);
 

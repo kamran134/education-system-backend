@@ -10,6 +10,7 @@ export interface ExamResultsParams {
     districtIds?: string[];
     schoolIds?: string[];
     teacherIds?: string[];
+    grades?: number[];
     sortColumn?: string;
     sortDirection?: string;
     page?: number;
@@ -34,6 +35,7 @@ export class ExamResultsUseCase {
             districtIds,
             schoolIds,
             teacherIds,
+            grades,
             sortColumn = 'exam.date',
             sortDirection = 'desc',
             page = 1,
@@ -48,7 +50,8 @@ export class ExamResultsUseCase {
             examIds,
             districtIds,
             schoolIds,
-            teacherIds
+            teacherIds,
+            grades
         };
 
         return await this.examResultsService.getExamResults(

@@ -10,6 +10,7 @@ export interface ExamResultsFilter {
     districtIds?: string[];
     schoolIds?: string[];
     teacherIds?: string[];
+    grades?: number[];
 }
 
 export class ExamResultsService {
@@ -202,6 +203,15 @@ export class ExamResultsService {
             console.log('🔥 Exam ObjectIds:', examObjectIds);
             filterConditions.push({
                 'exam._id': { $in: examObjectIds }
+            });
+        }
+
+        // Filter by grade
+        if (filters.grades && filters.grades.length > 0) {
+            console.log('🔥 Filtering by grades:', filters.grades);
+            console.log('🔥 Grades type:', typeof filters.grades[0]);
+            filterConditions.push({
+                'grade': { $in: filters.grades }
             });
         }
 
