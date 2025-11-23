@@ -1,11 +1,16 @@
 import { ExamService } from "../services/exam.service";
+import { StudentResultService } from "../services/studentResult.service";
 import { IExam, IExamCreate } from "../models/exam.model";
 import { PaginationOptions, FilterOptions, SortOptions, FileProcessingResult, BulkOperationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { Types } from "mongoose";
 
 export class ExamUseCase {
-    constructor(private examService: ExamService) {}
+    private studentResultService: StudentResultService;
+
+    constructor(private examService: ExamService) {
+        this.studentResultService = new StudentResultService();
+    }
 
     async getExamById(id: string): Promise<IExam> {
         const validationError = ValidationUtils.validateObjectId(id, 'Exam ID');
@@ -74,6 +79,11 @@ export class ExamUseCase {
             throw new Error('Exam not found');
         }
 
+        // Delete all student results for this exam first
+        const examObjectId = new Types.ObjectId(id);
+        await this.studentResultService.deleteByExamId(examObjectId);
+
+        // Then delete the exam itself
         await this.examService.delete(id);
     }
 
@@ -89,7 +99,13 @@ export class ExamUseCase {
             }
         }
 
+        // Delete all student results for these exams first
         const objectIds = ids.map(id => new Types.ObjectId(id));
+        for (const examObjectId of objectIds) {
+            await this.studentResultService.deleteByExamId(examObjectId);
+        }
+
+        // Then delete the exams
         return await this.examService.deleteBulk(objectIds);
     }
 
