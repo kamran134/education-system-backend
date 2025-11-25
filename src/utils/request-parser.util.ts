@@ -19,23 +19,23 @@ export class RequestParser {
     }
 
     static parseFilterOptions(req: Request): FilterOptions {
-        const districtIds = req.query.districtIds
+        const districtIds = req.query.districtIds && (req.query.districtIds as string).trim()
             ? (req.query.districtIds as string).split(',').map(id => new Types.ObjectId(id.trim()))
             : undefined;
 
-        const schoolIds = req.query.schoolIds
+        const schoolIds = req.query.schoolIds && (req.query.schoolIds as string).trim()
             ? (req.query.schoolIds as string).split(',').map(id => new Types.ObjectId(id.trim()))
             : undefined;
 
-        const teacherIds = req.query.teacherIds
+        const teacherIds = req.query.teacherIds && (req.query.teacherIds as string).trim()
             ? (req.query.teacherIds as string).split(',').map(id => new Types.ObjectId(id.trim()))
             : undefined;
 
-        const examIds = req.query.examIds
+        const examIds = req.query.examIds && (req.query.examIds as string).trim()
             ? (req.query.examIds as string).split(',').map(id => new Types.ObjectId(id.trim()))
             : undefined;
 
-        const grades = req.query.grades
+        const grades = req.query.grades && (req.query.grades as string).trim()
             ? (req.query.grades as string).split(',').map(grade => parseInt(grade, 10))
             : undefined;
 

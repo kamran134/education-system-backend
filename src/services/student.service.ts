@@ -408,11 +408,17 @@ export const getFiltredStudents = async (req: Request): Promise<{ data: IStudent
 
     // Handle exam filter specially
     if (filters.examIds && filters.examIds.length > 0) {
+        console.log('🔥 Filtering students by examIds:', filters.examIds);
         const studentsInExam = await StudentResult.find({ exam: { $in: filters.examIds } }).distinct('student');
+        console.log('🔥 Students found in exam:', studentsInExam.length);
+        console.log('🔥 Student IDs:', studentsInExam);
+        
         filters.districtIds = undefined;
         filters.schoolIds = undefined;
         filters.teacherIds = undefined;
         const customFilter = service.buildExamFilter(filters, studentsInExam);
+        
+        console.log('🔍 Custom filter for exam students:', JSON.stringify(customFilter));
         
         const sortOptions: any = {};
         sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
@@ -426,6 +432,7 @@ export const getFiltredStudents = async (req: Request): Promise<{ data: IStudent
             Student.countDocuments(customFilter)
         ]);
 
+        console.log('✅ Filtered students count:', totalCount);
         return { data, totalCount };
     }
 
