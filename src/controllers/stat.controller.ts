@@ -15,13 +15,13 @@ export class StatsController {
     async updateStatistics(req: Request, res: Response): Promise<void> {
         try {
             await this.statsUseCase.updateStatistics();
-            res.status(200).json(ResponseHandler.success({}, 'Statistics updated successfully'));
+            res.status(200).json(ResponseHandler.success({}, 'Statistika uğurla yeniləndi'));
         } catch (error: any) {
-            console.error('Error in updateStatistics:', error);
-            if (error.message.includes('No results found')) {
+            console.error('updateStatistics funksiyasında xəta baş verdi:', error);
+            if (error.message.includes('Nəticə tapılmadı')) {
                 res.status(404).json(ResponseHandler.notFound(error.message));
             } else {
-                res.status(500).json(ResponseHandler.internalError('Error updating statistics', error));
+                res.status(500).json(ResponseHandler.internalError('Statistikaların yenilənməsində xəta baş verdi', error));
             }
         }
     }
@@ -29,13 +29,13 @@ export class StatsController {
     async updateAllStatistics(req: Request, res: Response): Promise<void> {
         try {
             await this.statsUseCase.updateAllStatistics();
-            res.status(200).json(ResponseHandler.success({}, 'All statistics updated successfully for the entire academic year'));
+            res.status(200).json(ResponseHandler.success({}, 'Tədris ili üçün bütün statistikalar uğurla yeniləndi'));
         } catch (error: any) {
-            console.error('Error in updateAllStatistics:', error);
-            if (error.message.includes('No results found')) {
+            console.error('updateAllStatistics funksiyasında xəta baş verdi:', error);
+            if (error.message.includes('Nəticə tapılmadı')) {
                 res.status(404).json(ResponseHandler.notFound(error.message));
             } else {
-                res.status(500).json(ResponseHandler.internalError('Error updating all statistics', error));
+                res.status(500).json(ResponseHandler.internalError('Bütün statistikaların yenilənməsində xəta baş verdi', error));
             }
         }
     }

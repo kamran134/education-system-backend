@@ -16,14 +16,14 @@ export class StatsUseCase {
     async updateStatistics(): Promise<void> {
         const result = await this.statsService.updateStats();
         if (result === 404) {
-            throw new Error('No results found to update statistics');
+            throw new Error('Statistikanı yeniləmək üçün heç bir nəticə tapılmadı');
         }
     }
 
     async updateAllStatistics(): Promise<void> {
         const result = await this.statsService.updateAllStats();
         if (result === 404) {
-            throw new Error('No results found to update statistics');
+            throw new Error('Statistikanı yeniləmək üçün heç bir nəticə tapılmadı');
         }
     }
 
