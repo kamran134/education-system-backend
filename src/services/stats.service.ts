@@ -16,6 +16,44 @@ export interface StatisticsFilter extends FilterOptions {
 }
 
 export class StatsService {
+    // Функция для расчета мест с учетом одинаковых баллов
+    private assignPlaces<T extends { averageScore?: number; score?: number; place?: number | null }>(
+        items: T[],
+        scoreField: 'averageScore' | 'score' = 'averageScore'
+    ): T[] {
+        if (items.length === 0) return items;
+
+        // Сортируем по убыванию (высокий балл = лучшее место)
+        items.sort((a, b) => {
+            const scoreA = a[scoreField] || 0;
+            const scoreB = b[scoreField] || 0;
+            return scoreB - scoreA;
+        });
+
+        let currentPlace = 1;
+        let previousScore: number | null = null;
+
+        items.forEach((item, index) => {
+            const currentScore = item[scoreField] || 0;
+
+            if (index === 0) {
+                // Первый элемент всегда место 1
+                item.place = 1;
+                previousScore = currentScore;
+            } else if (currentScore < previousScore!) {
+                // Балл меньше предыдущего - новое место
+                currentPlace++;
+                item.place = currentPlace;
+                previousScore = currentScore;
+            } else {
+                // Балл такой же - то же место
+                item.place = currentPlace;
+            }
+        });
+
+        return items;
+    }
+
     // Функция для проверки, является ли уровень лицейным
     private isLiceyLevel(level: string): boolean {
         const normalizedLevel = level.trim().toUpperCase();
@@ -765,26 +803,31 @@ export class StatsService {
         
         if (filters.schoolIds && filters.schoolIds.length > 0) {
             filter.school = { $in: filters.schoolIds };
-        }        const sortOptions: any = {};
+        }
+
+        const sortOptions: any = {};
         sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
         
         const page = filters.page || 1;
         const size = filters.size || 100;
         const skip = (page - 1) * size;
 
-        const [data, totalCount] = await Promise.all([
-            Teacher
-                .find(filter)
-                .populate("school")
-                .populate({ path: "school", populate: { path: "district", model: "District" } })
-                .sort(sortOptions)
-                .skip(skip)
-                .limit(size),
-            Teacher.countDocuments(filter)
-        ]);
+        // Получаем ВСЕ данные для расчета мест
+        const allData = await Teacher
+            .find(filter)
+            .populate("school")
+            .populate({ path: "school", populate: { path: "district", model: "District" } })
+            .sort(sortOptions)
+            .lean();
+
+        // Расчитываем места
+        this.assignPlaces(allData, 'averageScore');
+
+        // Применяем пагинацию
+        const paginatedData = allData.slice(skip, skip + size);
 
         // Добавляем значения по умолчанию для отсутствующих полей
-        data.forEach(teacher => {
+        paginatedData.forEach(teacher => {
             if (teacher.score === undefined || teacher.score === null) {
                 teacher.score = 0;
             }
@@ -795,11 +838,13 @@ export class StatsService {
                 (teacher as any).studentCount = 0;
             }
             if ((teacher as any).place === undefined || (teacher as any).place === null) {
-                (teacher as any).place = null; // Не устанавливаем 0, т.к. место может быть не рассчитано
+                (teacher as any).place = null;
             }
         });
 
-        return { data, totalCount };
+        const totalCount = await Teacher.countDocuments(filter);
+
+        return { data: paginatedData as ITeacher[], totalCount };
     }
 
     async getSchoolStatistics(
@@ -820,18 +865,21 @@ export class StatsService {
         const size = filters.size || 100;
         const skip = (page - 1) * size;
 
-        const [data, totalCount] = await Promise.all([
-            School
-                .find(filter)
-                .populate("district")
-                .sort(sortOptions)
-                .skip(skip)
-                .limit(size),
-            School.countDocuments(filter)
-        ]);
+        // Получаем ВСЕ данные для расчета мест
+        const allData = await School
+            .find(filter)
+            .populate("district")
+            .sort(sortOptions)
+            .lean();
+
+        // Расчитываем места
+        this.assignPlaces(allData, 'averageScore');
+
+        // Применяем пагинацию
+        const paginatedData = allData.slice(skip, skip + size);
 
         // Добавляем значения по умолчанию для отсутствующих полей
-        data.forEach(school => {
+        paginatedData.forEach(school => {
             if (school.score === undefined || school.score === null) {
                 school.score = 0;
             }
@@ -842,11 +890,13 @@ export class StatsService {
                 (school as any).studentCount = 0;
             }
             if ((school as any).place === undefined || (school as any).place === null) {
-                (school as any).place = null; // Не устанавливаем 0, т.к. место может быть не рассчитано
+                (school as any).place = null;
             }
         });
 
-        return { data, totalCount };
+        const totalCount = await School.countDocuments(filter);
+
+        return { data: paginatedData as ISchool[], totalCount };
     }
 
     async getDistrictStatistics(
@@ -868,17 +918,20 @@ export class StatsService {
         const size = filters.size || 100;
         const skip = (page - 1) * size;
 
-        const [data, totalCount] = await Promise.all([
-            District
-                .find(filter)
-                .sort(sortOptions)
-                .skip(skip)
-                .limit(size),
-            District.countDocuments(filter)
-        ]);
+        // Получаем ВСЕ данные для расчета мест
+        const allData = await District
+            .find(filter)
+            .sort(sortOptions)
+            .lean();
+
+        // Расчитываем места
+        this.assignPlaces(allData, 'averageScore');
+
+        // Применяем пагинацию
+        const paginatedData = allData.slice(skip, skip + size);
 
         // Добавляем значения по умолчанию для отсутствующих полей
-        data.forEach(district => {
+        paginatedData.forEach(district => {
             if (district.score === undefined || district.score === null) {
                 district.score = 0;
             }
@@ -889,11 +942,13 @@ export class StatsService {
                 (district as any).studentCount = 0;
             }
             if ((district as any).place === undefined || (district as any).place === null) {
-                (district as any).place = null; // Не устанавливаем 0, т.к. место может быть не рассчитано
+                (district as any).place = null;
             }
         });
 
-        return { data, totalCount };
+        const totalCount = await District.countDocuments(filter);
+
+        return { data: paginatedData as IDistrict[], totalCount };
     }
 
     private buildStudentStatsPipeline(filters: StatisticsFilter, examIds: Types.ObjectId[]): any[] {

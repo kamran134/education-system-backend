@@ -11,6 +11,44 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } fr
 import { RequestParser } from "../utils/request-parser.util";
 
 export class StudentService {
+    // Функция для расчета мест с учетом одинаковых баллов
+    private assignPlaces<T extends { averageScore?: number; score?: number; place?: number | null }>(
+        items: T[],
+        scoreField: 'averageScore' | 'score' = 'averageScore'
+    ): T[] {
+        if (items.length === 0) return items;
+
+        // Сортируем по убыванию (высокий балл = лучшее место)
+        items.sort((a, b) => {
+            const scoreA = a[scoreField] || 0;
+            const scoreB = b[scoreField] || 0;
+            return scoreB - scoreA;
+        });
+
+        let currentPlace = 1;
+        let previousScore: number | null = null;
+
+        items.forEach((item, index) => {
+            const currentScore = item[scoreField] || 0;
+
+            if (index === 0) {
+                // Первый элемент всегда место 1
+                item.place = 1;
+                previousScore = currentScore;
+            } else if (currentScore < previousScore!) {
+                // Балл меньше предыдущего - новое место
+                currentPlace++;
+                item.place = currentPlace;
+                previousScore = currentScore;
+            } else {
+                // Балл такой же - то же место
+                item.place = currentPlace;
+            }
+        });
+
+        return items;
+    }
+
     async findById(id: string): Promise<IStudent | null> {
         return await Student.findById(id).populate('district school teacher');
     }
@@ -144,17 +182,23 @@ export class StudentService {
         const sortOptions: any = {};
         sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
 
-        const [data, totalCount] = await Promise.all([
-            Student.find(filter)
-                .collation({ locale: 'az', strength: 2 })
-                .populate('district school teacher')
-                .sort(sortOptions)
-                .skip(pagination.skip)
-                .limit(pagination.size),
-            Student.countDocuments(filter)
-        ]);
+        // Получаем ВСЕ отфильтрованные данные для расчета мест
+        const allData = await Student.find(filter)
+            .collation({ locale: 'az', strength: 2 })
+            .populate('district school teacher')
+            .sort(sortOptions)
+            .lean();
 
-        return { data, totalCount };
+        // Расчитываем места на ВСЕХ данных
+        // Для студентов используем score (общий балл), а не averageScore
+        this.assignPlaces(allData, 'score');
+
+        // Применяем пагинацию ПОСЛЕ расчета мест
+        const paginatedData = allData.slice(pagination.skip, pagination.skip + pagination.size);
+
+        const totalCount = await Student.countDocuments(filter);
+
+        return { data: paginatedData as IStudent[], totalCount };
     }
 
     async repairStudentAssignments(): Promise<{ 
