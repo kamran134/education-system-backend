@@ -820,8 +820,8 @@ export class StatsService {
             .sort(sortOptions)
             .lean();
 
-        // Расчитываем места
-        this.assignPlaces(allData, 'averageScore');
+        // Расчитываем места по тому же полю, по которому сортируем
+        this.assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
         // Применяем пагинацию
         const paginatedData = allData.slice(skip, skip + size);
@@ -872,8 +872,8 @@ export class StatsService {
             .sort(sortOptions)
             .lean();
 
-        // Расчитываем места
-        this.assignPlaces(allData, 'averageScore');
+        // Расчитываем места по тому же полю, по которому сортируем
+        this.assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
         // Применяем пагинацию
         const paginatedData = allData.slice(skip, skip + size);
@@ -924,8 +924,8 @@ export class StatsService {
             .sort(sortOptions)
             .lean();
 
-        // Расчитываем места
-        this.assignPlaces(allData, 'averageScore');
+        // Расчитываем места по тому же полю, по которому сортируем
+        this.assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
         // Применяем пагинацию
         const paginatedData = allData.slice(skip, skip + size);
