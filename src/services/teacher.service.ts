@@ -288,7 +288,7 @@ export class TeacherService {
         
         return await Teacher.find(filter)
             .populate('school')
-            .sort({ code: 1 });
+            .sort({ fullname: 1 });
     }
 
     async processTeachersFromExcel(filePath: string): Promise<FileProcessingResult<ITeacher>> {
@@ -411,7 +411,7 @@ export class TeacherService {
     }
 
     private buildFilter(filters: FilterOptions): any {
-        const filter: any = {};
+        const filter: any = { active: true }; // По умолчанию только активные
 
         if (filters.districtIds && filters.districtIds.length > 0 && (!filters.schoolIds || filters.schoolIds.length === 0)) {
             filter.district = { $in: filters.districtIds };

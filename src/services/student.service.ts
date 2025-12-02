@@ -177,7 +177,27 @@ export class StudentService {
         filters: FilterOptions,
         sort: SortOptions
     ): Promise<{ data: IStudent[], totalCount: number }> {
+        console.log('👨‍🎓 getFilteredStudents called with filters:', JSON.stringify(filters, null, 2));
         const filter = this.buildFilter(filters);
+        console.log('👨‍🎓 Built MongoDB filter:', JSON.stringify(filter, null, 2));
+        
+        // Проверим типы ID
+        if (filters.schoolIds && filters.schoolIds.length > 0) {
+            const schoolId = filters.schoolIds[0];
+            console.log('👨‍🎓 School ID type:', typeof schoolId, 'Value:', schoolId);
+            console.log('👨‍🎓 Is ObjectId?', schoolId.constructor.name);
+            
+            // Попробуем найти студентов этой школы разными способами
+            const count1 = await Student.countDocuments({ school: schoolId });
+            console.log('👨‍🎓 Students with school (ObjectId):', count1);
+            
+            const count2 = await Student.countDocuments({ school: schoolId.toString() });
+            console.log('👨‍🎓 Students with school (string):', count2);
+            
+            // Посмотрим на структуру первого студента
+            const sample = await Student.findOne({}).select('school').lean();
+            console.log('👨‍🎓 Sample student school field:', sample?.school, 'Type:', typeof sample?.school);
+        }
         
         const sortOptions: any = {};
         sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
@@ -188,6 +208,8 @@ export class StudentService {
             .populate('district school teacher')
             .sort(sortOptions)
             .lean();
+
+        console.log('👨‍🎓 Found students:', allData.length);
 
         // Расчитываем места на ВСЕХ данных
         // Для студентов используем score (общий балл), а не averageScore
@@ -345,16 +367,14 @@ export class StudentService {
     private buildFilter(filters: FilterOptions): any {
         const filter: any = {};
 
-        if (filters.districtIds && filters.districtIds.length > 0 && (!filters.schoolIds || filters.schoolIds.length === 0)) {
-            filter.district = { $in: filters.districtIds };
-        }
-        
-        if (filters.schoolIds && filters.schoolIds.length > 0 && (!filters.teacherIds || filters.teacherIds.length === 0)) {
-            filter.school = { $in: filters.schoolIds };
-        }
-        
+        // Приоритет фильтров: teacherIds > schoolIds > districtIds
+        // Используем самый специфичный фильтр из доступных
         if (filters.teacherIds && filters.teacherIds.length > 0) {
             filter.teacher = { $in: filters.teacherIds };
+        } else if (filters.schoolIds && filters.schoolIds.length > 0) {
+            filter.school = { $in: filters.schoolIds };
+        } else if (filters.districtIds && filters.districtIds.length > 0) {
+            filter.district = { $in: filters.districtIds };
         }
 
         if (filters.grades && filters.grades.length > 0) {

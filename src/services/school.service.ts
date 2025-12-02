@@ -347,7 +347,7 @@ export class SchoolService {
     }
 
     private buildFilter(filters: FilterOptions): any {
-        const filter: any = {};
+        const filter: any = { active: true }; // По умолчанию только активные
 
         if (filters.districtIds && filters.districtIds.length > 0) {
             filter.district = { $in: filters.districtIds };

@@ -1,5 +1,5 @@
 import express from "express";
-import { createAllDistricts, createDistrict, deleteDistrict, getDistrictById, getDistricts, updateDistrict, updateDistrictsStats } from "../controllers/district.controller";
+import { createAllDistricts, createDistrict, deleteDistrict, getDistrictById, getDistricts, getDistrictsForFilter, updateDistrict, updateDistrictsStats } from "../controllers/district.controller";
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 
 const router = express.Router();
@@ -7,6 +7,8 @@ const router = express.Router();
 router.route("/")
     .get(authMiddleware([]), getDistricts) // Allow all authenticated users
     .post(authMiddleware(["superadmin", "admin", "moderator"]), createDistrict);
+router.route("/filter")
+    .get(authMiddleware([]), getDistrictsForFilter);
 router.route("/search")
     .get(authMiddleware([]), getDistricts); // Allow all authenticated users
 router.route("/addAll")
