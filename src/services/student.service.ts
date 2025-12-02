@@ -386,28 +386,38 @@ export class StudentService {
             filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
         }
 
-        // Поиск по имени, фамилии или отчеству
+        // Поиск по имени, фамилии, отчеству или коду
         if (filters.search) {
-            const searchTerms = filters.search.trim().split(/\s+/);
+            const searchTrim = filters.search.trim();
             
-            if (searchTerms.length === 1) {
-                // Single word search
-                filter.$or = [
-                    { firstName: { $regex: searchTerms[0], $options: 'i' } },
-                    { lastName: { $regex: searchTerms[0], $options: 'i' } },
-                    { middleName: { $regex: searchTerms[0], $options: 'i' } }
-                ];
+            // Check if search is a number (code search)
+            if (/^\d+$/.test(searchTrim)) {
+                const code = parseInt(searchTrim);
+                const { start, end } = RequestParser.parseCodeRange(code, 10);
+                filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
             } else {
-                // Multiple words - each word must be found in firstName, lastName, or middleName
-                const nameConditions = searchTerms.map(term => ({
-                    $or: [
-                        { firstName: { $regex: term, $options: 'i' } },
-                        { lastName: { $regex: term, $options: 'i' } },
-                        { middleName: { $regex: term, $options: 'i' } }
-                    ]
-                }));
+                // Text search by name
+                const searchTerms = searchTrim.split(/\s+/);
                 
-                filter.$and = nameConditions;
+                if (searchTerms.length === 1) {
+                    // Single word search
+                    filter.$or = [
+                        { firstName: { $regex: searchTerms[0], $options: 'i' } },
+                        { lastName: { $regex: searchTerms[0], $options: 'i' } },
+                        { middleName: { $regex: searchTerms[0], $options: 'i' } }
+                    ];
+                } else {
+                    // Multiple words - each word must be found in firstName, lastName, or middleName
+                    const nameConditions = searchTerms.map(term => ({
+                        $or: [
+                            { firstName: { $regex: term, $options: 'i' } },
+                            { lastName: { $regex: term, $options: 'i' } },
+                            { middleName: { $regex: term, $options: 'i' } }
+                        ]
+                    }));
+                    
+                    filter.$and = nameConditions;
+                }
             }
         }
 

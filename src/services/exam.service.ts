@@ -167,28 +167,19 @@ export class ExamService {
         // Поиск по названию или коду экзамена
         if (filters.search && filters.search.trim() !== '') {
             const searchTerm = filters.search.trim();
-            console.log('Building search filter for:', searchTerm);
             
-            try {
-                const searchRegex = new RegExp(searchTerm, 'i'); // case-insensitive поиск
-                const searchConditions: any[] = [
-                    { name: searchRegex }
-                ];
-                
-                // Если поиск содержит только цифры, ищем также по коду
-                const searchNumber = parseInt(searchTerm);
-                if (!isNaN(searchNumber)) {
-                    searchConditions.push({ code: searchNumber });
-                }
-                
-                filter.$or = searchConditions;
-                console.log('Search filter built successfully:', filter.$or);
-            } catch (regexError) {
-                console.error('Error building regex:', regexError);
-                // Если regex не может быть создан, ищем только по коду (если это число)
-                const searchNumber = parseInt(searchTerm);
-                if (!isNaN(searchNumber)) {
-                    filter.code = searchNumber;
+            // Если поиск содержит только цифры, ищем по коду с диапазоном
+            if (/^\d+$/.test(searchTerm)) {
+                const code = parseInt(searchTerm);
+                const { start, end } = RequestParser.parseCodeRange(code, 3);
+                filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
+            } else {
+                // Иначе ищем по названию
+                try {
+                    const searchRegex = new RegExp(searchTerm, 'i');
+                    filter.name = searchRegex;
+                } catch (regexError) {
+                    console.error('Error building regex:', regexError);
                 }
             }
         }
