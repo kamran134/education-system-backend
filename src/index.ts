@@ -10,6 +10,7 @@ import examRoutes from "./routes/exam.routes";
 import studentRoutes from "./routes/student.routes";
 import studentResultRoutes from "./routes/studentResult.routes";
 import statRoutes from "./routes/stat.routes";
+import statisticsRoutes from "./routes/statistics.routes";
 import userRoutes from "./routes/user.routes";
 import userSettingsRoutes from "./routes/userSettings.routes";
 import authRoutes from "./routes/auth.routes";
@@ -70,6 +71,7 @@ app.use("/api/students", studentRoutes);
 app.use("/api/student-results", studentResultRoutes);
 app.use("/api/exam-results", examResultsRoutes);
 app.use("/api/stats", statRoutes);
+app.use("/api/statistics", statisticsRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/user-settings", userSettingsRoutes);
 app.use("/api/auth", authRoutes); // Auth роуты без дополнительных ограничений
