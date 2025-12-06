@@ -1,6 +1,7 @@
 import express from "express";
-import { getStudents, getStudent, deleteAllStudents, deleteStudent, deleteStudents, searchStudents, repairStudents, updateStudent, createStudent } from "../controllers/student.controller";
+import { getStudents, getStudent, deleteAllStudents, deleteStudent, deleteStudents, searchStudents, repairStudents, updateStudent, createStudent, uploadStudentAvatar, deleteStudentAvatar } from "../controllers/student.controller";
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
+import { avatarUpload } from "../config/multer";
 
 const router = express.Router();
 
@@ -18,5 +19,8 @@ router.route("/delete/:studentIds")
 router.route("/:id").get(authMiddleware([]), getStudent) // Allow all authenticated users
     .put(authMiddleware(["superadmin", "admin", "moderator"]), updateStudent)
     .delete(canDelete, deleteStudent);
+router.route("/:id/avatar")
+    .post(authMiddleware(["superadmin", "admin"]), avatarUpload.single('avatar'), uploadStudentAvatar)
+    .delete(authMiddleware(["superadmin", "admin"]), deleteStudentAvatar);
 
 export default router;

@@ -4,6 +4,9 @@ import { StudentService } from "../services/student.service";
 import { StudentResultService } from "../services/studentResult.service";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
+import Student from "../models/student.model";
+import fs from 'fs';
+import path from 'path';
 
 export class StudentController {
     private studentUseCase: StudentUseCase;
@@ -170,6 +173,87 @@ export class StudentController {
             res.status(500).json(ResponseHandler.internalError('Error repairing students', error));
         }
     }
+
+    async uploadStudentAvatar(req: Request, res: Response): Promise<void> {
+        try {
+            const studentId = req.params.id;
+            
+            // Проверка что файл загружен
+            if (!req.file) {
+                res.status(400).json(ResponseHandler.badRequest('Fayl yüklənməyib'));
+                return;
+            }
+
+            // Формируем URL аватара
+            const avatarUrl = `/uploads/students/avatars/${req.file.filename}`;
+
+            // Обновляем студента
+            const student = await Student.findByIdAndUpdate(
+                studentId,
+                { avatarUrl },
+                { new: true }
+            );
+
+            if (!student) {
+                // Удаляем загруженный файл если студент не найден
+                fs.unlinkSync(req.file.path);
+                res.status(404).json(ResponseHandler.notFound('Şagird tapılmadı'));
+                return;
+            }
+
+            res.status(200).json(ResponseHandler.success({
+                message: 'Avatar uğurla yükləndi',
+                avatarUrl: student.avatarUrl
+            }));
+        } catch (error: any) {
+            console.error('Error uploading student avatar:', error);
+            
+            // Удаляем файл в случае ошибки
+            if (req.file) {
+                try {
+                    fs.unlinkSync(req.file.path);
+                } catch (unlinkError) {
+                    console.error('Error deleting file:', unlinkError);
+                }
+            }
+            
+            res.status(500).json(ResponseHandler.internalError('Avatar yüklənərkən xəta baş verdi', error));
+        }
+    }
+
+    async deleteStudentAvatar(req: Request, res: Response): Promise<void> {
+        try {
+            const studentId = req.params.id;
+
+            // Получаем студента
+            const student = await Student.findById(studentId);
+
+            if (!student) {
+                res.status(404).json(ResponseHandler.notFound('Şagird tapılmadı'));
+                return;
+            }
+
+            // Если есть аватар, удаляем файл
+            if (student.avatarUrl) {
+                const avatarPath = path.join(process.cwd(), student.avatarUrl);
+                
+                if (fs.existsSync(avatarPath)) {
+                    fs.unlinkSync(avatarPath);
+                }
+
+                // Обновляем студента
+                student.avatarUrl = undefined;
+                await student.save();
+            }
+
+            res.status(200).json(ResponseHandler.success({
+                message: 'Avatar uğurla silindi'
+            }));
+        } catch (error: any) {
+            console.error('Error deleting student avatar:', error);
+            res.status(500).json(ResponseHandler.internalError('Avatar silinərkən xəta baş verdi', error));
+        }
+    }
 }
 
 // Create instance and export methods for backward compatibility
@@ -184,3 +268,5 @@ export const deleteStudents = (req: Request, res: Response) => studentController
 export const deleteAllStudents = (req: Request, res: Response) => studentController.deleteAllStudents(req, res);
 export const searchStudents = (req: Request, res: Response) => studentController.searchStudents(req, res);
 export const repairStudents = (req: Request, res: Response) => studentController.repairStudents(req, res);
+export const uploadStudentAvatar = (req: Request, res: Response) => studentController.uploadStudentAvatar(req, res);
+export const deleteStudentAvatar = (req: Request, res: Response) => studentController.deleteStudentAvatar(req, res);

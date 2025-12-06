@@ -30,6 +30,7 @@ export interface IStudent extends Document {
     maxLevel: number;
     place?: number;
     status: string;
+    avatarUrl?: string;
 }
 
 export interface IStudentMini extends Document {
@@ -49,6 +50,7 @@ export interface IStudentMini extends Document {
     republicWideStudentOfTheMonthScore: number,
     place?: number;
     status: string;
+    avatarUrl?: string;
     results: IStudentResult[];
 }
 
@@ -70,6 +72,7 @@ const StudentSchema: Schema = new Schema({
     studentOfTheMonthScore: { type: Number, required: false },
     republicWideStudentOfTheMonthScore: { type: Number, required: false },
     place: { type: Number, required: false },
+    avatarUrl: { type: String, required: false },
 });
 
 export default mongoose.model<IStudent>("Student", StudentSchema);

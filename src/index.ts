@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dontenv from "dotenv";
+import path from "path";
 import connectDB from "./config/db";
 import districtRoutes from "./routes/district.routes";
 import schoolRoutes from "./routes/school.routes";
@@ -45,6 +46,9 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(cookieParser());
+
+// Статические файлы для аватаров
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Общий лимит для всех запросов (более мягкий)
 const generalLimiter = rateLimit({
