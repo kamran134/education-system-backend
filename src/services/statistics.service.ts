@@ -213,7 +213,7 @@ export class StatisticsService {
             const results = await StudentResult.find({
                 exam: { $in: examIds },
                 student: { $in: studentIds }
-            });
+            }).populate('student');
 
             const totalResults = results.length;
 
@@ -222,8 +222,21 @@ export class StatisticsService {
             const republicStudentsOfMonthSet = new Set();
             const developingStudentsSet = new Set();
 
+            // Подсчитываем студентов по уровням
+            const levelCounts = {
+                E: 0,
+                D: 0,
+                C: 0,
+                B: 0,
+                A: 0,
+                Lisey: 0
+            };
+
+            const uniqueStudentsInMonth = new Set();
+
             results.forEach(result => {
                 const studentId = result.student.toString();
+                uniqueStudentsInMonth.add(studentId);
 
                 if (result.studentOfTheMonthScore && result.studentOfTheMonthScore > 0) {
                     studentsOfMonthSet.add(studentId);
@@ -236,10 +249,31 @@ export class StatisticsService {
                 if (result.developmentScore && result.developmentScore > 0) {
                     developingStudentsSet.add(studentId);
                 }
+
+                // Считаем уровни
+                const student = result.student as any;
+                const level = student.maxLevel;
+                if (level === 1) levelCounts.E++;
+                else if (level === 2) levelCounts.D++;
+                else if (level === 3) levelCounts.C++;
+                else if (level === 4) levelCounts.B++;
+                else if (level === 5) levelCounts.A++;
+                else if (level === 6) levelCounts.Lisey++;
             });
 
+            const uniqueStudentsCount = uniqueStudentsInMonth.size;
+
             const calculatePercentage = (count: number): number => {
-                return totalResults > 0 ? Math.round((count / totalResults) * 100 * 100) / 100 : 0;
+                return uniqueStudentsCount > 0 ? Math.round((count / uniqueStudentsCount) * 100 * 100) / 100 : 0;
+            };
+
+            const levelStatistics: LevelStatistics = {
+                E: { count: levelCounts.E, percentage: calculatePercentage(levelCounts.E) },
+                D: { count: levelCounts.D, percentage: calculatePercentage(levelCounts.D) },
+                C: { count: levelCounts.C, percentage: calculatePercentage(levelCounts.C) },
+                B: { count: levelCounts.B, percentage: calculatePercentage(levelCounts.B) },
+                A: { count: levelCounts.A, percentage: calculatePercentage(levelCounts.A) },
+                Lisey: { count: levelCounts.Lisey, percentage: calculatePercentage(levelCounts.Lisey) }
             };
 
             monthlyStats.push({
@@ -257,7 +291,8 @@ export class StatisticsService {
                 developingStudents: {
                     count: developingStudentsSet.size,
                     percentage: calculatePercentage(developingStudentsSet.size)
-                }
+                },
+                levelStatistics
             });
         }
 

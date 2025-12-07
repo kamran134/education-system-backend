@@ -35,6 +35,7 @@ export interface MonthlyStatistics {
     studentsOfMonth: StatusStatistics;
     republicStudentsOfMonth: StatusStatistics;
     developingStudents: StatusStatistics;
+    levelStatistics: LevelStatistics; // Статистика по уровням за месяц
 }
 
 export interface StatisticsResponse {
