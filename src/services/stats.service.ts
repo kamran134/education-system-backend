@@ -178,6 +178,21 @@ export class StatsService {
             // ============================================================
             console.log("\n🔄 Обнуляем все баллы и статистику...");
             
+            // Обнуляем баллы в результатах студентов (StudentResult)
+            console.log("📝 Обнуляем баллы в результатах экзаменов...");
+            await StudentResult.updateMany(
+                {},
+                {
+                    $set: {
+                        developmentScore: 0,
+                        studentOfTheMonthScore: 0,
+                        republicWideStudentOfTheMonthScore: 0
+                        // participationScore не трогаем - он всегда 1
+                    }
+                }
+            );
+            console.log("✅ Баллы результатов обнулены");
+            
             // Обнуляем баллы студентов
             console.log("👨‍🎓 Обнуляем баллы студентов...");
             await Student.updateMany(
@@ -258,25 +273,6 @@ export class StatsService {
                 { month: 5, year: academicYearEnd },     // май
                 { month: 6, year: academicYearEnd }      // июнь
             ];
-
-            // Обнуляем баллы для всех результатов учебного года
-            console.log("� Обнуляем баллы студентов месяца за весь учебный год...");
-            await StudentResult.updateMany(
-                { 
-                    $or: [
-                        { year: academicYearStart, month: { $gte: 9, $lte: 12 } },
-                        { year: academicYearEnd, month: { $gte: 1, $lte: 6 } }
-                    ]
-                },
-                { 
-                    $set: { 
-                        studentOfTheMonthScore: 0,
-                        republicWideStudentOfTheMonthScore: 0,
-                        developmentScore: 0
-                    }
-                }
-            );
-            console.log("✅ Баллы результатов обнулены");
 
             // ============================================================
             // ШАГ 2: ОБРАБОТКА КАЖДОГО МЕСЯЦА УЧЕБНОГО ГОДА

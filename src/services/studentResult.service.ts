@@ -1,5 +1,5 @@
 import { DeleteResult, Types } from "mongoose";
-import Exam from "../models/exam.model";
+import Exam, { IExam } from "../models/exam.model";
 import Student, { IStudent, IStudentInput } from "../models/student.model";
 import StudentResult, { IStudentResult, IStudentResultsGrouped, IStudentResultInput } from "../models/studentResult.model";
 import Teacher from "../models/teacher.model";
@@ -250,17 +250,18 @@ export const markDevelopingStudents = async (month: number, year: number): Promi
         const bulkOperations = [];
         console.log(`🔄 Поиск развивающихся студентов за ${month}/${year}...`);
 
-        const examIds = await getExamsByMonthYear(month, year);
-        if (!examIds.length) {
+        const exams = await getExamsByMonthYear(month, year);
+        if (!exams.length) {
             console.log("Не найдены экзамены за указанный период.");
             return;
         }
 
+        const examIds = exams.map(e => e._id);
         console.log(`Найдено экзаменов: ${examIds.length}`);
 
         const results: IStudentResult[] = await StudentResult.find({
             exam: { $in: examIds }
-        });
+        }).populate('exam');
 
         if (!results || !results.length) {
             console.log("Нет результатов экзаменов за этот период.");
@@ -291,26 +292,46 @@ export const markDevelopingStudents = async (month: number, year: number): Promi
                     continue;
                 }
 
-                const currentLevel = calculateLevelNumb(currentResult.totalScore);
+                if (!currentResult.exam || typeof currentResult.exam === 'string') {
+                    console.warn("Exam не найден для результата:", currentResult);
+                    continue;
+                }
 
-                const previousResults: IStudentResult[] = await StudentResult.find({
-                    student: currentResult.student,
-                    exam: { $nin: examIds }
+                const currentLevel = calculateLevelNumb(currentResult.totalScore);
+                const currentExamDate = new Date((currentResult.exam as IExam).date);
+
+                // Получаем ВСЕ результаты студента
+                const allStudentResults: IStudentResult[] = await StudentResult.find({
+                    student: currentResult.student
                 }).populate('exam');
 
-                if (!previousResults.length) {
+                // Фильтруем только те результаты, которые РАНЬШЕ текущего экзамена по дате
+                const olderResults = allStudentResults.filter(prevResult => {
+                    if (!prevResult.exam || typeof prevResult.exam === 'string') return false;
+                    const prevExamDate = new Date((prevResult.exam as IExam).date);
+                    return prevExamDate < currentExamDate;
+                });
+
+                console.log(`📊 Студент ${currentResult.student}: текущий экзамен ${currentExamDate.toISOString()}, всего результатов: ${allStudentResults.length}, предыдущих: ${olderResults.length}`);
+
+                if (!olderResults.length) {
+                    // Это первый экзамен студента - пропускаем
+                    console.log(`   ⏭️  Первый экзамен студента - пропускаем`);
                     continue;
                 }
 
                 let maxPreviousLevel = 0;
-                for (const prevResult of previousResults) {
+                for (const prevResult of olderResults) {
                     const prevLevel = calculateLevelNumb(prevResult.totalScore);
                     if (prevLevel > maxPreviousLevel) {
                         maxPreviousLevel = prevLevel;
                     }
                 }
 
+                console.log(`   📈 Текущий уровень: ${currentLevel}, максимальный предыдущий: ${maxPreviousLevel}`);
+
                 if (currentLevel > maxPreviousLevel) {
+                    console.log(`   ✅ РАЗВИТИЕ! Добавляем статус и +10 баллов`);
                     bulkOperations.push({
                         updateOne: {
                             filter: { _id: currentResult._id },
@@ -322,6 +343,8 @@ export const markDevelopingStudents = async (month: number, year: number): Promi
                             }
                         }
                     });
+                } else {
+                    console.log(`   ⏭️  Уровень не повысился - пропускаем`);
                 }
             }
         }
