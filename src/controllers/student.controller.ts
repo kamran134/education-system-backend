@@ -7,6 +7,7 @@ import { ResponseHandler } from "../utils/response-handler.util";
 import Student from "../models/student.model";
 import fs from 'fs';
 import path from 'path';
+import { smartCrop } from '../utils/smart-crop.util';
 
 export class StudentController {
     private studentUseCase: StudentUseCase;
@@ -254,6 +255,114 @@ export class StudentController {
             res.status(500).json(ResponseHandler.internalError('Avatar silinərkən xəta baş verdi', error));
         }
     }
+
+    /**
+     * Массовая загрузка аватаров студентов
+     * POST /api/students/bulk-upload-avatars
+     */
+    async bulkUploadAvatars(req: Request, res: Response): Promise<void> {
+        try {
+            const files = req.files as Express.Multer.File[];
+            
+            if (!files || files.length === 0) {
+                res.status(400).json(ResponseHandler.badRequest('Heç bir fayl yüklənməyib'));
+                return;
+            }
+
+            const uploadPath = 'uploads/students/avatars/';
+            if (!fs.existsSync(uploadPath)) {
+                fs.mkdirSync(uploadPath, { recursive: true });
+            }
+
+            const results = {
+                successful: [] as string[],
+                notFound: [] as string[], // Студенты не найдены
+                corrupted: [] as string[], // Поврежденные файлы
+                total: files.length
+            };
+
+            // Обрабатываем каждый файл
+            for (const file of files) {
+                try {
+                    // Извлекаем код студента из имени файла (без расширения)
+                    const studentCode = path.parse(file.originalname).name;
+                    
+                    // Находим студента по коду
+                    const student = await Student.findOne({ code: studentCode });
+                    
+                    if (!student) {
+                        results.notFound.push(studentCode);
+                        // Удаляем временный файл
+                        fs.unlinkSync(file.path);
+                        continue;
+                    }
+
+                    // Читаем файл
+                    const fileBuffer = fs.readFileSync(file.path);
+                    
+                    // Применяем умный кроп с face detection
+                    const croppedBuffer = await smartCrop(fileBuffer, 600, 800);
+                    
+                    // Сохраняем с именем по id студента
+                    const filename = `${student._id}.jpg`;
+                    const finalPath = path.join(uploadPath, filename);
+                    
+                    // Удаляем старый файл если существует
+                    if (fs.existsSync(finalPath)) {
+                        fs.unlinkSync(finalPath);
+                    }
+                    
+                    // Сохраняем обработанный файл
+                    fs.writeFileSync(finalPath, croppedBuffer);
+                    
+                    // Обновляем студента
+                    student.avatarUrl = `/uploads/students/avatars/${filename}`;
+                    await student.save();
+                    
+                    results.successful.push(studentCode);
+                    
+                    // Удаляем временный файл
+                    fs.unlinkSync(file.path);
+                    
+                } catch (fileError: any) {
+                    console.error(`Error processing file ${file.originalname}:`, fileError);
+                    const studentCode = path.parse(file.originalname).name;
+                    results.corrupted.push(studentCode);
+                    
+                    // Удаляем временный файл
+                    try {
+                        fs.unlinkSync(file.path);
+                    } catch (unlinkError) {
+                        console.error('Error deleting temp file:', unlinkError);
+                    }
+                }
+            }
+
+            res.status(200).json(ResponseHandler.success({
+                message: 'Kütləvi yükləmə tamamlandı',
+                results
+            }));
+            
+        } catch (error: any) {
+            console.error('Error in bulk upload avatars:', error);
+            
+            // Очищаем временные файлы в случае ошибки
+            if (req.files) {
+                const files = req.files as Express.Multer.File[];
+                files.forEach(file => {
+                    try {
+                        if (fs.existsSync(file.path)) {
+                            fs.unlinkSync(file.path);
+                        }
+                    } catch (unlinkError) {
+                        console.error('Error deleting temp file:', unlinkError);
+                    }
+                });
+            }
+            
+            res.status(500).json(ResponseHandler.internalError('Kütləvi yükləmə zamanı xəta baş verdi', error));
+        }
+    }
 }
 
 // Create instance and export methods for backward compatibility
@@ -270,3 +379,4 @@ export const searchStudents = (req: Request, res: Response) => studentController
 export const repairStudents = (req: Request, res: Response) => studentController.repairStudents(req, res);
 export const uploadStudentAvatar = (req: Request, res: Response) => studentController.uploadStudentAvatar(req, res);
 export const deleteStudentAvatar = (req: Request, res: Response) => studentController.deleteStudentAvatar(req, res);
+export const bulkUploadAvatars = (req: Request, res: Response) => studentController.bulkUploadAvatars(req, res);

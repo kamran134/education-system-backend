@@ -48,3 +48,39 @@ export const avatarUpload = multer({
     },
     fileFilter: fileFilter
 });
+
+// Multer для массовой загрузки аватаров
+const bulkAvatarStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadPath = 'uploads/temp/';
+        
+        if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath, { recursive: true });
+        }
+        
+        cb(null, uploadPath);
+    },
+    filename: (req, file, cb) => {
+        // Сохраняем с оригинальным именем во временную папку
+        cb(null, `${Date.now()}-${file.originalname}`);
+    }
+});
+
+const bulkFileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    
+    if (allowedMimeTypes.includes(file.mimetype)) {
+        cb(null, true);
+    } else {
+        cb(null, false); // Просто пропускаем неподходящие файлы
+    }
+};
+
+export const bulkAvatarUpload = multer({
+    storage: bulkAvatarStorage,
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB на файл
+        files: 500 // Максимум 500 файлов за раз
+    },
+    fileFilter: bulkFileFilter
+});
