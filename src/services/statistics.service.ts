@@ -41,10 +41,21 @@ export class StatisticsService {
         const year = filters.year || this.getCurrentAcademicYear();
         const { startDate, endDate } = this.getAcademicYearDates(year);
 
-        // Получаем все экзамены за учебный год
-        const exams = await Exam.find({
-            date: { $gte: startDate, $lt: endDate }
-        }).select('_id');
+        // Получаем все экзамены за учебный год (или за конкретный месяц)
+        let examDateFilter: any = { date: { $gte: startDate, $lt: endDate } };
+        
+        // Если указан месяц, фильтруем только по этому месяцу
+        if (filters.month) {
+            // Определяем календарный год для месяца
+            // Месяцы 9-12 (сентябрь-декабрь) - это год начала учебного года
+            // Месяцы 1-6 (январь-июнь) - это год+1
+            const calendarYear = filters.month >= 9 ? year : year + 1;
+            const monthStartDate = new Date(calendarYear, filters.month - 1, 1);
+            const monthEndDate = new Date(calendarYear, filters.month, 0, 23, 59, 59);
+            examDateFilter = { date: { $gte: monthStartDate, $lte: monthEndDate } };
+        }
+        
+        const exams = await Exam.find(examDateFilter).select('_id');
         const examIds = exams.map(e => e._id);
 
         // Строим фильтр для студентов
@@ -181,10 +192,19 @@ export class StatisticsService {
         const students = await Student.find(studentFilter).select('_id');
         const studentIds = students.map(s => s._id);
 
-        // Получаем экзамены с группировкой по месяцам
-        const exams = await Exam.find({
-            date: { $gte: startDate, $lt: endDate }
-        }).sort({ date: 1 });
+        // Получаем экзамены с группировкой по месяцам (или только за конкретный месяц)
+        let examDateFilter: any = { date: { $gte: startDate, $lt: endDate } };
+        
+        // Если указан месяц, фильтруем только по этому месяцу
+        if (filters.month) {
+            // Определяем календарный год для месяца
+            const calendarYear = filters.month >= 9 ? year : year + 1;
+            const monthStartDate = new Date(calendarYear, filters.month - 1, 1);
+            const monthEndDate = new Date(calendarYear, filters.month, 0, 23, 59, 59);
+            examDateFilter = { date: { $gte: monthStartDate, $lte: monthEndDate } };
+        }
+        
+        const exams = await Exam.find(examDateFilter).sort({ date: 1 });
 
         // Группируем экзамены по месяцам
         const monthsMap = new Map<string, any[]>();

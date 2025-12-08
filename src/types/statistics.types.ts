@@ -3,6 +3,7 @@ export interface StatisticsFilter {
     schoolIds?: string[];
     grades?: number[];
     year?: number; // Учебный год (например, 2024 для 2024-2025)
+    month?: number; // Месяц (1-12)
 }
 
 export interface StatusStatistics {
