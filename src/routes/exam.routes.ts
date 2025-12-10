@@ -9,7 +9,7 @@ router.route("/")
     .post(authMiddleware(["superadmin", "admin", "moderator"]), createExam)
     .delete(canDelete, deleteAllExams);
 router.route("/:id")
-    .put(authMiddleware(["superadmin", "admin", "moderator"]), updateExam)
+    .put(authMiddleware(["superadmin"]), updateExam)
     .delete(canDelete, deleteExam);
 router.route("/filter")
     .get(getExamsForFilter)
