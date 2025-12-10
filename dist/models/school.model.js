@@ -39,7 +39,7 @@ const SchoolSchema = new mongoose_1.Schema({
     address: { type: String, required: false },
     code: { type: Number, required: true, unique: true },
     districtCode: { type: Number, required: true },
-    district: { type: mongoose_1.Types.ObjectId, ref: 'District' },
+    district: { type: mongoose_1.Types.ObjectId, ref: 'District', required: true },
     score: { type: Number, required: false },
     averageScore: { type: Number, required: false },
     studentCount: { type: Number, required: false },

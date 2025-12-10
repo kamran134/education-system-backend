@@ -115,7 +115,8 @@ class SchoolController {
         });
         this.deleteSchools = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
             try {
-                const { ids } = req.body;
+                const { schoolIds } = req.params;
+                const ids = schoolIds.split(',');
                 const result = yield this.schoolUseCase.deleteSchools(ids);
                 res.json(response_handler_util_1.ResponseHandler.success(result, `${result.deletedCount} school(s) deleted successfully`));
             }

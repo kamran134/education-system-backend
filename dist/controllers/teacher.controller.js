@@ -107,7 +107,8 @@ class TeacherController {
         });
         this.deleteTeachers = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
             try {
-                const { ids } = req.body;
+                const { teacherIds } = req.params;
+                const ids = teacherIds.split(',');
                 const result = yield this.teacherUseCase.deleteTeachers(ids);
                 res.json(response_handler_util_1.ResponseHandler.success(result, `${result.deletedCount} teacher(s) deleted successfully`));
             }
@@ -142,8 +143,8 @@ class TeacherController {
         });
         this.repairTeachers = (req, res, next) => __awaiter(this, void 0, void 0, function* () {
             try {
-                // This would need to be implemented based on business logic
-                res.json(response_handler_util_1.ResponseHandler.success({}, 'Teacher repair functionality not yet implemented'));
+                const result = yield this.teacherUseCase.repairTeachers();
+                res.json(response_handler_util_1.ResponseHandler.success(result, `Successfully repaired ${result.repairedTeachers.length} teacher(s)`));
             }
             catch (error) {
                 next(error);

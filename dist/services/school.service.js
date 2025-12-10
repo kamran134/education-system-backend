@@ -34,6 +34,7 @@ class SchoolService {
             yield school_model_1.default.updateMany({}, {
                 score: 0,
                 averageScore: 0,
+                $unset: { place: "" }
             });
             // Получаем всех студентов с school и score
             const students = yield student_model_1.default.find({}, { school: 1, score: 1 }).populate('school', 'studentCount');
@@ -108,23 +109,26 @@ class SchoolService {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 // Получаем все школы, отсортированные по averageScore в убывающем порядке
-                const schools = yield school_model_1.default.find({ averageScore: { $exists: true }, active: true })
+                const schools = yield school_model_1.default.find({
+                    active: true,
+                    averageScore: { $gt: 0 } // Только школы с баллом больше 0
+                })
                     .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
                     .select('_id averageScore code');
                 if (schools.length === 0) {
-                    console.log("Нет школ с averageScore для установки места в рейтинге.");
+                    console.log("Нет школ с averageScore > 0 для установки места в рейтинге.");
                     return;
                 }
                 // Подготавливаем bulk операции для обновления места
                 const bulkOperations = [];
-                let currentPlace = 0;
+                let currentPlace = 1; // Начинаем с 1
                 let previousScore = null;
                 for (let i = 0; i < schools.length; i++) {
                     const school = schools[i];
                     // Если это первая школа или балл изменился
-                    if (i === 0 || (previousScore !== null && school.averageScore < previousScore)) {
-                        // Место = позиция в отсортированном списке + 1
-                        currentPlace++;
+                    if (i > 0 && previousScore !== null && school.averageScore < previousScore) {
+                        // Место = текущая позиция + 1
+                        currentPlace = i + 1;
                     }
                     // Если балл такой же, как у предыдущей, место остается тем же
                     bulkOperations.push({
@@ -241,17 +245,17 @@ class SchoolService {
             const skippedItems = [];
             try {
                 const data = (0, excel_service_1.readExcel)(filePath);
-                if (!data || data.length < 4) {
-                    throw new Error('Invalid Excel file format');
+                if (!data || data.length < 5) {
+                    throw new Error('Faylda kifayət qədər sətr yoxdur!');
                 }
-                const rows = data.slice(3); // Skip header rows
+                const rows = data.slice(4); // Skip header rows (first 4 rows)
                 const dataToInsert = rows.map(row => ({
                     districtCode: Number(row[1]) || 0,
                     code: Number(row[2]),
                     name: String(row[3]),
-                    studentCount: Number(row[4]) || 0
+                    address: ''
                 }));
-                // Filter correct schools
+                // Filter correct schools (school code must be 5 digits: 10000-99999)
                 const correctSchoolsToInsert = dataToInsert.filter(data => data.code > 9999);
                 const incorrectSchoolCodes = dataToInsert
                     .filter(data => data.code <= 9999)
@@ -261,44 +265,53 @@ class SchoolService {
                 const newSchools = existingSchoolCodes.length > 0
                     ? correctSchoolsToInsert.filter(data => !existingSchoolCodes.includes(data.code))
                     : correctSchoolsToInsert;
-                // Validate districts
+                // Separate schools without district codes
                 const districtCodes = newSchools.filter(item => item.districtCode > 0).map(item => item.districtCode);
+                const schoolCodesWithoutDistrictCodes = newSchools
+                    .filter(item => item.districtCode === 0)
+                    .map(item => item.code);
+                // Check which districts exist
                 const existingDistricts = yield district_model_1.default.find({ code: { $in: districtCodes } });
-                const districtMap = new Map(existingDistricts.map(d => [d.code, d]));
-                // Create schools
-                const schoolsToCreate = newSchools.map(schoolData => {
-                    const district = districtMap.get(schoolData.districtCode);
-                    return {
-                        code: schoolData.code,
-                        name: schoolData.name,
-                        districtCode: schoolData.districtCode,
-                        district: district === null || district === void 0 ? void 0 : district._id,
-                        studentCount: schoolData.studentCount || 0,
-                        active: true
-                    };
-                });
-                const createdSchools = yield school_model_1.default.insertMany(schoolsToCreate);
-                processedData.push(...createdSchools.map(s => s.toObject()));
-                // Обновляем studentCount для существующих школ из Excel
-                if (existingSchoolCodes.length > 0) {
-                    const existingSchoolsToUpdate = correctSchoolsToInsert.filter(data => existingSchoolCodes.includes(data.code));
-                    const bulkUpdateOperations = existingSchoolsToUpdate.map(schoolData => ({
+                const existingDistrictCodes = existingDistricts.map(d => d.code);
+                const missingDistrictCodes = districtCodes.filter(code => !existingDistrictCodes.includes(code));
+                const districtMap = new Map(existingDistricts.map(d => [d.code, d._id]));
+                // Filter schools to save (only those with valid district)
+                const schoolsToSave = newSchools.filter(item => item.code > 0 &&
+                    !missingDistrictCodes.includes(item.districtCode) &&
+                    !schoolCodesWithoutDistrictCodes.includes(item.code)).map(item => ({
+                    name: item.name,
+                    address: item.address,
+                    code: item.code,
+                    districtCode: item.districtCode,
+                    district: districtMap.get(item.districtCode),
+                    active: true
+                }));
+                // Save schools using bulkWrite with upsert
+                if (schoolsToSave.length > 0) {
+                    const results = yield school_model_1.default.collection.bulkWrite(schoolsToSave.map(school => ({
                         updateOne: {
-                            filter: { code: schoolData.code },
-                            update: { $set: { studentCount: schoolData.studentCount || 0 } }
+                            filter: { code: school.code },
+                            update: { $set: school },
+                            upsert: true
                         }
-                    }));
-                    if (bulkUpdateOperations.length > 0) {
-                        yield school_model_1.default.bulkWrite(bulkUpdateOperations);
-                        console.log(`✅ Обновлено studentCount для ${bulkUpdateOperations.length} существующих школ`);
-                    }
+                    })));
+                    // Fetch created/updated schools for response
+                    const createdCodes = schoolsToSave.map(s => s.code);
+                    const savedSchools = yield school_model_1.default.find({ code: { $in: createdCodes } });
+                    processedData.push(...savedSchools.map(s => s.toObject()));
                 }
                 // Clean up
                 (0, file_service_1.deleteFile)(filePath);
                 return {
                     processedData,
-                    errors: incorrectSchoolCodes.map(code => `Invalid school code: ${code}`),
-                    skippedItems: existingSchoolCodes.map(code => ({ code, reason: 'Already exists' }))
+                    errors,
+                    skippedItems,
+                    validationErrors: {
+                        incorrectSchoolCodes,
+                        missingDistrictCodes: [...new Set(missingDistrictCodes)],
+                        schoolCodesWithoutDistrictCodes,
+                        existingSchoolCodes
+                    }
                 };
             }
             catch (error) {
@@ -314,7 +327,7 @@ class SchoolService {
         });
     }
     buildFilter(filters) {
-        const filter = {};
+        const filter = { active: true }; // По умолчанию только активные
         if (filters.districtIds && filters.districtIds.length > 0) {
             filter.district = { $in: filters.districtIds };
         }

@@ -17,6 +17,9 @@ const mongoose_1 = require("mongoose");
 const exam_model_1 = __importDefault(require("../models/exam.model"));
 const student_model_1 = __importDefault(require("../models/student.model"));
 const studentResult_model_1 = __importDefault(require("../models/studentResult.model"));
+const teacher_model_1 = __importDefault(require("../models/teacher.model"));
+const school_model_1 = __importDefault(require("../models/school.model"));
+const district_model_1 = __importDefault(require("../models/district.model"));
 const common_service_1 = require("./common.service");
 const exam_service_1 = require("./exam.service");
 const student_service_1 = require("./student.service");
@@ -239,15 +242,16 @@ const markDevelopingStudents = (month, year) => __awaiter(void 0, void 0, void 0
     try {
         const bulkOperations = [];
         console.log(`🔄 Поиск развивающихся студентов за ${month}/${year}...`);
-        const examIds = yield (0, exam_service_1.getExamsByMonthYear)(month, year);
-        if (!examIds.length) {
+        const exams = yield (0, exam_service_1.getExamsByMonthYear)(month, year);
+        if (!exams.length) {
             console.log("Не найдены экзамены за указанный период.");
             return;
         }
+        const examIds = exams.map(e => e._id);
         console.log(`Найдено экзаменов: ${examIds.length}`);
         const results = yield studentResult_model_1.default.find({
             exam: { $in: examIds }
-        });
+        }).populate('exam');
         if (!results || !results.length) {
             console.log("Нет результатов экзаменов за этот период.");
             return;
@@ -272,33 +276,53 @@ const markDevelopingStudents = (month, year) => __awaiter(void 0, void 0, void 0
                     console.warn("Student ID отсутствует или является строкой:", currentResult);
                     continue;
                 }
+                if (!currentResult.exam || typeof currentResult.exam === 'string') {
+                    console.warn("Exam не найден для результата:", currentResult);
+                    continue;
+                }
                 const currentLevel = (0, common_service_1.calculateLevelNumb)(currentResult.totalScore);
-                const previousResults = yield studentResult_model_1.default.find({
-                    student: currentResult.student,
-                    exam: { $nin: examIds }
+                const currentExamDate = new Date(currentResult.exam.date);
+                // Получаем ВСЕ результаты студента
+                const allStudentResults = yield studentResult_model_1.default.find({
+                    student: currentResult.student
                 }).populate('exam');
-                if (!previousResults.length) {
+                // Фильтруем только те результаты, которые РАНЬШЕ текущего экзамена по дате
+                const olderResults = allStudentResults.filter(prevResult => {
+                    if (!prevResult.exam || typeof prevResult.exam === 'string')
+                        return false;
+                    const prevExamDate = new Date(prevResult.exam.date);
+                    return prevExamDate < currentExamDate;
+                });
+                console.log(`📊 Студент ${currentResult.student}: текущий экзамен ${currentExamDate.toISOString()}, всего результатов: ${allStudentResults.length}, предыдущих: ${olderResults.length}`);
+                if (!olderResults.length) {
+                    // Это первый экзамен студента - пропускаем
+                    console.log(`   ⏭️  Первый экзамен студента - пропускаем`);
                     continue;
                 }
                 let maxPreviousLevel = 0;
-                for (const prevResult of previousResults) {
+                for (const prevResult of olderResults) {
                     const prevLevel = (0, common_service_1.calculateLevelNumb)(prevResult.totalScore);
                     if (prevLevel > maxPreviousLevel) {
                         maxPreviousLevel = prevLevel;
                     }
                 }
+                console.log(`   📈 Текущий уровень: ${currentLevel}, максимальный предыдущий: ${maxPreviousLevel}`);
                 if (currentLevel > maxPreviousLevel) {
+                    console.log(`   ✅ РАЗВИТИЕ! Добавляем статус и +10 баллов`);
                     bulkOperations.push({
                         updateOne: {
                             filter: { _id: currentResult._id },
                             update: {
                                 $set: {
                                     status: "İnkişaf edən şagird",
-                                    score: currentResult.score + 10
+                                    developmentScore: 10
                                 }
                             }
                         }
                     });
+                }
+                else {
+                    console.log(`   ⏭️  Уровень не повысился - пропускаем`);
                 }
             }
         }
@@ -481,16 +505,58 @@ const processStudentResultsFromExcel = (filePath, examId) => __awaiter(void 0, v
             // Устанавливаем maxLevel для новых студентов на основе текущего уровня
             maxLevel: (0, participation_types_1.calculateParticipationScore)(Number(row[2]) === 5 ? String(row[11]) : String(row[12]))
         }));
-        const correctStudentDataToInsert = studentDataToInsert.filter(data => data.code > 999999999);
-        const incorrectStudentCodes = studentDataToInsert.filter(data => data.code <= 999999999).map(data => data.code);
+        // Валидация кодов студентов (10 цифр: 1000000000-9999999999)
+        const correctStudentDataToInsert = studentDataToInsert.filter(data => data.code >= 1000000000 && data.code <= 9999999999);
+        const invalidStudentCodes = studentDataToInsert
+            .filter(data => data.code < 1000000000 || data.code > 9999999999)
+            .map(data => data.code);
+        // Валидация кодов учителей (извлекаем из кода студента: первые 7 цифр)
+        const invalidTeacherCodes = [];
+        const teacherCodesToCheck = [...new Set(correctStudentDataToInsert.map(s => Math.floor(s.code / 1000)))];
+        const existingTeachers = yield teacher_model_1.default.find({ code: { $in: teacherCodesToCheck } });
+        const existingTeacherCodes = new Set(existingTeachers.map(t => t.code));
+        teacherCodesToCheck.forEach(teacherCode => {
+            if (!existingTeacherCodes.has(teacherCode)) {
+                invalidTeacherCodes.push(teacherCode);
+            }
+        });
+        // Валидация кодов школ (извлекаем из кода учителя: первые 5 цифр)
+        const invalidSchoolCodes = [];
+        const schoolCodesToCheck = [...new Set(existingTeachers.map(t => Math.floor(t.code / 100)))];
+        const existingSchools = yield school_model_1.default.find({ code: { $in: schoolCodesToCheck } });
+        const existingSchoolCodes = new Set(existingSchools.map(s => s.code));
+        schoolCodesToCheck.forEach(schoolCode => {
+            if (!existingSchoolCodes.has(schoolCode)) {
+                invalidSchoolCodes.push(schoolCode);
+            }
+        });
+        // Валидация кодов районов (извлекаем из кода школы: первые 3 цифры)
+        const invalidDistrictCodes = [];
+        const districtCodesToCheck = [...new Set(existingSchools.map(s => Math.floor(s.code / 100)))];
+        const existingDistricts = yield district_model_1.default.find({ code: { $in: districtCodesToCheck } });
+        const existingDistrictCodes = new Set(existingDistricts.map(d => d.code));
+        districtCodesToCheck.forEach(districtCode => {
+            if (!existingDistrictCodes.has(districtCode)) {
+                invalidDistrictCodes.push(districtCode);
+            }
+        });
         const { students, studentsWithoutTeacher } = yield (0, exports.processStudentResults)(correctStudentDataToInsert);
-        // нужны только те студенты, которые есть в базе и те, у кого totalScore = az + math + lifeKnowledge + logic
+        // нужны только те студенты, которые есть в базе и те, у кого totalScore = az + math + lifeKnowledge + logic + english
         const filtredResults = resultReadedData.filter(result => students.map(student => student.code).includes(result.studentCode)
             && result.totalScore === (result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0))
             && result.totalScore > 0);
+        // Студенты с некорректными результатами (неправильная сумма баллов)
         const studentsWithIncorrectResults = resultReadedData.filter(result => students.map(student => student.code).includes(result.studentCode)
-            && result.totalScore !== (result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0))
-            && result.totalScore > 0);
+            && result.totalScore !== (result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0))).map(result => ({
+            studentCode: result.studentCode,
+            totalScore: result.totalScore,
+            calculatedTotal: result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0),
+            az: result.az,
+            math: result.math,
+            lifeKnowledge: result.lifeKnowledge,
+            logic: result.logic,
+            english: result.english
+        }));
         // Подготавливаем массив обновлений для существующих студентов
         const studentUpdates = [];
         const resultsToInsert = filtredResults.map(result => {
@@ -562,9 +628,14 @@ const processStudentResultsFromExcel = (filePath, examId) => __awaiter(void 0, v
         return {
             processedData: resultsToInsert,
             results,
-            studentsWithoutTeacher,
-            incorrectStudentCodes,
-            studentsWithIncorrectResults
+            validationErrors: {
+                incorrectStudentCodes: [...new Set(invalidStudentCodes)],
+                studentsWithoutTeacher,
+                studentsWithIncorrectResults: studentsWithIncorrectResults.map(s => ({
+                    code: s.studentCode,
+                    reason: `Səhv cəm: ${s.calculatedTotal}, Faylda: ${s.totalScore}`
+                }))
+            }
         };
     }
     catch (error) {

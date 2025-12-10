@@ -21,6 +21,38 @@ const studentResult_model_1 = __importDefault(require("../models/studentResult.m
 const studentResult_service_1 = require("./studentResult.service");
 const request_parser_util_1 = require("../utils/request-parser.util");
 class StudentService {
+    // Функция для расчета мест с учетом одинаковых баллов
+    assignPlaces(items, scoreField = 'averageScore') {
+        if (items.length === 0)
+            return items;
+        // Сортируем по убыванию (высокий балл = лучшее место)
+        items.sort((a, b) => {
+            const scoreA = a[scoreField] || 0;
+            const scoreB = b[scoreField] || 0;
+            return scoreB - scoreA;
+        });
+        let currentPlace = 1;
+        let previousScore = null;
+        items.forEach((item, index) => {
+            const currentScore = item[scoreField] || 0;
+            if (index === 0) {
+                // Первый элемент всегда место 1
+                item.place = 1;
+                previousScore = currentScore;
+            }
+            else if (currentScore < previousScore) {
+                // Балл меньше предыдущего - новое место
+                currentPlace++;
+                item.place = currentPlace;
+                previousScore = currentScore;
+            }
+            else {
+                // Балл такой же - то же место
+                item.place = currentPlace;
+            }
+        });
+        return items;
+    }
     findById(id) {
         return __awaiter(this, void 0, void 0, function* () {
             return yield student_model_1.default.findById(id).populate('district school teacher');
@@ -68,16 +100,35 @@ class StudentService {
     }
     search(searchString) {
         return __awaiter(this, void 0, void 0, function* () {
+            const searchTerms = searchString.trim().split(/\s+/);
+            let matchCondition;
+            if (searchTerms.length === 1) {
+                // Single word search
+                matchCondition = {
+                    $or: [
+                        { firstName: { $regex: searchTerms[0], $options: 'i' } },
+                        { lastName: { $regex: searchTerms[0], $options: 'i' } },
+                        { middleName: { $regex: searchTerms[0], $options: 'i' } },
+                        { code: parseInt(searchTerms[0]) || 0 }
+                    ]
+                };
+            }
+            else {
+                // Multiple words - each word must be found in firstName, lastName, or middleName
+                const nameConditions = searchTerms.map(term => ({
+                    $or: [
+                        { firstName: { $regex: term, $options: 'i' } },
+                        { lastName: { $regex: term, $options: 'i' } },
+                        { middleName: { $regex: term, $options: 'i' } }
+                    ]
+                }));
+                matchCondition = {
+                    $and: nameConditions
+                };
+            }
             return yield student_model_1.default.aggregate([
                 {
-                    $match: {
-                        $or: [
-                            { firstName: { $regex: searchString, $options: 'i' } },
-                            { lastName: { $regex: searchString, $options: 'i' } },
-                            { middleName: { $regex: searchString, $options: 'i' } },
-                            { code: parseInt(searchString) || 0 }
-                        ]
-                    }
+                    $match: matchCondition
                 },
                 {
                     $lookup: {
@@ -126,19 +177,39 @@ class StudentService {
     }
     getFilteredStudents(pagination, filters, sort) {
         return __awaiter(this, void 0, void 0, function* () {
+            console.log('👨‍🎓 getFilteredStudents called with filters:', JSON.stringify(filters, null, 2));
             const filter = this.buildFilter(filters);
+            console.log('👨‍🎓 Built MongoDB filter:', JSON.stringify(filter, null, 2));
+            // Проверим типы ID
+            if (filters.schoolIds && filters.schoolIds.length > 0) {
+                const schoolId = filters.schoolIds[0];
+                console.log('👨‍🎓 School ID type:', typeof schoolId, 'Value:', schoolId);
+                console.log('👨‍🎓 Is ObjectId?', schoolId.constructor.name);
+                // Попробуем найти студентов этой школы разными способами
+                const count1 = yield student_model_1.default.countDocuments({ school: schoolId });
+                console.log('👨‍🎓 Students with school (ObjectId):', count1);
+                const count2 = yield student_model_1.default.countDocuments({ school: schoolId.toString() });
+                console.log('👨‍🎓 Students with school (string):', count2);
+                // Посмотрим на структуру первого студента
+                const sample = yield student_model_1.default.findOne({}).select('school').lean();
+                console.log('👨‍🎓 Sample student school field:', sample === null || sample === void 0 ? void 0 : sample.school, 'Type:', typeof (sample === null || sample === void 0 ? void 0 : sample.school));
+            }
             const sortOptions = {};
             sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
-            const [data, totalCount] = yield Promise.all([
-                student_model_1.default.find(filter)
-                    .collation({ locale: 'az', strength: 2 })
-                    .populate('district school teacher')
-                    .sort(sortOptions)
-                    .skip(pagination.skip)
-                    .limit(pagination.size),
-                student_model_1.default.countDocuments(filter)
-            ]);
-            return { data, totalCount };
+            // Получаем ВСЕ отфильтрованные данные для расчета мест
+            const allData = yield student_model_1.default.find(filter)
+                .collation({ locale: 'az', strength: 2 })
+                .populate('district school teacher')
+                .sort(sortOptions)
+                .lean();
+            console.log('👨‍🎓 Found students:', allData.length);
+            // Расчитываем места на ВСЕХ данных
+            // Для студентов используем score (общий балл), а не averageScore
+            this.assignPlaces(allData, 'score');
+            // Применяем пагинацию ПОСЛЕ расчета мест
+            const paginatedData = allData.slice(pagination.skip, pagination.skip + pagination.size);
+            const totalCount = yield student_model_1.default.countDocuments(filter);
+            return { data: paginatedData, totalCount };
         });
     }
     repairStudentAssignments() {
@@ -268,14 +339,16 @@ class StudentService {
     }
     buildFilter(filters) {
         const filter = {};
-        if (filters.districtIds && filters.districtIds.length > 0 && (!filters.schoolIds || filters.schoolIds.length === 0)) {
-            filter.district = { $in: filters.districtIds };
-        }
-        if (filters.schoolIds && filters.schoolIds.length > 0 && (!filters.teacherIds || filters.teacherIds.length === 0)) {
-            filter.school = { $in: filters.schoolIds };
-        }
+        // Приоритет фильтров: teacherIds > schoolIds > districtIds
+        // Используем самый специфичный фильтр из доступных
         if (filters.teacherIds && filters.teacherIds.length > 0) {
             filter.teacher = { $in: filters.teacherIds };
+        }
+        else if (filters.schoolIds && filters.schoolIds.length > 0) {
+            filter.school = { $in: filters.schoolIds };
+        }
+        else if (filters.districtIds && filters.districtIds.length > 0) {
+            filter.district = { $in: filters.districtIds };
         }
         if (filters.grades && filters.grades.length > 0) {
             filter.grade = { $in: filters.grades };
@@ -284,13 +357,38 @@ class StudentService {
             const { start, end } = request_parser_util_1.RequestParser.parseCodeRange(filters.code, 10);
             filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
         }
-        // Поиск по имени, фамилии или отчеству
+        // Поиск по имени, фамилии, отчеству или коду
         if (filters.search) {
-            filter.$or = [
-                { firstName: { $regex: filters.search, $options: 'i' } },
-                { lastName: { $regex: filters.search, $options: 'i' } },
-                { middleName: { $regex: filters.search, $options: 'i' } }
-            ];
+            const searchTrim = filters.search.trim();
+            // Check if search is a number (code search)
+            if (/^\d+$/.test(searchTrim)) {
+                const code = parseInt(searchTrim);
+                const { start, end } = request_parser_util_1.RequestParser.parseCodeRange(code, 10);
+                filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
+            }
+            else {
+                // Text search by name
+                const searchTerms = searchTrim.split(/\s+/);
+                if (searchTerms.length === 1) {
+                    // Single word search
+                    filter.$or = [
+                        { firstName: { $regex: searchTerms[0], $options: 'i' } },
+                        { lastName: { $regex: searchTerms[0], $options: 'i' } },
+                        { middleName: { $regex: searchTerms[0], $options: 'i' } }
+                    ];
+                }
+                else {
+                    // Multiple words - each word must be found in firstName, lastName, or middleName
+                    const nameConditions = searchTerms.map(term => ({
+                        $or: [
+                            { firstName: { $regex: term, $options: 'i' } },
+                            { lastName: { $regex: term, $options: 'i' } },
+                            { middleName: { $regex: term, $options: 'i' } }
+                        ]
+                    }));
+                    filter.$and = nameConditions;
+                }
+            }
         }
         return filter;
     }
@@ -345,11 +443,15 @@ const getFiltredStudents = (req) => __awaiter(void 0, void 0, void 0, function* 
     }
     // Handle exam filter specially
     if (filters.examIds && filters.examIds.length > 0) {
+        console.log('🔥 Filtering students by examIds:', filters.examIds);
         const studentsInExam = yield studentResult_model_1.default.find({ exam: { $in: filters.examIds } }).distinct('student');
+        console.log('🔥 Students found in exam:', studentsInExam.length);
+        console.log('🔥 Student IDs:', studentsInExam);
         filters.districtIds = undefined;
         filters.schoolIds = undefined;
         filters.teacherIds = undefined;
         const customFilter = service.buildExamFilter(filters, studentsInExam);
+        console.log('🔍 Custom filter for exam students:', JSON.stringify(customFilter));
         const sortOptions = {};
         sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
         const [data, totalCount] = yield Promise.all([
@@ -360,6 +462,7 @@ const getFiltredStudents = (req) => __awaiter(void 0, void 0, void 0, function* 
                 .limit(pagination.size),
             student_model_1.default.countDocuments(customFilter)
         ]);
+        console.log('✅ Filtered students count:', totalCount);
         return { data, totalCount };
     }
     return yield service.getFilteredStudents(pagination, filters, sort);

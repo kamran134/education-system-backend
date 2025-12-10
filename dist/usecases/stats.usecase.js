@@ -19,7 +19,7 @@ class StatsUseCase {
         return __awaiter(this, void 0, void 0, function* () {
             const result = yield this.statsService.updateStats();
             if (result === 404) {
-                throw new Error('No results found to update statistics');
+                throw new Error('Statistikanı yeniləmək üçün heç bir nəticə tapılmadı');
             }
         });
     }
@@ -27,7 +27,7 @@ class StatsUseCase {
         return __awaiter(this, void 0, void 0, function* () {
             const result = yield this.statsService.updateAllStats();
             if (result === 404) {
-                throw new Error('No results found to update statistics');
+                throw new Error('Statistikanı yeniləmək üçün heç bir nəticə tapılmadı');
             }
         });
     }

@@ -6,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const dotenv_1 = __importDefault(require("dotenv"));
+const path_1 = __importDefault(require("path"));
 const db_1 = __importDefault(require("./config/db"));
 const district_routes_1 = __importDefault(require("./routes/district.routes"));
 const school_routes_1 = __importDefault(require("./routes/school.routes"));
@@ -15,6 +16,7 @@ const exam_routes_1 = __importDefault(require("./routes/exam.routes"));
 const student_routes_1 = __importDefault(require("./routes/student.routes"));
 const studentResult_routes_1 = __importDefault(require("./routes/studentResult.routes"));
 const stat_routes_1 = __importDefault(require("./routes/stat.routes"));
+const statistics_routes_1 = __importDefault(require("./routes/statistics.routes"));
 const user_routes_1 = __importDefault(require("./routes/user.routes"));
 const userSettings_routes_1 = __importDefault(require("./routes/userSettings.routes"));
 const auth_routes_1 = __importDefault(require("./routes/auth.routes"));
@@ -43,8 +45,11 @@ app.use((0, cors_1.default)({
     ],
     credentials: true
 }));
-app.use(express_1.default.json());
+app.use(express_1.default.json({ limit: '100mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '100mb' }));
 app.use((0, cookie_parser_1.default)());
+// Статические файлы для аватаров
+app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '../uploads')));
 // Общий лимит для всех запросов (более мягкий)
 const generalLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 минут
@@ -67,6 +72,7 @@ app.use("/api/students", student_routes_1.default);
 app.use("/api/student-results", studentResult_routes_1.default);
 app.use("/api/exam-results", examResults_routes_1.default);
 app.use("/api/stats", stat_routes_1.default);
+app.use("/api/statistics", statistics_routes_1.default);
 app.use("/api/users", user_routes_1.default);
 app.use("/api/user-settings", userSettings_routes_1.default);
 app.use("/api/auth", auth_routes_1.default); // Auth роуты без дополнительных ограничений

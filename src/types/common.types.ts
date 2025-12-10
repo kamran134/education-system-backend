@@ -53,10 +53,22 @@ export interface FileProcessingResult<T> {
     errors: string[];
     skippedItems: any[];
     validationErrors?: {
-        invalidDistrictCodes?: number[];
-        invalidSchoolCodes?: number[];
-        invalidTeacherCodes?: number[];
-        invalidStudentCodes?: number[];
+        // For Teachers
+        incorrectTeacherCodes?: number[];
+        missingSchoolCodes?: number[];
+        teacherCodesWithoutSchoolCodes?: number[];
+        existingTeacherCodes?: number[];
+        
+        // For Schools
+        incorrectSchoolCodes?: number[];
+        missingDistrictCodes?: number[];
+        schoolCodesWithoutDistrictCodes?: number[];
+        existingSchoolCodes?: number[];
+        
+        // For Student Results
+        incorrectStudentCodes?: number[];
+        studentsWithoutTeacher?: number[];
+        studentsWithIncorrectResults?: Array<{ code: number; reason: string }>;
     };
 }
 

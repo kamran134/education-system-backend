@@ -15,19 +15,19 @@ class RequestParser {
         return { sortColumn, sortDirection };
     }
     static parseFilterOptions(req) {
-        const districtIds = req.query.districtIds
+        const districtIds = req.query.districtIds && req.query.districtIds.trim()
             ? req.query.districtIds.split(',').map(id => new mongoose_1.Types.ObjectId(id.trim()))
             : undefined;
-        const schoolIds = req.query.schoolIds
+        const schoolIds = req.query.schoolIds && req.query.schoolIds.trim()
             ? req.query.schoolIds.split(',').map(id => new mongoose_1.Types.ObjectId(id.trim()))
             : undefined;
-        const teacherIds = req.query.teacherIds
+        const teacherIds = req.query.teacherIds && req.query.teacherIds.trim()
             ? req.query.teacherIds.split(',').map(id => new mongoose_1.Types.ObjectId(id.trim()))
             : undefined;
-        const examIds = req.query.examIds
+        const examIds = req.query.examIds && req.query.examIds.trim()
             ? req.query.examIds.split(',').map(id => new mongoose_1.Types.ObjectId(id.trim()))
             : undefined;
-        const grades = req.query.grades
+        const grades = req.query.grades && req.query.grades.trim()
             ? req.query.grades.split(',').map(grade => parseInt(grade, 10))
             : undefined;
         const code = req.query.code ? parseInt(req.query.code) : undefined;

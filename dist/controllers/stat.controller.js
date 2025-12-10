@@ -23,15 +23,15 @@ class StatsController {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 yield this.statsUseCase.updateStatistics();
-                res.status(200).json(response_handler_util_1.ResponseHandler.success({}, 'Statistics updated successfully'));
+                res.status(200).json(response_handler_util_1.ResponseHandler.success({}, 'Statistika uğurla yeniləndi'));
             }
             catch (error) {
-                console.error('Error in updateStatistics:', error);
-                if (error.message.includes('No results found')) {
+                console.error('updateStatistics funksiyasında xəta baş verdi:', error);
+                if (error.message.includes('Nəticə tapılmadı')) {
                     res.status(404).json(response_handler_util_1.ResponseHandler.notFound(error.message));
                 }
                 else {
-                    res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Error updating statistics', error));
+                    res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Statistikaların yenilənməsində xəta baş verdi', error));
                 }
             }
         });
@@ -40,15 +40,15 @@ class StatsController {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 yield this.statsUseCase.updateAllStatistics();
-                res.status(200).json(response_handler_util_1.ResponseHandler.success({}, 'All statistics updated successfully for the entire academic year'));
+                res.status(200).json(response_handler_util_1.ResponseHandler.success({}, 'Tədris ili üçün bütün statistikalar uğurla yeniləndi'));
             }
             catch (error) {
-                console.error('Error in updateAllStatistics:', error);
-                if (error.message.includes('No results found')) {
+                console.error('updateAllStatistics funksiyasında xəta baş verdi:', error);
+                if (error.message.includes('Nəticə tapılmadı')) {
                     res.status(404).json(response_handler_util_1.ResponseHandler.notFound(error.message));
                 }
                 else {
-                    res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Error updating all statistics', error));
+                    res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Bütün statistikaların yenilənməsində xəta baş verdi', error));
                 }
             }
         });

@@ -9,10 +9,11 @@ const auth_middleware_1 = require("../middleware/auth.middleware");
 const router = express_1.default.Router();
 router.route("/")
     .get(exam_controller_1.getExams)
-    .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), exam_controller_1.createExam)
-    .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), exam_controller_1.deleteAllExams);
+    .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin", "moderator"]), exam_controller_1.createExam)
+    .delete(auth_middleware_1.canDelete, exam_controller_1.deleteAllExams);
 router.route("/:id")
-    .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), exam_controller_1.deleteExam);
+    .put((0, auth_middleware_1.authMiddleware)(["superadmin"]), exam_controller_1.updateExam)
+    .delete(auth_middleware_1.canDelete, exam_controller_1.deleteExam);
 router.route("/filter")
     .get(exam_controller_1.getExamsForFilter);
 exports.default = router;

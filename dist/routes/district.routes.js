@@ -9,7 +9,9 @@ const auth_middleware_1 = require("../middleware/auth.middleware");
 const router = express_1.default.Router();
 router.route("/")
     .get((0, auth_middleware_1.authMiddleware)([]), district_controller_1.getDistricts) // Allow all authenticated users
-    .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), district_controller_1.createDistrict);
+    .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin", "moderator"]), district_controller_1.createDistrict);
+router.route("/filter")
+    .get((0, auth_middleware_1.authMiddleware)([]), district_controller_1.getDistrictsForFilter);
 router.route("/search")
     .get((0, auth_middleware_1.authMiddleware)([]), district_controller_1.getDistricts); // Allow all authenticated users
 router.route("/addAll")
@@ -18,6 +20,6 @@ router.route("/update-stats")
     .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), district_controller_1.updateDistrictsStats);
 router.route("/:id")
     .get((0, auth_middleware_1.authMiddleware)([]), district_controller_1.getDistrictById) // Allow all authenticated users
-    .put((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), district_controller_1.updateDistrict)
-    .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), district_controller_1.deleteDistrict);
+    .put((0, auth_middleware_1.authMiddleware)(["superadmin", "admin", "moderator"]), district_controller_1.updateDistrict)
+    .delete(auth_middleware_1.canDelete, district_controller_1.deleteDistrict);
 exports.default = router;

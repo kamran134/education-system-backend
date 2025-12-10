@@ -10,11 +10,13 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ExamUseCase = void 0;
+const studentResult_service_1 = require("../services/studentResult.service");
 const validation_util_1 = require("../utils/validation.util");
 const mongoose_1 = require("mongoose");
 class ExamUseCase {
     constructor(examService) {
         this.examService = examService;
+        this.studentResultService = new studentResult_service_1.StudentResultService();
     }
     getExamById(id) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -78,6 +80,10 @@ class ExamUseCase {
             if (!exam) {
                 throw new Error('Exam not found');
             }
+            // Delete all student results for this exam first
+            const examObjectId = new mongoose_1.Types.ObjectId(id);
+            yield this.studentResultService.deleteByExamId(examObjectId);
+            // Then delete the exam itself
             yield this.examService.delete(id);
         });
     }
@@ -92,7 +98,12 @@ class ExamUseCase {
                     throw new Error(validationError);
                 }
             }
+            // Delete all student results for these exams first
             const objectIds = ids.map(id => new mongoose_1.Types.ObjectId(id));
+            for (const examObjectId of objectIds) {
+                yield this.studentResultService.deleteByExamId(examObjectId);
+            }
+            // Then delete the exams
             return yield this.examService.deleteBulk(objectIds);
         });
     }

@@ -295,25 +295,22 @@ export class TeacherService {
         const processedData: ITeacher[] = [];
         const errors: string[] = [];
         const skippedItems: any[] = [];
-        const invalidDistrictCodes: number[] = [];
-        const invalidSchoolCodes: number[] = [];
 
         try {
             const data = readExcel(filePath);
-            if (!data || data.length < 4) {
-                throw new Error('Invalid Excel file format');
+            if (!data || data.length < 5) {
+                throw new Error('Faylda kifayət qədər sətr yoxdur!');
             }
 
-            const rows = data.slice(3); // Skip header rows
+            const rows = data.slice(4); // Skip header rows (first 4 rows)
             const dataToInsert = rows.map(row => ({
                 districtCode: Number(row[1]) || 0,
                 schoolCode: Number(row[2]) || 0,
                 code: Number(row[3]),
-                fullname: String(row[4]),
-                studentCount: Number(row[5]) || 0
+                fullname: String(row[4])
             }));
 
-            // Filter correct teachers
+            // Filter correct teachers (teacher code must be 7 digits)
             const correctTeachersToInsert = dataToInsert.filter(data => data.code > 999999);
             const incorrectTeacherCodes = dataToInsert
                 .filter(data => data.code <= 999999)
@@ -328,62 +325,57 @@ export class TeacherService {
                 ? correctTeachersToInsert.filter(data => !existingTeacherCodes.includes(data.code))
                 : correctTeachersToInsert;
 
-            // Validate districts and schools
-            const districtCodes = [...new Set(newTeachers.filter(item => item.districtCode > 0).map(item => item.districtCode))];
-            const schoolCodes = [...new Set(newTeachers.filter(item => item.schoolCode > 0).map(item => item.schoolCode))];
+            // Separate teachers without school codes
+            const districtCodes = newTeachers.filter(item => item.districtCode > 0).map(item => item.districtCode);
+            const schoolCodes = newTeachers.filter(item => item.schoolCode > 0).map(item => item.schoolCode);
+            const teacherCodesWithoutSchoolCodes = newTeachers
+                .filter(item => item.schoolCode === 0)
+                .map(item => item.code);
 
+            // Check which districts and schools exist
             const existingDistricts = await District.find({ code: { $in: districtCodes } });
             const existingSchools = await School.find({ code: { $in: schoolCodes } });
 
-            const schoolMap = new Map(existingSchools.map(s => [s.code, s]));
-            const districtMap = new Map(existingDistricts.map(d => [d.code, d]));
+            const existingDistrictCodes = existingDistricts.map(d => d.code);
+            const existingSchoolCodes = existingSchools.map(s => s.code);
+            
+            const missingSchoolCodes = schoolCodes.filter(code => !existingSchoolCodes.includes(code));
+            const missingDistrictCodes = districtCodes.filter(code => !existingDistrictCodes.includes(code));
 
-            // Find missing districts and schools
-            districtCodes.forEach(code => {
-                if (!districtMap.has(code)) {
-                    invalidDistrictCodes.push(code);
-                }
-            });
+            const schoolMap = new Map(existingSchools.map(s => [s.code, s._id as Types.ObjectId]));
+            const districtMap = new Map(existingDistricts.map(d => [d.code, d._id as Types.ObjectId]));
 
-            schoolCodes.forEach(code => {
-                if (!schoolMap.has(code)) {
-                    invalidSchoolCodes.push(code);
-                }
-            });
+            // Filter teachers to save (only those with valid district and school)
+            const teachersToSave = newTeachers.filter(
+                item =>
+                    item.code > 0 &&
+                    !missingDistrictCodes.includes(item.districtCode) &&
+                    !missingSchoolCodes.includes(item.schoolCode) &&
+                    !teacherCodesWithoutSchoolCodes.includes(item.code)
+            ).map(item => ({
+                district: districtMap.get(item.districtCode),
+                school: schoolMap.get(item.schoolCode),
+                code: item.code,
+                fullname: item.fullname,
+                active: true
+            }));
 
-            // Create teachers (даже если район или школа не найдены - создаём учителя с null)
-            const teachersToCreate: ITeacherCreate[] = newTeachers.map(teacherData => {
-                const school = schoolMap.get(teacherData.schoolCode);
-                const district = districtMap.get(teacherData.districtCode);
+            // Save teachers using bulkWrite with upsert
+            if (teachersToSave.length > 0) {
+                const results = await Teacher.collection.bulkWrite(
+                    teachersToSave.map(teacher => ({
+                        updateOne: {
+                            filter: { code: teacher.code },
+                            update: { $set: teacher },
+                            upsert: true
+                        }
+                    }))
+                );
 
-                return {
-                    code: teacherData.code,
-                    fullname: teacherData.fullname,
-                    school: school?._id as Types.ObjectId,
-                    district: district?._id as Types.ObjectId,
-                    studentCount: teacherData.studentCount || 0,
-                    active: true
-                };
-            });
-
-            const createdTeachers = await Teacher.insertMany(teachersToCreate);
-            processedData.push(...createdTeachers.map(t => t.toObject() as ITeacher));
-
-            // Обновляем studentCount для существующих учителей из Excel
-            if (existingTeacherCodes.length > 0) {
-                const existingTeachersToUpdate = correctTeachersToInsert.filter(data => existingTeacherCodes.includes(data.code));
-                
-                const bulkUpdateOperations = existingTeachersToUpdate.map(teacherData => ({
-                    updateOne: {
-                        filter: { code: teacherData.code },
-                        update: { $set: { studentCount: teacherData.studentCount || 0 } }
-                    }
-                }));
-
-                if (bulkUpdateOperations.length > 0) {
-                    await Teacher.bulkWrite(bulkUpdateOperations);
-                    console.log(`✅ Обновлено studentCount для ${bulkUpdateOperations.length} существующих учителей`);
-                }
+                // Fetch created/updated teachers for response
+                const createdCodes = teachersToSave.map(t => t.code);
+                const savedTeachers = await Teacher.find({ code: { $in: createdCodes } });
+                processedData.push(...savedTeachers.map(t => t.toObject() as ITeacher));
             }
 
             // Clean up
@@ -391,12 +383,13 @@ export class TeacherService {
 
             return {
                 processedData,
-                errors: incorrectTeacherCodes.map(code => `Invalid teacher code: ${code}`),
-                skippedItems: existingTeacherCodes.map(code => ({ code, reason: 'Already exists' })),
+                errors,
+                skippedItems,
                 validationErrors: {
-                    invalidDistrictCodes: [...new Set(invalidDistrictCodes)],
-                    invalidSchoolCodes: [...new Set(invalidSchoolCodes)],
-                    invalidTeacherCodes: incorrectTeacherCodes
+                    incorrectTeacherCodes,
+                    missingSchoolCodes: [...new Set(missingSchoolCodes)],
+                    teacherCodesWithoutSchoolCodes,
+                    existingTeacherCodes
                 }
             };
         } catch (error) {

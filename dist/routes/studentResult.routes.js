@@ -13,7 +13,8 @@ router.route("/").get(studentResult_controller_1.getStudentResults);
 router.route("/upload")
     .post(upload.single("file"), (0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), studentResult_controller_1.createAllResults);
 router.route("/:id")
-    .put((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), studentResult_controller_1.updateStudentResult);
+    .put((0, auth_middleware_1.authMiddleware)(["superadmin", "admin", "moderator"]), studentResult_controller_1.updateStudentResult)
+    .delete(auth_middleware_1.canDelete, studentResult_controller_1.deleteStudentResult);
 router.route("/exam/:examId")
     .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), studentResult_controller_1.deleteResults);
 exports.default = router;

@@ -8,13 +8,20 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
         step((generator = generator.apply(thisArg, _arguments || [])).next());
     });
 };
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.repairStudents = exports.searchStudents = exports.deleteAllStudents = exports.deleteStudents = exports.deleteStudent = exports.updateStudent = exports.createStudent = exports.getStudent = exports.getStudents = exports.StudentController = void 0;
+exports.bulkUploadAvatars = exports.deleteStudentAvatar = exports.uploadStudentAvatar = exports.repairStudents = exports.searchStudents = exports.deleteAllStudents = exports.deleteStudents = exports.deleteStudent = exports.updateStudent = exports.createStudent = exports.getStudent = exports.getStudents = exports.StudentController = void 0;
 const student_usecase_1 = require("../usecases/student.usecase");
 const student_service_1 = require("../services/student.service");
 const studentResult_service_1 = require("../services/studentResult.service");
 const request_parser_util_1 = require("../utils/request-parser.util");
 const response_handler_util_1 = require("../utils/response-handler.util");
+const student_model_1 = __importDefault(require("../models/student.model"));
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
+const smart_crop_util_1 = require("../utils/smart-crop.util");
 class StudentController {
     constructor() {
         const studentService = new student_service_1.StudentService();
@@ -207,6 +214,168 @@ class StudentController {
             }
         });
     }
+    uploadStudentAvatar(req, res) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const studentId = req.params.id;
+                // Проверка что файл загружен
+                if (!req.file) {
+                    res.status(400).json(response_handler_util_1.ResponseHandler.badRequest('Fayl yüklənməyib'));
+                    return;
+                }
+                // Формируем URL аватара
+                const avatarUrl = `/uploads/students/avatars/${req.file.filename}`;
+                // Обновляем студента
+                const student = yield student_model_1.default.findByIdAndUpdate(studentId, { avatarUrl }, { new: true });
+                if (!student) {
+                    // Удаляем загруженный файл если студент не найден
+                    fs_1.default.unlinkSync(req.file.path);
+                    res.status(404).json(response_handler_util_1.ResponseHandler.notFound('Şagird tapılmadı'));
+                    return;
+                }
+                res.status(200).json(response_handler_util_1.ResponseHandler.success({
+                    message: 'Avatar uğurla yükləndi',
+                    avatarUrl: student.avatarUrl
+                }));
+            }
+            catch (error) {
+                console.error('Error uploading student avatar:', error);
+                // Удаляем файл в случае ошибки
+                if (req.file) {
+                    try {
+                        fs_1.default.unlinkSync(req.file.path);
+                    }
+                    catch (unlinkError) {
+                        console.error('Error deleting file:', unlinkError);
+                    }
+                }
+                res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Avatar yüklənərkən xəta baş verdi', error));
+            }
+        });
+    }
+    deleteStudentAvatar(req, res) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const studentId = req.params.id;
+                // Получаем студента
+                const student = yield student_model_1.default.findById(studentId);
+                if (!student) {
+                    res.status(404).json(response_handler_util_1.ResponseHandler.notFound('Şagird tapılmadı'));
+                    return;
+                }
+                // Если есть аватар, удаляем файл
+                if (student.avatarUrl) {
+                    const avatarPath = path_1.default.join(process.cwd(), student.avatarUrl);
+                    if (fs_1.default.existsSync(avatarPath)) {
+                        fs_1.default.unlinkSync(avatarPath);
+                    }
+                    // Обновляем студента
+                    student.avatarUrl = undefined;
+                    yield student.save();
+                }
+                res.status(200).json(response_handler_util_1.ResponseHandler.success({
+                    message: 'Avatar uğurla silindi'
+                }));
+            }
+            catch (error) {
+                console.error('Error deleting student avatar:', error);
+                res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Avatar silinərkən xəta baş verdi', error));
+            }
+        });
+    }
+    /**
+     * Массовая загрузка аватаров студентов
+     * POST /api/students/bulk-upload-avatars
+     */
+    bulkUploadAvatars(req, res) {
+        return __awaiter(this, void 0, void 0, function* () {
+            try {
+                const files = req.files;
+                if (!files || files.length === 0) {
+                    res.status(400).json(response_handler_util_1.ResponseHandler.badRequest('Heç bir fayl yüklənməyib'));
+                    return;
+                }
+                const uploadPath = 'uploads/students/avatars/';
+                if (!fs_1.default.existsSync(uploadPath)) {
+                    fs_1.default.mkdirSync(uploadPath, { recursive: true });
+                }
+                const results = {
+                    successful: [],
+                    notFound: [], // Студенты не найдены
+                    corrupted: [], // Поврежденные файлы
+                    total: files.length
+                };
+                // Обрабатываем каждый файл
+                for (const file of files) {
+                    try {
+                        // Извлекаем код студента из имени файла (без расширения)
+                        const studentCode = path_1.default.parse(file.originalname).name;
+                        // Находим студента по коду
+                        const student = yield student_model_1.default.findOne({ code: studentCode });
+                        if (!student) {
+                            results.notFound.push(studentCode);
+                            // Удаляем временный файл
+                            fs_1.default.unlinkSync(file.path);
+                            continue;
+                        }
+                        // Читаем файл
+                        const fileBuffer = fs_1.default.readFileSync(file.path);
+                        // Применяем умный кроп с face detection
+                        const croppedBuffer = yield (0, smart_crop_util_1.smartCrop)(fileBuffer, 600, 800);
+                        // Сохраняем с именем по id студента
+                        const filename = `${student._id}.jpg`;
+                        const finalPath = path_1.default.join(uploadPath, filename);
+                        // Удаляем старый файл если существует
+                        if (fs_1.default.existsSync(finalPath)) {
+                            fs_1.default.unlinkSync(finalPath);
+                        }
+                        // Сохраняем обработанный файл
+                        fs_1.default.writeFileSync(finalPath, croppedBuffer);
+                        // Обновляем студента
+                        student.avatarUrl = `/uploads/students/avatars/${filename}`;
+                        yield student.save();
+                        results.successful.push(studentCode);
+                        // Удаляем временный файл
+                        fs_1.default.unlinkSync(file.path);
+                    }
+                    catch (fileError) {
+                        console.error(`Error processing file ${file.originalname}:`, fileError);
+                        const studentCode = path_1.default.parse(file.originalname).name;
+                        results.corrupted.push(studentCode);
+                        // Удаляем временный файл
+                        try {
+                            fs_1.default.unlinkSync(file.path);
+                        }
+                        catch (unlinkError) {
+                            console.error('Error deleting temp file:', unlinkError);
+                        }
+                    }
+                }
+                res.status(200).json(response_handler_util_1.ResponseHandler.success({
+                    message: 'Kütləvi yükləmə tamamlandı',
+                    results
+                }));
+            }
+            catch (error) {
+                console.error('Error in bulk upload avatars:', error);
+                // Очищаем временные файлы в случае ошибки
+                if (req.files) {
+                    const files = req.files;
+                    files.forEach(file => {
+                        try {
+                            if (fs_1.default.existsSync(file.path)) {
+                                fs_1.default.unlinkSync(file.path);
+                            }
+                        }
+                        catch (unlinkError) {
+                            console.error('Error deleting temp file:', unlinkError);
+                        }
+                    });
+                }
+                res.status(500).json(response_handler_util_1.ResponseHandler.internalError('Kütləvi yükləmə zamanı xəta baş verdi', error));
+            }
+        });
+    }
 }
 exports.StudentController = StudentController;
 // Create instance and export methods for backward compatibility
@@ -229,3 +398,9 @@ const searchStudents = (req, res) => studentController.searchStudents(req, res);
 exports.searchStudents = searchStudents;
 const repairStudents = (req, res) => studentController.repairStudents(req, res);
 exports.repairStudents = repairStudents;
+const uploadStudentAvatar = (req, res) => studentController.uploadStudentAvatar(req, res);
+exports.uploadStudentAvatar = uploadStudentAvatar;
+const deleteStudentAvatar = (req, res) => studentController.deleteStudentAvatar(req, res);
+exports.deleteStudentAvatar = deleteStudentAvatar;
+const bulkUploadAvatars = (req, res) => studentController.bulkUploadAvatars(req, res);
+exports.bulkUploadAvatars = bulkUploadAvatars;

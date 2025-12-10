@@ -692,13 +692,13 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
         return {
             processedData: resultsToInsert,
             results,
-            studentsWithoutTeacher,
-            studentsWithIncorrectResults,
             validationErrors: {
-                invalidStudentCodes: [...new Set(invalidStudentCodes)],
-                invalidTeacherCodes: [...new Set(invalidTeacherCodes)],
-                invalidSchoolCodes: [...new Set(invalidSchoolCodes)],
-                invalidDistrictCodes: [...new Set(invalidDistrictCodes)]
+                incorrectStudentCodes: [...new Set(invalidStudentCodes)],
+                studentsWithoutTeacher,
+                studentsWithIncorrectResults: studentsWithIncorrectResults.map(s => ({
+                    code: s.studentCode,
+                    reason: `Səhv cəm: ${s.calculatedTotal}, Faylda: ${s.totalScore}`
+                }))
             }
         };
     } catch (error) {

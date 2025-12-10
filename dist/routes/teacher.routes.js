@@ -11,7 +11,7 @@ const router = express_1.default.Router();
 const upload = (0, multer_1.default)({ dest: "uploads/" });
 router.route("/")
     .get((0, auth_middleware_1.authMiddleware)([]), teacher_controller_1.getTeachers) // Allow all authenticated users
-    .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), teacher_controller_1.createTeacher);
+    .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin", "moderator"]), teacher_controller_1.createTeacher);
 router.route("/filter")
     .get((0, auth_middleware_1.authMiddleware)([]), teacher_controller_1.getTeachersForFilter); // Allow all authenticated users
 router.route("/search")
@@ -23,9 +23,9 @@ router.route("/repair")
 router.route("/update-stats")
     .post((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), teacher_controller_1.updateTeachersStats);
 router.route("/delete/:teacherIds")
-    .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), teacher_controller_1.deleteTeachers);
+    .delete(auth_middleware_1.canDelete, teacher_controller_1.deleteTeachers);
 router.route("/:id")
     .get((0, auth_middleware_1.authMiddleware)([]), teacher_controller_1.getTeacherById) // Allow all authenticated users
-    .put((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), teacher_controller_1.updateTeacher)
-    .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), teacher_controller_1.deleteTeacher);
+    .put((0, auth_middleware_1.authMiddleware)(["superadmin", "admin", "moderator"]), teacher_controller_1.updateTeacher)
+    .delete(auth_middleware_1.canDelete, teacher_controller_1.deleteTeacher);
 exports.default = router;

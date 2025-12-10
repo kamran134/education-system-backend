@@ -34,6 +34,7 @@ class TeacherService {
             yield teacher_model_1.default.updateMany({}, {
                 score: 0,
                 averageScore: 0,
+                $unset: { place: "" }
             });
             // Получаем всех студентов с teacher и score
             const students = yield student_model_1.default.find({}, { teacher: 1, score: 1 }).populate('teacher', 'studentCount');
@@ -70,23 +71,26 @@ class TeacherService {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 // Получаем всех учителей, отсортированных по averageScore в убывающем порядке
-                const teachers = yield teacher_model_1.default.find({ averageScore: { $exists: true }, active: true })
+                const teachers = yield teacher_model_1.default.find({
+                    active: true,
+                    averageScore: { $gt: 0 } // Только учителя с баллом больше 0
+                })
                     .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
                     .select('_id averageScore code');
                 if (teachers.length === 0) {
-                    console.log("Нет учителей с averageScore для установки места в рейтинге.");
+                    console.log("Нет учителей с averageScore > 0 для установки места в рейтинге.");
                     return;
                 }
                 // Подготавливаем bulk операции для обновления места
                 const bulkOperations = [];
-                let currentPlace = 0;
+                let currentPlace = 1; // Начинаем с 1
                 let previousScore = null;
                 for (let i = 0; i < teachers.length; i++) {
                     const teacher = teachers[i];
                     // Если это первый учитель или балл изменился
-                    if (i === 0 || (previousScore !== null && teacher.averageScore < previousScore)) {
-                        // Место = позиция в отсортированном списке + 1
-                        currentPlace++;
+                    if (i > 0 && previousScore !== null && teacher.averageScore < previousScore) {
+                        // Место = текущая позиция + 1
+                        currentPlace = i + 1;
                     }
                     // Если балл такой же, как у предыдущего, место остается тем же
                     bulkOperations.push({
@@ -163,6 +167,89 @@ class TeacherService {
             };
         });
     }
+    repairTeacherAssignments() {
+        return __awaiter(this, void 0, void 0, function* () {
+            // Find teachers with missing school or district
+            const teachers = yield teacher_model_1.default.find({
+                $or: [
+                    { school: { $exists: false } },
+                    { school: null },
+                    { district: { $exists: false } },
+                    { district: null }
+                ]
+            });
+            console.log(`Found ${teachers.length} teachers with missing assignments`);
+            const repairedTeachers = [];
+            const failedTeachers = [];
+            const missedDistricts = [];
+            const missedSchools = [];
+            // Pre-fetch all schools and districts
+            const allSchools = yield school_model_1.default.find({});
+            const allDistricts = yield district_model_1.default.find({});
+            // Create maps for quick lookup by CODE
+            const schoolMap = new Map(allSchools.map(s => [s.code, s]));
+            const districtMap = new Map(allDistricts.map(d => [d.code, d]));
+            for (const teacher of teachers) {
+                try {
+                    const teacherCode = teacher.code;
+                    let hasChanges = false;
+                    // Extract codes from teacher code (7 digits)
+                    // Example: 1500188 -> school=15001 (first 5 digits), district=150 (first 3 digits)
+                    const schoolCode = Math.floor(teacherCode / 100); // 15001
+                    const districtCode = Math.floor(teacherCode / 10000); // 150
+                    console.log(`Processing teacher ${teacherCode}: school=${schoolCode}, district=${districtCode}`);
+                    // Assign school if missing
+                    if (!teacher.school) {
+                        const school = schoolMap.get(schoolCode);
+                        if (school) {
+                            teacher.school = school._id;
+                            hasChanges = true;
+                            console.log(`  ✓ Assigned school ${schoolCode}`);
+                        }
+                        else {
+                            console.log(`  ✗ School ${schoolCode} not found`);
+                            missedSchools.push(teacherCode);
+                        }
+                    }
+                    // Assign district if missing
+                    if (!teacher.district) {
+                        const district = districtMap.get(districtCode);
+                        if (district) {
+                            teacher.district = district._id;
+                            hasChanges = true;
+                            console.log(`  ✓ Assigned district ${districtCode}`);
+                        }
+                        else {
+                            console.log(`  ✗ District ${districtCode} not found`);
+                            missedDistricts.push(teacherCode);
+                        }
+                    }
+                    // Save if there were changes
+                    if (hasChanges) {
+                        yield teacher.save();
+                        repairedTeachers.push(teacherCode);
+                        console.log(`✓ Saved teacher ${teacherCode}`);
+                    }
+                }
+                catch (error) {
+                    console.error(`Error processing teacher ${teacher.code}:`, error);
+                    failedTeachers.push({
+                        code: teacher.code,
+                        reason: `Error: ${error instanceof Error ? error.message : 'Unknown'}`
+                    });
+                }
+            }
+            console.log(`Repair complete: ${repairedTeachers.length} repaired`);
+            console.log(`  Missed schools: ${missedSchools.length}`);
+            console.log(`  Missed districts: ${missedDistricts.length}`);
+            return {
+                repairedTeachers,
+                failedTeachers,
+                missedDistricts,
+                missedSchools
+            };
+        });
+    }
     getFilteredTeachers(pagination, filters, sort) {
         return __awaiter(this, void 0, void 0, function* () {
             const filter = this.buildFilter(filters);
@@ -185,7 +272,7 @@ class TeacherService {
             const filter = this.buildFilter(filters);
             return yield teacher_model_1.default.find(filter)
                 .populate('school')
-                .sort({ code: 1 });
+                .sort({ fullname: 1 });
         });
     }
     processTeachersFromExcel(filePath) {
@@ -195,18 +282,17 @@ class TeacherService {
             const skippedItems = [];
             try {
                 const data = (0, excel_service_1.readExcel)(filePath);
-                if (!data || data.length < 4) {
-                    throw new Error('Invalid Excel file format');
+                if (!data || data.length < 5) {
+                    throw new Error('Faylda kifayət qədər sətr yoxdur!');
                 }
-                const rows = data.slice(3); // Skip header rows
+                const rows = data.slice(4); // Skip header rows (first 4 rows)
                 const dataToInsert = rows.map(row => ({
                     districtCode: Number(row[1]) || 0,
                     schoolCode: Number(row[2]) || 0,
                     code: Number(row[3]),
-                    fullname: String(row[4]),
-                    studentCount: Number(row[5]) || 0
+                    fullname: String(row[4])
                 }));
-                // Filter correct teachers
+                // Filter correct teachers (teacher code must be 7 digits)
                 const correctTeachersToInsert = dataToInsert.filter(data => data.code > 999999);
                 const incorrectTeacherCodes = dataToInsert
                     .filter(data => data.code <= 999999)
@@ -216,105 +302,64 @@ class TeacherService {
                 const newTeachers = existingTeacherCodes.length > 0
                     ? correctTeachersToInsert.filter(data => !existingTeacherCodes.includes(data.code))
                     : correctTeachersToInsert;
-                // Validate districts and schools
+                // Separate teachers without school codes
                 const districtCodes = newTeachers.filter(item => item.districtCode > 0).map(item => item.districtCode);
                 const schoolCodes = newTeachers.filter(item => item.schoolCode > 0).map(item => item.schoolCode);
+                const teacherCodesWithoutSchoolCodes = newTeachers
+                    .filter(item => item.schoolCode === 0)
+                    .map(item => item.code);
+                // Check which districts and schools exist
                 const existingDistricts = yield district_model_1.default.find({ code: { $in: districtCodes } });
                 const existingSchools = yield school_model_1.default.find({ code: { $in: schoolCodes } });
-                const schoolMap = new Map(existingSchools.map(s => [s.code, s]));
-                const districtMap = new Map(existingDistricts.map(d => [d.code, d]));
-                // Create teachers
-                const teachersToCreate = newTeachers.map(teacherData => {
-                    const school = schoolMap.get(teacherData.schoolCode);
-                    const district = districtMap.get(teacherData.districtCode);
-                    return {
-                        code: teacherData.code,
-                        fullname: teacherData.fullname,
-                        school: school === null || school === void 0 ? void 0 : school._id,
-                        district: district === null || district === void 0 ? void 0 : district._id,
-                        studentCount: teacherData.studentCount || 0,
-                        active: true
-                    };
-                });
-                const createdTeachers = yield teacher_model_1.default.insertMany(teachersToCreate);
-                processedData.push(...createdTeachers.map(t => t.toObject()));
-                // Обновляем studentCount для существующих учителей из Excel
-                if (existingTeacherCodes.length > 0) {
-                    const existingTeachersToUpdate = correctTeachersToInsert.filter(data => existingTeacherCodes.includes(data.code));
-                    const bulkUpdateOperations = existingTeachersToUpdate.map(teacherData => ({
+                const existingDistrictCodes = existingDistricts.map(d => d.code);
+                const existingSchoolCodes = existingSchools.map(s => s.code);
+                const missingSchoolCodes = schoolCodes.filter(code => !existingSchoolCodes.includes(code));
+                const missingDistrictCodes = districtCodes.filter(code => !existingDistrictCodes.includes(code));
+                const schoolMap = new Map(existingSchools.map(s => [s.code, s._id]));
+                const districtMap = new Map(existingDistricts.map(d => [d.code, d._id]));
+                // Filter teachers to save (only those with valid district and school)
+                const teachersToSave = newTeachers.filter(item => item.code > 0 &&
+                    !missingDistrictCodes.includes(item.districtCode) &&
+                    !missingSchoolCodes.includes(item.schoolCode) &&
+                    !teacherCodesWithoutSchoolCodes.includes(item.code)).map(item => ({
+                    district: districtMap.get(item.districtCode),
+                    school: schoolMap.get(item.schoolCode),
+                    code: item.code,
+                    fullname: item.fullname,
+                    active: true
+                }));
+                // Save teachers using bulkWrite with upsert
+                if (teachersToSave.length > 0) {
+                    const results = yield teacher_model_1.default.collection.bulkWrite(teachersToSave.map(teacher => ({
                         updateOne: {
-                            filter: { code: teacherData.code },
-                            update: { $set: { studentCount: teacherData.studentCount || 0 } }
+                            filter: { code: teacher.code },
+                            update: { $set: teacher },
+                            upsert: true
                         }
-                    }));
-                    if (bulkUpdateOperations.length > 0) {
-                        yield teacher_model_1.default.bulkWrite(bulkUpdateOperations);
-                        console.log(`✅ Обновлено studentCount для ${bulkUpdateOperations.length} существующих учителей`);
-                    }
+                    })));
+                    // Fetch created/updated teachers for response
+                    const createdCodes = teachersToSave.map(t => t.code);
+                    const savedTeachers = yield teacher_model_1.default.find({ code: { $in: createdCodes } });
+                    processedData.push(...savedTeachers.map(t => t.toObject()));
                 }
                 // Clean up
                 (0, file_service_1.deleteFile)(filePath);
                 return {
                     processedData,
-                    errors: incorrectTeacherCodes.map(code => `Invalid teacher code: ${code}`),
-                    skippedItems: existingTeacherCodes.map(code => ({ code, reason: 'Already exists' }))
+                    errors,
+                    skippedItems,
+                    validationErrors: {
+                        incorrectTeacherCodes,
+                        missingSchoolCodes: [...new Set(missingSchoolCodes)],
+                        teacherCodesWithoutSchoolCodes,
+                        existingTeacherCodes
+                    }
                 };
             }
             catch (error) {
                 (0, file_service_1.deleteFile)(filePath);
                 throw error;
             }
-        });
-    }
-    repairTeacherAssignments() {
-        return __awaiter(this, void 0, void 0, function* () {
-            const teachers = yield teacher_model_1.default.find({});
-            const repairedTeachers = [];
-            const teachersWithoutSchool = [];
-            const bulkOps = [];
-            for (const teacher of teachers) {
-                const teacherCode = teacher.code.toString();
-                if (teacherCode.length !== 7) {
-                    continue;
-                }
-                let isUpdated = false;
-                let newDistrictId = null;
-                let newSchoolId = null;
-                // Check and fix district
-                if (!teacher.district) {
-                    const districtCode = teacherCode.substring(0, 3);
-                    const district = yield district_model_1.default.findOne({ code: parseInt(districtCode) });
-                    if (district) {
-                        newDistrictId = district._id;
-                        isUpdated = true;
-                    }
-                }
-                // Check and fix school
-                if (!teacher.school) {
-                    const schoolCode = teacherCode.substring(0, 5);
-                    const school = yield school_model_1.default.findOne({ code: parseInt(schoolCode) });
-                    if (school) {
-                        newSchoolId = school._id;
-                        isUpdated = true;
-                    }
-                    else {
-                        teachersWithoutSchool.push(teacher.code);
-                    }
-                }
-                if (isUpdated) {
-                    bulkOps.push({
-                        updateOne: {
-                            filter: { _id: teacher._id },
-                            update: { $set: { district: newDistrictId, school: newSchoolId } }
-                        }
-                    });
-                    repairedTeachers.push(teacher.code);
-                }
-            }
-            if (bulkOps.length > 0) {
-                yield teacher_model_1.default.bulkWrite(bulkOps);
-            }
-            return { repairedTeachers, teachersWithoutSchool };
         });
     }
     checkExistingTeacherCodes(codes) {
@@ -324,7 +369,7 @@ class TeacherService {
         });
     }
     buildFilter(filters) {
-        const filter = {};
+        const filter = { active: true }; // По умолчанию только активные
         if (filters.districtIds && filters.districtIds.length > 0 && (!filters.schoolIds || filters.schoolIds.length === 0)) {
             filter.district = { $in: filters.districtIds };
         }

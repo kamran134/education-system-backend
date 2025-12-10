@@ -12,5 +12,5 @@ router.route("/")
     .post(auth_middleware_1.checkAdminRole, user_controller_1.createUser)
     .put(auth_middleware_1.checkAdminRole, user_controller_1.updateUser);
 router.route("/:id")
-    .delete((0, auth_middleware_1.authMiddleware)(["superadmin", "admin"]), user_controller_1.deleteUser);
+    .delete(auth_middleware_1.canDelete, user_controller_1.deleteUser);
 exports.default = router;
