@@ -46,12 +46,15 @@ export class StatisticsService {
         
         // Если указан месяц, фильтруем только по этому месяцу
         if (filters.month) {
+            // Преобразуем month в число, если это строка
+            const monthNumber = typeof filters.month === 'string' ? parseInt(filters.month) : filters.month;
+            
             // Определяем календарный год для месяца
             // Месяцы 9-12 (сентябрь-декабрь) - это год начала учебного года
             // Месяцы 1-6 (январь-июнь) - это год+1
-            const calendarYear = filters.month >= 9 ? year : year + 1;
-            const monthStartDate = new Date(calendarYear, filters.month - 1, 1);
-            const monthEndDate = new Date(calendarYear, filters.month, 0, 23, 59, 59);
+            const calendarYear = monthNumber >= 9 ? year : year + 1;
+            const monthStartDate = new Date(calendarYear, monthNumber - 1, 1);
+            const monthEndDate = new Date(calendarYear, monthNumber, 0, 23, 59, 59);
             examDateFilter = { date: { $gte: monthStartDate, $lte: monthEndDate } };
         }
         
@@ -197,10 +200,13 @@ export class StatisticsService {
         
         // Если указан месяц, фильтруем только по этому месяцу
         if (filters.month) {
+            // Преобразуем month в число, если это строка
+            const monthNumber = typeof filters.month === 'string' ? parseInt(filters.month) : filters.month;
+            
             // Определяем календарный год для месяца
-            const calendarYear = filters.month >= 9 ? year : year + 1;
-            const monthStartDate = new Date(calendarYear, filters.month - 1, 1);
-            const monthEndDate = new Date(calendarYear, filters.month, 0, 23, 59, 59);
+            const calendarYear = monthNumber >= 9 ? year : year + 1;
+            const monthStartDate = new Date(calendarYear, monthNumber - 1, 1);
+            const monthEndDate = new Date(calendarYear, monthNumber, 0, 23, 59, 59);
             examDateFilter = { date: { $gte: monthStartDate, $lte: monthEndDate } };
         }
         

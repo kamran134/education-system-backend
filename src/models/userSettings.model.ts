@@ -2,6 +2,7 @@ import mongoose, { Schema, Types } from "mongoose";
 
 export interface IUserSettingsInput {
     userId: Types.ObjectId;
+    developingStudentCollumns?: string[];
     studentCollumns: string[];
     allStudentCollumns: string[];
     allTeacherCollumns: string[];
@@ -11,6 +12,7 @@ export interface IUserSettingsInput {
 
 export interface IUserSettings extends Document {
     userId: Types.ObjectId;
+    developingStudentCollumns?: string[];
     studentCollumns: string[];
     allStudentCollumns: string[];
     allTeacherCollumns: string[];
@@ -20,6 +22,7 @@ export interface IUserSettings extends Document {
 
 const UserSettingsSchema: Schema = new Schema({
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    developingStudentCollumns: { type: [String], required: false },
     studentCollumns: { type: [String], required: true },
     allStudentCollumns: { type: [String], required: true },
     allTeacherCollumns: { type: [String], required: true },

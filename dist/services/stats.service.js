@@ -598,6 +598,39 @@ class StatsService {
             }
             // Build aggregation pipeline
             const pipeline = this.buildStudentStatsPipeline(filters, examIds);
+            // Add level numeric value for sorting
+            pipeline.push({
+                $addFields: {
+                    levelValue: {
+                        $switch: {
+                            branches: [
+                                { case: { $eq: ['$level', 'E'] }, then: 1 },
+                                { case: { $eq: ['$level', 'D'] }, then: 2 },
+                                { case: { $eq: ['$level', 'C'] }, then: 3 },
+                                { case: { $eq: ['$level', 'B'] }, then: 4 },
+                                { case: { $eq: ['$level', 'A'] }, then: 5 },
+                                { case: { $eq: ['$level', 'Lisey'] }, then: 6 }
+                            ],
+                            default: 0
+                        }
+                    }
+                }
+            });
+            // Add sorting
+            if (filters.sortColumn && filters.sortDirection) {
+                const sortOptions = {};
+                // If sorting by level, use levelValue
+                if (filters.sortColumn === 'level') {
+                    sortOptions.levelValue = filters.sortDirection === 'asc' ? 1 : -1;
+                }
+                else if (filters.sortColumn.startsWith('studentData.')) {
+                    sortOptions[filters.sortColumn] = filters.sortDirection === 'asc' ? 1 : -1;
+                }
+                else {
+                    sortOptions[filters.sortColumn] = filters.sortDirection === 'asc' ? 1 : -1;
+                }
+                pipeline.push({ $sort: sortOptions });
+            }
             const studentResults = yield studentResult_model_1.default.aggregate(pipeline);
             // Фильтруем только развивающихся студентов
             return studentResults.filter(r => r.developmentScore && r.developmentScore > 0);

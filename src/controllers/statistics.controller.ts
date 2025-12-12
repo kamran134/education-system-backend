@@ -27,7 +27,7 @@ export class StatisticsController {
                     ? (req.query.grades as string).split(',').map(Number).filter(g => !isNaN(g))
                     : undefined,
                 year: req.query.year ? parseInt(req.query.year as string) : undefined,
-                month: req.query.month ? parseInt(req.query.month as string) : undefined
+                month: req.query.month as string
             };
 
             const statistics = await this.statisticsService.getYearlyStatistics(filters);
@@ -55,7 +55,7 @@ export class StatisticsController {
                     ? (req.query.grades as string).split(',').map(Number).filter(g => !isNaN(g))
                     : undefined,
                 year: req.query.year ? parseInt(req.query.year as string) : undefined,
-                month: req.query.month ? parseInt(req.query.month as string) : undefined
+                month: req.query.month as string
             };
 
             const statistics = await this.statisticsService.getMonthlyStatistics(filters);
@@ -83,7 +83,7 @@ export class StatisticsController {
                     ? (req.query.grades as string).split(',').map(Number).filter(g => !isNaN(g))
                     : undefined,
                 year: req.query.year ? parseInt(req.query.year as string) : undefined,
-                month: req.query.month ? parseInt(req.query.month as string) : undefined
+                month: req.query.month as string
             };
 
             const statistics = await this.statisticsService.getStatistics(filters);

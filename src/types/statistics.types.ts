@@ -1,9 +1,14 @@
 export interface StatisticsFilter {
     districtIds?: string[];
     schoolIds?: string[];
+    teacherIds?: string[];
     grades?: number[];
+    examIds?: string[];
+    code?: number;
     year?: number; // Учебный год (например, 2024 для 2024-2025)
-    month?: number; // Месяц (1-12)
+    month?: string; // Месяц в формате YYYY-MM или число (1-12)
+    sortColumn?: string;
+    sortDirection?: 'asc' | 'desc';
 }
 
 export interface StatusStatistics {

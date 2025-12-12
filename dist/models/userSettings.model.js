@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importStar(require("mongoose"));
 const UserSettingsSchema = new mongoose_1.Schema({
     userId: { type: mongoose_1.Schema.Types.ObjectId, ref: "User", required: true },
+    developingStudentCollumns: { type: [String], required: false },
     studentCollumns: { type: [String], required: true },
     allStudentCollumns: { type: [String], required: true },
     allTeacherCollumns: { type: [String], required: true },
