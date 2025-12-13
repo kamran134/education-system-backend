@@ -235,6 +235,7 @@ export class DistrictService {
 
         const [data, totalCount] = await Promise.all([
             District.find(filter)
+                .collation({ locale: 'az', strength: 2 })
                 .sort(sortOptions)
                 .skip(pagination.skip)
                 .limit(pagination.size),

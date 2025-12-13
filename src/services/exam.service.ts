@@ -70,6 +70,7 @@ export class ExamService {
 
         const [data, totalCount] = await Promise.all([
             Exam.find(filter)
+                .collation({ locale: 'az', strength: 2 })
                 .sort(sortOptions)
                 .skip(pagination.skip)
                 .limit(pagination.size),

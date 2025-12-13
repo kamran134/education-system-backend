@@ -18,32 +18,36 @@ export class StudentService {
     ): T[] {
         if (items.length === 0) return items;
 
-        // Сортируем по убыванию (высокий балл = лучшее место)
-        items.sort((a, b) => {
+        // Create a sorted copy by score to determine places WITHOUT modifying original array order
+        const sortedByScore = [...items].sort((a, b) => {
             const scoreA = a[scoreField] || 0;
             const scoreB = b[scoreField] || 0;
-            return scoreB - scoreA;
+            return scoreB - scoreA; // Descending order (higher score = better place)
         });
 
+        // Build a map of scores to places
+        const scorePlaceMap = new Map<number, number>();
         let currentPlace = 1;
         let previousScore: number | null = null;
 
-        items.forEach((item, index) => {
+        sortedByScore.forEach((item) => {
             const currentScore = item[scoreField] || 0;
 
-            if (index === 0) {
-                // Первый элемент всегда место 1
-                item.place = 1;
-                previousScore = currentScore;
-            } else if (currentScore < previousScore!) {
-                // Балл меньше предыдущего - новое место
-                currentPlace++;
-                item.place = currentPlace;
+            if (previousScore === null || currentScore < previousScore) {
+                // New score, new place
+                scorePlaceMap.set(currentScore, currentPlace);
                 previousScore = currentScore;
             } else {
-                // Балл такой же - то же место
-                item.place = currentPlace;
+                // Same score, same place
+                scorePlaceMap.set(currentScore, scorePlaceMap.get(previousScore) || currentPlace);
             }
+            currentPlace++;
+        });
+
+        // Assign places to original items WITHOUT changing their order
+        items.forEach(item => {
+            const score = item[scoreField] || 0;
+            item.place = scorePlaceMap.get(score) || null;
         });
 
         return items;
@@ -199,23 +203,48 @@ export class StudentService {
             console.log('👨‍🎓 Sample student school field:', sample?.school, 'Type:', typeof sample?.school);
         }
         
-        const sortOptions: any = {};
-        sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
-
-        // Получаем ВСЕ отфильтрованные данные для расчета мест
+        // Get ALL filtered data to recalculate places correctly
         const allData = await Student.find(filter)
-            .collation({ locale: 'az', strength: 2 })
             .populate('district school teacher')
-            .sort(sortOptions)
             .lean();
 
         console.log('👨‍🎓 Found students:', allData.length);
 
-        // Расчитываем места на ВСЕХ данных
-        // Для студентов используем score (общий балл), а не averageScore
+        // Sort in JavaScript with Azerbaijani locale for proper text sorting
+        allData.sort((a, b) => {
+            let aVal: any = a;
+            let bVal: any = b;
+            
+            // Navigate to nested field if needed
+            const fieldPath = sort.sortColumn.split('.');
+            for (const key of fieldPath) {
+                aVal = aVal?.[key];
+                bVal = bVal?.[key];
+            }
+            
+            // Handle null/undefined values
+            if (aVal == null && bVal == null) return 0;
+            if (aVal == null) return sort.sortDirection === 'asc' ? -1 : 1;
+            if (bVal == null) return sort.sortDirection === 'asc' ? 1 : -1;
+            
+            // Sort based on type
+            if (typeof aVal === 'string' && typeof bVal === 'string') {
+                const comparison = aVal.localeCompare(bVal, 'az', { sensitivity: 'base' });
+                return sort.sortDirection === 'asc' ? comparison : -comparison;
+            } else if (typeof aVal === 'number' && typeof bVal === 'number') {
+                return sort.sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+            } else {
+                // Fallback for other types
+                return sort.sortDirection === 'asc' ? 
+                    (aVal > bVal ? 1 : -1) : 
+                    (aVal < bVal ? 1 : -1);
+            }
+        });
+
+        // Recalculate places based on score for filtered data
         this.assignPlaces(allData, 'score');
 
-        // Применяем пагинацию ПОСЛЕ расчета мест
+        // Apply pagination after place calculation
         const paginatedData = allData.slice(pagination.skip, pagination.skip + pagination.size);
 
         const totalCount = await Student.countDocuments(filter);
