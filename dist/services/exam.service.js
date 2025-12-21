@@ -75,6 +75,7 @@ class ExamService {
             sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
             const [data, totalCount] = yield Promise.all([
                 exam_model_1.default.find(filter)
+                    .collation({ locale: 'az', strength: 2 })
                     .sort(sortOptions)
                     .skip(pagination.skip)
                     .limit(pagination.size),

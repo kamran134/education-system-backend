@@ -570,7 +570,7 @@ class StatsService {
             }
             // Build aggregation pipeline
             const pipeline = this.buildStudentStatsPipeline(filters, examIds);
-            const studentResults = yield studentResult_model_1.default.aggregate(pipeline);
+            const studentResults = yield studentResult_model_1.default.aggregate(pipeline).collation({ locale: 'az', strength: 2 });
             // Используем числовые поля вместо поиска в статусе
             const studentsOfMonth = studentResults.filter(r => r.studentOfTheMonthScore && r.studentOfTheMonthScore > 0);
             const studentsOfMonthByRepublic = studentResults.filter(r => r.republicWideStudentOfTheMonthScore && r.republicWideStudentOfTheMonthScore > 0);
@@ -619,19 +619,50 @@ class StatsService {
             // Add sorting
             if (filters.sortColumn && filters.sortDirection) {
                 const sortOptions = {};
-                // If sorting by level, use levelValue
+                const sortDirection = filters.sortDirection === 'asc' ? 1 : -1;
+                // Map column names to actual field paths
                 if (filters.sortColumn === 'level') {
-                    sortOptions.levelValue = filters.sortDirection === 'asc' ? 1 : -1;
+                    sortOptions.levelValue = sortDirection;
+                }
+                else if (filters.sortColumn === 'code') {
+                    sortOptions['studentData.code'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'lastName') {
+                    sortOptions['studentData.lastName'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'firstName') {
+                    sortOptions['studentData.firstName'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'middleName') {
+                    sortOptions['studentData.middleName'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'grade') {
+                    sortOptions['studentData.grade'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'teacher') {
+                    sortOptions['studentData.teacher.fullname'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'school') {
+                    sortOptions['studentData.school.name'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'district') {
+                    sortOptions['studentData.district.name'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'totalScore') {
+                    sortOptions.totalScore = sortDirection;
+                }
+                else if (filters.sortColumn === 'averageScore') {
+                    sortOptions['studentData.averageScore'] = sortDirection;
                 }
                 else if (filters.sortColumn.startsWith('studentData.')) {
-                    sortOptions[filters.sortColumn] = filters.sortDirection === 'asc' ? 1 : -1;
+                    sortOptions[filters.sortColumn] = sortDirection;
                 }
                 else {
-                    sortOptions[filters.sortColumn] = filters.sortDirection === 'asc' ? 1 : -1;
+                    sortOptions[filters.sortColumn] = sortDirection;
                 }
                 pipeline.push({ $sort: sortOptions });
             }
-            const studentResults = yield studentResult_model_1.default.aggregate(pipeline);
+            const studentResults = yield studentResult_model_1.default.aggregate(pipeline).collation({ locale: 'az', strength: 2 });
             // Фильтруем только развивающихся студентов
             return studentResults.filter(r => r.developmentScore && r.developmentScore > 0);
         });
@@ -656,7 +687,50 @@ class StatsService {
             }
             // Build aggregation pipeline
             const pipeline = this.buildStudentStatsPipeline(filters, examIds);
-            const studentResults = yield studentResult_model_1.default.aggregate(pipeline);
+            // Add sorting
+            if (filters.sortColumn && filters.sortDirection) {
+                const sortOptions = {};
+                const sortDirection = filters.sortDirection === 'asc' ? 1 : -1;
+                // Map column names to actual field paths
+                if (filters.sortColumn === 'code') {
+                    sortOptions['studentData.code'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'lastName') {
+                    sortOptions['studentData.lastName'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'firstName') {
+                    sortOptions['studentData.firstName'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'middleName') {
+                    sortOptions['studentData.middleName'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'grade') {
+                    sortOptions['studentData.grade'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'teacher') {
+                    sortOptions['studentData.teacher.fullname'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'school') {
+                    sortOptions['studentData.school.name'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'district') {
+                    sortOptions['studentData.district.name'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'totalScore') {
+                    sortOptions.totalScore = sortDirection;
+                }
+                else if (filters.sortColumn === 'averageScore') {
+                    sortOptions['studentData.averageScore'] = sortDirection;
+                }
+                else if (filters.sortColumn.startsWith('studentData.')) {
+                    sortOptions[filters.sortColumn] = sortDirection;
+                }
+                else {
+                    sortOptions[filters.sortColumn] = sortDirection;
+                }
+                pipeline.push({ $sort: sortOptions });
+            }
+            const studentResults = yield studentResult_model_1.default.aggregate(pipeline).collation({ locale: 'az', strength: 2 });
             // Фильтруем только студентов месяца (по районам)
             return studentResults.filter(r => r.studentOfTheMonthScore && r.studentOfTheMonthScore > 0);
         });
@@ -681,7 +755,50 @@ class StatsService {
             }
             // Build aggregation pipeline
             const pipeline = this.buildStudentStatsPipeline(filters, examIds);
-            const studentResults = yield studentResult_model_1.default.aggregate(pipeline);
+            // Add sorting
+            if (filters.sortColumn && filters.sortDirection) {
+                const sortOptions = {};
+                const sortDirection = filters.sortDirection === 'asc' ? 1 : -1;
+                // Map column names to actual field paths
+                if (filters.sortColumn === 'code') {
+                    sortOptions['studentData.code'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'lastName') {
+                    sortOptions['studentData.lastName'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'firstName') {
+                    sortOptions['studentData.firstName'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'middleName') {
+                    sortOptions['studentData.middleName'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'grade') {
+                    sortOptions['studentData.grade'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'teacher') {
+                    sortOptions['studentData.teacher.fullname'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'school') {
+                    sortOptions['studentData.school.name'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'district') {
+                    sortOptions['studentData.district.name'] = sortDirection;
+                }
+                else if (filters.sortColumn === 'totalScore') {
+                    sortOptions.totalScore = sortDirection;
+                }
+                else if (filters.sortColumn === 'averageScore') {
+                    sortOptions['studentData.averageScore'] = sortDirection;
+                }
+                else if (filters.sortColumn.startsWith('studentData.')) {
+                    sortOptions[filters.sortColumn] = sortDirection;
+                }
+                else {
+                    sortOptions[filters.sortColumn] = sortDirection;
+                }
+                pipeline.push({ $sort: sortOptions });
+            }
+            const studentResults = yield studentResult_model_1.default.aggregate(pipeline).collation({ locale: 'az', strength: 2 });
             // Фильтруем только студентов месяца по республике
             return studentResults.filter(r => r.republicWideStudentOfTheMonthScore && r.republicWideStudentOfTheMonthScore > 0);
         });
@@ -722,6 +839,7 @@ class StatsService {
             // Получаем ВСЕ данные для расчета мест
             const allData = yield teacher_model_1.default
                 .find(filter)
+                .collation({ locale: 'az', strength: 2 })
                 .populate("school")
                 .populate({ path: "school", populate: { path: "district", model: "District" } })
                 .sort(sortOptions)
@@ -763,6 +881,7 @@ class StatsService {
             // Получаем ВСЕ данные для расчета мест
             const allData = yield school_model_1.default
                 .find(filter)
+                .collation({ locale: 'az', strength: 2 })
                 .populate("district")
                 .sort(sortOptions)
                 .lean();
@@ -804,6 +923,7 @@ class StatsService {
             // Получаем ВСЕ данные для расчета мест
             const allData = yield district_model_1.default
                 .find(filter)
+                .collation({ locale: 'az', strength: 2 })
                 .sort(sortOptions)
                 .lean();
             // Расчитываем места по тому же полю, по которому сортируем
