@@ -44,7 +44,7 @@ export class StudentResultService {
             }
         }));
 
-        const result = await StudentResult.bulkWrite(bulkOps);
+        const result = await StudentResult.bulkWrite(bulkOps as any);
         return {
             insertedCount: result.upsertedCount || 0,
             modifiedCount: result.modifiedCount || 0,
@@ -687,7 +687,7 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
             }
         }));
         
-        const results = await StudentResult.bulkWrite(bulkOps);
+        const results = await StudentResult.bulkWrite(bulkOps as any);
 
         return {
             processedData: resultsToInsert,

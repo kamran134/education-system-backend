@@ -35,18 +35,23 @@ class StudentService {
         const scorePlaceMap = new Map();
         let currentPlace = 1;
         let previousScore = null;
-        sortedByScore.forEach((item) => {
+        sortedByScore.forEach((item, index) => {
             const currentScore = item[scoreField] || 0;
-            if (previousScore === null || currentScore < previousScore) {
-                // New score, new place
+            if (index === 0) {
+                // First element always gets place 1
+                scorePlaceMap.set(currentScore, 1);
+                previousScore = currentScore;
+            }
+            else if (currentScore < previousScore) {
+                // Score is lower - increment place first, then assign
+                currentPlace++;
                 scorePlaceMap.set(currentScore, currentPlace);
                 previousScore = currentScore;
             }
             else {
-                // Same score, same place
-                scorePlaceMap.set(currentScore, scorePlaceMap.get(previousScore) || currentPlace);
+                // Same score - same place (don't increment)
+                scorePlaceMap.set(currentScore, currentPlace);
             }
-            currentPlace++;
         });
         // Assign places to original items WITHOUT changing their order
         items.forEach(item => {

@@ -972,7 +972,7 @@ export class StatsService {
 
         const totalCount = await Teacher.countDocuments(filter);
 
-        return { data: paginatedData as ITeacher[], totalCount };
+        return { data: paginatedData as unknown as ITeacher[], totalCount };
     }
 
     async getSchoolStatistics(
@@ -1025,7 +1025,7 @@ export class StatsService {
 
         const totalCount = await School.countDocuments(filter);
 
-        return { data: paginatedData as ISchool[], totalCount };
+        return { data: paginatedData as unknown as ISchool[], totalCount };
     }
 
     async getDistrictStatistics(
@@ -1078,7 +1078,7 @@ export class StatsService {
 
         const totalCount = await District.countDocuments(filter);
 
-        return { data: paginatedData as IDistrict[], totalCount };
+        return { data: paginatedData as unknown as IDistrict[], totalCount };
     }
 
     private buildStudentStatsPipeline(filters: StatisticsFilter, examIds: Types.ObjectId[]): any[] {
