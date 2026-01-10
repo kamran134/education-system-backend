@@ -5,7 +5,7 @@ import { Types } from "mongoose";
 export class RequestParser {
     static parsePagination(req: Request): PaginationOptions {
         const page = Math.max(1, parseInt(req.query.page as string) || 1);
-        const size = Math.max(1, Math.min(100, parseInt(req.query.size as string) || 100));
+        const size = Math.max(1, Math.min(1000, parseInt(req.query.size as string) || 100));
         const skip = (page - 1) * size;
 
         return { page, size, skip };
