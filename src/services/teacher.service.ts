@@ -404,7 +404,7 @@ export class TeacherService {
     }
 
     private buildFilter(filters: FilterOptions): any {
-        const filter: any = { active: true }; // По умолчанию только активные
+        const filter: any = {}; // Показываем всех учителей
 
         if (filters.districtIds && filters.districtIds.length > 0 && (!filters.schoolIds || filters.schoolIds.length === 0)) {
             filter.district = { $in: filters.districtIds };
