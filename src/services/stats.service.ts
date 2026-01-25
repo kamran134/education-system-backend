@@ -943,6 +943,7 @@ export class StatsService {
         const allData = await Teacher
             .find(filter)
             .collation({ locale: 'az', strength: 2 })
+            .populate("district")
             .populate("school")
             .populate({ path: "school", populate: { path: "district", model: "District" } })
             .sort(sortOptions)
