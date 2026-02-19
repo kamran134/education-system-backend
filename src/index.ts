@@ -29,12 +29,25 @@ connectDB();
 // Запускаем планировщик очистки токенов
 startTokenCleanupScheduler();
 
+// Отключаем логи на проде
+if (process.env.NODE_ENV === 'production') {
+  console.log = function() {};
+  console.debug = function() {};
+  console.info = function() {};
+  console.warn = function() {};
+  // console.error оставляем для критичных ошибок
+}
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(helmet());
-app.use(morgan("dev"));
+// Отключаем HTTP логирование на проде (morgan)
+if (process.env.NODE_ENV !== 'production') {
+  app.use(morgan("dev"));
+}
+// app.use(morgan("dev")); // Закомментировано для отключения на проде
 app.use(cors({
     origin: [
         'http://localhost:4200', 
