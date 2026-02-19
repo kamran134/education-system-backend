@@ -31,6 +31,7 @@ export interface IStudent extends Document {
     place?: number;
     status: string;
     avatarUrl?: string;
+    participationCount?: number; // computed field: number of exams participated
 }
 
 export interface IStudentMini extends Document {
@@ -51,6 +52,7 @@ export interface IStudentMini extends Document {
     place?: number;
     status: string;
     avatarUrl?: string;
+    participationCount?: number; // computed field: number of exams participated
     results: IStudentResult[];
 }
 

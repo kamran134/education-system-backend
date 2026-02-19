@@ -189,28 +189,71 @@ export class StudentService {
         const filter = this.buildFilter(filters);
         console.log('👨‍🎓 Built MongoDB filter:', JSON.stringify(filter, null, 2));
         
-        // Проверим типы ID
-        if (filters.schoolIds && filters.schoolIds.length > 0) {
-            const schoolId = filters.schoolIds[0];
-            console.log('👨‍🎓 School ID type:', typeof schoolId, 'Value:', schoolId);
-            console.log('👨‍🎓 Is ObjectId?', schoolId.constructor.name);
+        // Build aggregation pipeline to include participationCount
+        const pipeline: any[] = [
+            // Filter students
+            { $match: filter },
             
-            // Попробуем найти студентов этой школы разными способами
-            const count1 = await Student.countDocuments({ school: schoolId });
-            console.log('👨‍🎓 Students with school (ObjectId):', count1);
+            // Lookup student results to count participations
+            {
+                $lookup: {
+                    from: 'studentresults',
+                    localField: '_id',
+                    foreignField: 'student',
+                    as: 'results'
+                }
+            },
             
-            const count2 = await Student.countDocuments({ school: schoolId.toString() });
-            console.log('👨‍🎓 Students with school (string):', count2);
+            // Add participationCount field
+            {
+                $addFields: {
+                    participationCount: { $size: '$results' }
+                }
+            },
             
-            // Посмотрим на структуру первого студента
-            const sample = await Student.findOne({}).select('school').lean();
-            console.log('👨‍🎓 Sample student school field:', sample?.school, 'Type:', typeof sample?.school);
-        }
+            // Lookup teacher
+            {
+                $lookup: {
+                    from: 'teachers',
+                    localField: 'teacher',
+                    foreignField: '_id',
+                    as: 'teacher'
+                }
+            },
+            { $unwind: { path: '$teacher', preserveNullAndEmptyArrays: true } },
+            
+            // Lookup school
+            {
+                $lookup: {
+                    from: 'schools',
+                    localField: 'school',
+                    foreignField: '_id',
+                    as: 'school'
+                }
+            },
+            { $unwind: { path: '$school', preserveNullAndEmptyArrays: true } },
+            
+            // Lookup district
+            {
+                $lookup: {
+                    from: 'districts',
+                    localField: 'district',
+                    foreignField: '_id',
+                    as: 'district'
+                }
+            },
+            { $unwind: { path: '$district', preserveNullAndEmptyArrays: true } },
+            
+            // Remove results array (we only need the count)
+            {
+                $project: {
+                    results: 0
+                }
+            }
+        ];
         
-        // Get ALL filtered data to recalculate places correctly
-        const allData = await Student.find(filter)
-            .populate('district school teacher')
-            .lean();
+        // Execute pipeline to get all filtered data
+        const allData = await Student.aggregate(pipeline).collation({ locale: 'az', strength: 2 });
 
         console.log('👨‍🎓 Found students:', allData.length);
 
@@ -251,7 +294,7 @@ export class StudentService {
         // Apply pagination after place calculation
         const paginatedData = allData.slice(pagination.skip, pagination.skip + pagination.size);
 
-        const totalCount = await Student.countDocuments(filter);
+        const totalCount = allData.length;
 
         return { data: paginatedData as unknown as IStudent[], totalCount };
     }

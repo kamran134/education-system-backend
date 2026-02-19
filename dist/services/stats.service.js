@@ -840,6 +840,7 @@ class StatsService {
             const allData = yield teacher_model_1.default
                 .find(filter)
                 .collation({ locale: 'az', strength: 2 })
+                .populate("district")
                 .populate("school")
                 .populate({ path: "school", populate: { path: "district", model: "District" } })
                 .sort(sortOptions)

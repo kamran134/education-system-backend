@@ -369,7 +369,7 @@ class TeacherService {
         });
     }
     buildFilter(filters) {
-        const filter = { active: true }; // По умолчанию только активные
+        const filter = {}; // Показываем всех учителей
         if (filters.districtIds && filters.districtIds.length > 0 && (!filters.schoolIds || filters.schoolIds.length === 0)) {
             filter.district = { $in: filters.districtIds };
         }

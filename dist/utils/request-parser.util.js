@@ -5,7 +5,7 @@ const mongoose_1 = require("mongoose");
 class RequestParser {
     static parsePagination(req) {
         const page = Math.max(1, parseInt(req.query.page) || 1);
-        const size = Math.max(1, Math.min(100, parseInt(req.query.size) || 100));
+        const size = Math.max(1, Math.min(1000, parseInt(req.query.size) || 100));
         const skip = (page - 1) * size;
         return { page, size, skip };
     }
