@@ -398,6 +398,70 @@ export class SchoolService {
 
         return filter;
     }
+
+    async importLegacySchools(records: any[]): Promise<{
+        inserted: number;
+        skipped: number;
+        errors: number;
+        details: { skippedCodes: number[]; errorMessages: string[] };
+    }> {
+        const LEGACY_YEAR = 2024;
+        let inserted = 0;
+        let skipped = 0;
+        let errors = 0;
+        const skippedCodes: number[] = [];
+        const errorMessages: string[] = [];
+
+        for (const record of records) {
+            try {
+                const code = Number(record.code);
+                if (!code || isNaN(code)) {
+                    errors++;
+                    errorMessages.push(`Record skipped: missing or invalid code (${JSON.stringify(record.code)})`);
+                    continue;
+                }
+
+                // Skip if school already exists
+                const existing = await School.findOne({ code });
+                if (existing) {
+                    skipped++;
+                    skippedCodes.push(code);
+                    continue;
+                }
+
+                // Resolve district by districtCode
+                const districtCode = Number(record.districtCode);
+                let districtId: Types.ObjectId | null = null;
+                if (districtCode && !isNaN(districtCode)) {
+                    const districtDoc = await District.findOne({ code: districtCode });
+                    if (districtDoc) {
+                        districtId = districtDoc._id as Types.ObjectId;
+                    }
+                }
+
+                const score = typeof record.score === 'number' ? record.score : 0;
+                const averageScore = typeof record.averageScore === 'number' ? record.averageScore : 0;
+
+                const schoolData: any = {
+                    code,
+                    name: record.name || '',
+                    address: record.address || '',
+                    districtCode: districtCode || 0,
+                    district: districtId,
+                    active: record.active !== undefined ? Boolean(record.active) : true,
+                    ratings: [{ year: LEGACY_YEAR, score, averageScore, place: null }],
+                };
+
+                await School.create(schoolData);
+                inserted++;
+            } catch (err: any) {
+                errors++;
+                errorMessages.push(`School code ${record.code}: ${err.message}`);
+            }
+        }
+
+        return { inserted, skipped, errors, details: { skippedCodes, errorMessages } };
+    }
 }
 
 // Legacy functions for backward compatibility

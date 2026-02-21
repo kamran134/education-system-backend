@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import { ISchool, ISchoolCreate } from "../models/school.model";
 import { SchoolService } from "../services/school.service";
 import { PaginationOptions, FilterOptions, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
@@ -158,6 +159,45 @@ export class SchoolUseCase {
 
     async getSchoolsForFilter(filters: FilterOptions): Promise<ISchool[]> {
         return await this.schoolService.getSchoolsForFilter(filters);
+    }
+
+    async importLegacySchools(filePath: string): Promise<{
+        inserted: number;
+        skipped: number;
+        errors: number;
+        details: { skippedCodes: number[]; errorMessages: string[] };
+    }> {
+        if (!filePath) {
+            throw new Error('File path is required');
+        }
+
+        let rawContent: string;
+        try {
+            rawContent = fs.readFileSync(filePath, 'utf-8').trim();
+        } catch (err: any) {
+            throw new Error(`Failed to read file: ${err.message}`);
+        } finally {
+            // Remove temp file regardless of parse result
+            try { fs.unlinkSync(filePath); } catch {}
+        }
+
+        // Support both JSON array and newline-delimited JSON (mongoexport)
+        let records: any[];
+        if (rawContent.startsWith('[')) {
+            records = JSON.parse(rawContent);
+        } else {
+            records = rawContent
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0)
+                .map(line => JSON.parse(line));
+        }
+
+        if (!Array.isArray(records) || records.length === 0) {
+            throw new Error('File must contain a non-empty array or newline-delimited JSON records');
+        }
+
+        return await this.schoolService.importLegacySchools(records);
     }
 
     private validateSchoolData(data: ISchoolCreate): ValidationResult {

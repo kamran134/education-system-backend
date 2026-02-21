@@ -155,6 +155,26 @@ export class SchoolController {
             next(error);
         }
     }
+
+    importLegacySchools = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            if (!req.file) {
+                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
+                return;
+            }
+
+            const result = await this.schoolUseCase.importLegacySchools(req.file.path);
+            const { inserted, skipped, errors } = result;
+            const total = inserted + skipped + errors;
+
+            res.json(ResponseHandler.success(
+                result,
+                `Processed ${total} records: ${inserted} inserted, ${skipped} skipped, ${errors} error(s)`
+            ));
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 // Legacy exports for backward compatibility
@@ -181,3 +201,4 @@ export const deleteSchools = schoolController.deleteSchools;
 export const processSchoolsFromExcel = schoolController.processSchoolsFromExcel;
 export const checkExistingSchoolCodes = schoolController.checkExistingSchoolCodes;
 export const updateSchoolsStats = schoolController.updateSchoolsStats;
+export const importLegacySchools = schoolController.importLegacySchools;
