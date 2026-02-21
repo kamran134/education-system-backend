@@ -3,6 +3,7 @@ import { StatsUseCase } from "../usecases/stats.usecase";
 import { StatsService } from "../services/stats.service";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
+import { migrateRatingsFromFlatFields } from "../utils/migrate-ratings";
 
 export class StatsController {
     private statsUseCase: StatsUseCase;
@@ -257,6 +258,16 @@ export class StatsController {
             res.status(500).json(ResponseHandler.internalError('Error fetching district statistics', error));
         }
     }
+
+    async migrateRatings(req: Request, res: Response): Promise<void> {
+        try {
+            const result = await migrateRatingsFromFlatFields();
+            res.status(200).json(ResponseHandler.success(result, 'Reytinq miqrasiyası uğurla tamamlandı'));
+        } catch (error: any) {
+            console.error('Error in migrateRatings:', error);
+            res.status(500).json(ResponseHandler.internalError('Reytinq miqrasiyasında xəta baş verdi', error));
+        }
+    }
 }
 
 // Create instance and export methods for backward compatibility
@@ -264,6 +275,7 @@ const statsController = new StatsController();
 
 export const updateStatistics = (req: Request, res: Response) => statsController.updateStatistics(req, res);
 export const updateAllStatistics = (req: Request, res: Response) => statsController.updateAllStatistics(req, res);
+export const migrateRatings = (req: Request, res: Response) => statsController.migrateRatings(req, res);
 export const getStudentsStatistics = (req: Request, res: Response) => statsController.getStudentsStatistics(req, res);
 export const getDevelopingStudents = (req: Request, res: Response) => statsController.getDevelopingStudents(req, res);
 export const getStudentsOfMonth = (req: Request, res: Response) => statsController.getStudentsOfMonth(req, res);

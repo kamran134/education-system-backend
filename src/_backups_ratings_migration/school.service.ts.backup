@@ -9,26 +9,19 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult, Fil
 import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
 
 export class SchoolService {
     /**
      * Обновляет статистику по школам: studentCount, score, averageScore
      */
     async updateSchoolsStats(): Promise<void> {
-        const currentYear = getCurrentAcademicYear();
         // Сначала обнуляем статистику всех школ
         console.log("🧹 Обнуляем статистику школ...");
-        await School.updateMany({}, [{
-            $set: {
-                ratings: {
-                    $concatArrays: [
-                        { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                        [{ year: currentYear, score: 0, averageScore: 0, place: null }]
-                    ]
-                }
-            }
-        }] as any);
+        await School.updateMany({}, { 
+            score: 0, 
+            averageScore: 0,
+            $unset: { place: "" }
+        });
         
         // Получаем всех студентов с school и score
         const students = await Student.find({}, { school: 1, score: 1 }).populate('school', 'studentCount');
@@ -47,16 +40,10 @@ export class SchoolService {
         // Обновляем каждую школу
         for (const [schoolId, { sum, studentCount }] of statsMap.entries()) {
             const average = studentCount > 0 ? sum / studentCount : 0;
-            await School.findByIdAndUpdate(schoolId, [{
-                $set: {
-                    ratings: {
-                        $concatArrays: [
-                            { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                            [{ year: currentYear, score: sum, averageScore: average, place: null }]
-                        ]
-                    }
-                }
-            }] as any);
+            await School.findByIdAndUpdate(schoolId, {
+                score: sum,
+                averageScore: average
+            });
         }
 
         // ЗАКОММЕНТИРОВАНО: Обновление studentCount из суммы учителей (количество студентов устанавливается только вручную или через Excel)
@@ -109,59 +96,45 @@ export class SchoolService {
      */
     private async updateSchoolPlaces(): Promise<void> {
         try {
-            const currentYear = getCurrentAcademicYear();
-            const schools = await School.find({ active: true }).select('_id ratings code').lean();
+            // Получаем все школы, отсортированные по averageScore в убывающем порядке
+            const schools = await School.find({ 
+                active: true,
+                averageScore: { $gt: 0 } // Только школы с баллом больше 0
+            })
+                .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                .select('_id averageScore code');
 
-            const schoolsWithAvg = schools.map((s: any) => ({
-                _id: s._id,
-                averageScore: ((s.ratings || []).find((r: any) => r.year === currentYear) as any)?.averageScore ?? 0,
-                code: s.code
-            })).filter(s => s.averageScore > 0);
-
-            if (schoolsWithAvg.length === 0) {
+            if (schools.length === 0) {
                 console.log("Нет школ с averageScore > 0 для установки места в рейтинге.");
                 return;
             }
 
-            schoolsWithAvg.sort((a, b) => {
-                if (b.averageScore !== a.averageScore) return b.averageScore - a.averageScore;
-                return (a.code ?? 0) - (b.code ?? 0);
-            });
+            // Подготавливаем bulk операции для обновления места
+            const bulkOperations = [];
+            let currentPlace = 1; // Начинаем с 1
+            let previousScore = null;
 
-            const bulkOperations: any[] = [];
-            let currentPlace = 1;
-            let previousScore: number | null = null;
-
-            for (let i = 0; i < schoolsWithAvg.length; i++) {
-                const school = schoolsWithAvg[i];
+            for (let i = 0; i < schools.length; i++) {
+                const school = schools[i];
+                
+                // Если это первая школа или балл изменился
                 if (i > 0 && previousScore !== null && school.averageScore < previousScore) {
+                    // Место = текущая позиция + 1
                     currentPlace = i + 1;
                 }
+                // Если балл такой же, как у предыдущей, место остается тем же
+
                 bulkOperations.push({
                     updateOne: {
                         filter: { _id: school._id },
-                        update: [{
-                            $set: {
-                                ratings: {
-                                    $map: {
-                                        input: { $ifNull: ["$ratings", []] },
-                                        as: "r",
-                                        in: {
-                                            $cond: {
-                                                if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
-                                                else: "$$r"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }]
+                        update: { $set: { place: currentPlace } }
                     }
                 });
+
                 previousScore = school.averageScore;
             }
 
+            // Выполняем массовое обновление мест
             if (bulkOperations.length > 0) {
                 await School.bulkWrite(bulkOperations);
                 console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} школ`);

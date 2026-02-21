@@ -9,26 +9,19 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult, Fil
 import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
 
 export class TeacherService {
     /**
      * Обновляет статистику по учителям: studentCount, score, averageScore
      */
     async updateTeachersStats(): Promise<void> {
-        const currentYear = getCurrentAcademicYear();
         // Сначала обнуляем статистику всех учителей
         console.log("🧹 Обнуляем статистику учителей...");
-        await Teacher.updateMany({}, [{
-            $set: {
-                ratings: {
-                    $concatArrays: [
-                        { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                        [{ year: currentYear, score: 0, averageScore: 0, place: null }]
-                    ]
-                }
-            }
-        }] as any);
+        await Teacher.updateMany({}, { 
+            score: 0, 
+            averageScore: 0,
+            $unset: { place: "" }
+        });
         
         // Получаем всех студентов с teacher и score
         const students = await Student.find({}, { teacher: 1, score: 1 }).populate('teacher', 'studentCount');
@@ -48,16 +41,10 @@ export class TeacherService {
         // Обновляем каждого учителя
         for (const [teacherId, { sum, studentCount }] of statsMap.entries()) {
             const average = sum > 0 ? sum / studentCount : 0;
-            await Teacher.findByIdAndUpdate(teacherId, [{
-                $set: {
-                    ratings: {
-                        $concatArrays: [
-                            { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                            [{ year: currentYear, score: sum, averageScore: average, place: null }]
-                        ]
-                    }
-                }
-            }] as any);
+            await Teacher.findByIdAndUpdate(teacherId, {
+                score: sum,
+                averageScore: average
+            });
         }
 
         // Обновляем место в рейтинге (place) для всех учителей
@@ -70,67 +57,55 @@ export class TeacherService {
      */
     private async updateTeacherPlaces(): Promise<void> {
         try {
-            const currentYear = getCurrentAcademicYear();
-            const teachers = await Teacher.find({ active: true }).select('_id ratings code').lean();
+            // Получаем всех учителей, отсортированных по averageScore в убывающем порядке
+            const teachers = await Teacher.find({ 
+                active: true,
+                averageScore: { $gt: 0 } // Только учителя с баллом больше 0
+            })
+                .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                .select('_id averageScore code');
 
-            const teachersWithAvg = teachers.map((t: any) => ({
-                _id: t._id,
-                averageScore: ((t.ratings || []).find((r: any) => r.year === currentYear) as any)?.averageScore ?? 0,
-                code: t.code
-            })).filter(t => t.averageScore > 0);
-
-            if (teachersWithAvg.length === 0) {
+            if (teachers.length === 0) {
                 console.log("Нет учителей с averageScore > 0 для установки места в рейтинге.");
                 return;
             }
 
-            teachersWithAvg.sort((a, b) => {
-                if (b.averageScore !== a.averageScore) return b.averageScore - a.averageScore;
-                return (a.code ?? 0) - (b.code ?? 0);
-            });
+            // Подготавливаем bulk операции для обновления места
+            const bulkOperations = [];
+            let currentPlace = 1; // Начинаем с 1
+            let previousScore = null;
 
-            const bulkOperations: any[] = [];
-            let currentPlace = 1;
-            let previousScore: number | null = null;
-
-            for (let i = 0; i < teachersWithAvg.length; i++) {
-                const teacher = teachersWithAvg[i];
+            for (let i = 0; i < teachers.length; i++) {
+                const teacher = teachers[i];
+                
+                // Если это первый учитель или балл изменился
                 if (i > 0 && previousScore !== null && teacher.averageScore < previousScore) {
+                    // Место = текущая позиция + 1
                     currentPlace = i + 1;
                 }
+                // Если балл такой же, как у предыдущего, место остается тем же
+
                 bulkOperations.push({
                     updateOne: {
                         filter: { _id: teacher._id },
-                        update: [{
-                            $set: {
-                                ratings: {
-                                    $map: {
-                                        input: { $ifNull: ["$ratings", []] },
-                                        as: "r",
-                                        in: {
-                                            $cond: {
-                                                if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
-                                                else: "$$r"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }]
+                        update: { $set: { place: currentPlace } }
                     }
                 });
+
                 previousScore = teacher.averageScore;
             }
 
+            // Выполняем массовое обновление мест
             if (bulkOperations.length > 0) {
                 await Teacher.bulkWrite(bulkOperations);
                 console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} учителей`);
-                const top = teachersWithAvg[0];
-                const last = teachersWithAvg[teachersWithAvg.length - 1];
-                console.log(`🥇 Лидер рейтинга учителей: ${top.averageScore} баллов (место 1)`);
-                console.log(`📊 Всего в рейтинге: ${teachersWithAvg.length} учителей`);
-                console.log(`🔢 Диапазон баллов: ${last.averageScore} - ${top.averageScore}`);
+                
+                // Показываем статистику рейтинга
+                const topTeacher = teachers[0];
+                const lastTeacher = teachers[teachers.length - 1];
+                console.log(`🥇 Лидер рейтинга учителей: ${topTeacher.averageScore} баллов (место 1)`);
+                console.log(`📊 Всего в рейтинге: ${teachers.length} учителей`);
+                console.log(`🔢 Диапазон баллов: ${lastTeacher.averageScore} - ${topTeacher.averageScore}`);
             }
 
         } catch (error) {

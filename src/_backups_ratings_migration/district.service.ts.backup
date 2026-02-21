@@ -8,26 +8,18 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult, Fil
 import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
 
 export class DistrictService {
     /**
      * Обновляет статистику по районам: studentCount, score, averageScore
      */
     async updateDistrictsStats(): Promise<void> {
-        const currentYear = getCurrentAcademicYear();
         // Сначала обнуляем статистику всех районов
         console.log("🧹 Обнуляем статистику районов...");
-        await District.updateMany({}, [{
-            $set: {
-                ratings: {
-                    $concatArrays: [
-                        { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                        [{ year: currentYear, score: 0, averageScore: 0, place: null }]
-                    ]
-                }
-            }
-        }] as any);
+        await District.updateMany({}, { 
+            score: 0, 
+            averageScore: 0,
+        });
         
         // Получаем всех студентов с district и score
         const students = await Student.find({}, { district: 1, score: 1 }).populate('district', 'studentCount');
@@ -46,16 +38,10 @@ export class DistrictService {
         // Обновляем каждый район
         for (const [districtId, { sum, studentCount }] of statsMap.entries()) {
             const average = studentCount > 0 ? sum / studentCount : 0;
-            await District.findByIdAndUpdate(districtId, [{
-                $set: {
-                    ratings: {
-                        $concatArrays: [
-                            { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                            [{ year: currentYear, score: sum, averageScore: average, place: null }]
-                        ]
-                    }
-                }
-            }] as any);
+            await District.findByIdAndUpdate(districtId, {
+                score: sum,
+                averageScore: average
+            });
         }
 
         // ЗАКОММЕНТИРОВАНО: Обновление studentCount из суммы школ (количество студентов устанавливается только вручную или через Excel)
@@ -109,79 +95,58 @@ export class DistrictService {
     private async updateDistrictPlaces(): Promise<void> {
         try {
             console.log("🔍 DEBUG: Начинаем обновление мест районов...");
-            const currentYear = getCurrentAcademicYear();
+            
+            // Получаем все районы, отсортированные по averageScore в убывающем порядке
+            const districts = await District.find({ averageScore: { $exists: true } })
+                                           .sort({ averageScore: -1, code: 1 }) // сортируем по averageScore убывание, при равенстве по коду
+                                           .select('_id averageScore code active');
 
-            // Получаем все районы с рейтингами
-            const districts = await District.find().select('_id ratings code active').lean();
-
-            // Проецируем averageScore текущего года
-            const districtsWithAvg = districts.map((d: any) => ({
-                _id: d._id,
-                averageScore: ((d.ratings || []).find((r: any) => r.year === currentYear) as any)?.averageScore ?? 0,
-                code: d.code
-            }));
-
-            // Сортируем по averageScore убывание, по коду возрастание
-            districtsWithAvg.sort((a, b) => {
-                if (b.averageScore !== a.averageScore) return b.averageScore - a.averageScore;
-                return (a.code ?? 0) - (b.code ?? 0);
-            });
-
-            console.log(`🔍 DEBUG: Найдено ${districtsWithAvg.length} районов`);
-            if (districtsWithAvg.length > 0) {
-                console.log(`🔍 DEBUG: Первые 3 района:`, districtsWithAvg.slice(0, 3).map(d => `${d.code}: ${d.averageScore}`));
+            console.log(`🔍 DEBUG: Найдено ${districts.length} районов с averageScore`);
+            if (districts.length > 0) {
+                console.log(`🔍 DEBUG: Первые 3 района:`, districts.slice(0, 3).map(d => `${d.code}: ${d.averageScore} (active: ${d.active})`));
             }
 
-            if (districtsWithAvg.length === 0) {
-                console.log("❌ Нет районов для установки места в рейтинге.");
+            if (districts.length === 0) {
+                console.log("❌ Нет районов с averageScore для установки места в рейтинге.");
                 return;
             }
 
-            const bulkOperations: any[] = [];
+            // Подготавливаем bulk операции для обновления места
+            const bulkOperations = [];
             let currentPlace = 0;
-            let previousScore: number | null = null;
+            let previousScore = null;
 
-            for (let i = 0; i < districtsWithAvg.length; i++) {
-                const district = districtsWithAvg[i];
-
+            for (let i = 0; i < districts.length; i++) {
+                const district = districts[i];
+                
+                // Если это первый район или балл изменился
                 if (i === 0 || (previousScore !== null && district.averageScore < previousScore)) {
+                    // Место = позиция в отсортированном списке + 1
                     currentPlace++;
                 }
+                // Если балл такой же, как у предыдущего, место остается тем же
 
                 bulkOperations.push({
                     updateOne: {
                         filter: { _id: district._id },
-                        update: [{
-                            $set: {
-                                ratings: {
-                                    $map: {
-                                        input: { $ifNull: ["$ratings", []] },
-                                        as: "r",
-                                        in: {
-                                            $cond: {
-                                                if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
-                                                else: "$$r"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }]
+                        update: { $set: { place: currentPlace } }
                     }
                 });
 
                 previousScore = district.averageScore;
             }
 
+            // Выполняем массовое обновление мест
             if (bulkOperations.length > 0) {
                 await District.bulkWrite(bulkOperations);
                 console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} районов`);
-                const top = districtsWithAvg[0];
-                const last = districtsWithAvg[districtsWithAvg.length - 1];
-                console.log(`🥇 Лидер рейтинга районов: ${top.averageScore} баллов (место 1)`);
-                console.log(`📊 Всего в рейтинге: ${districtsWithAvg.length} районов`);
-                console.log(`🔢 Диапазон баллов: ${last.averageScore} - ${top.averageScore}`);
+                
+                // Показываем статистику рейтинга
+                const topDistrict = districts[0];
+                const lastDistrict = districts[districts.length - 1];
+                console.log(`🥇 Лидер рейтинга районов: ${topDistrict.averageScore} баллов (место 1)`);
+                console.log(`📊 Всего в рейтинге: ${districts.length} районов`);
+                console.log(`🔢 Диапазон баллов: ${lastDistrict.averageScore} - ${topDistrict.averageScore}`);
             }
 
         } catch (error) {

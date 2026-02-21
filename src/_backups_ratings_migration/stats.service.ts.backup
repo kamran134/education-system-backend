@@ -10,7 +10,6 @@ import { countDistrictsRates } from "./district.service";
 import { FilterOptions } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { Types } from "mongoose";
-import { getCurrentAcademicYear } from '../utils/academic-year.util';
 
 export interface StatisticsFilter extends FilterOptions {
     month?: string;
@@ -63,33 +62,9 @@ export class StatsService {
         return normalizedLevel === 'LISEY' || normalizedLevel === 'LISE' || normalizedLevel.includes('LISEY');
     }
 
-    /**
-     * Projects the current academic year's rating values onto the root of each item.
-     * This allows existing score/averageScore/place-based logic to work with the ratings[] model.
-     */
-    private flattenCurrentYearRating(items: any[], currentYear: number): void {
-        items.forEach((item: any) => {
-            const yr = (item.ratings || []).find((r: any) => r.year === currentYear);
-            item.score = yr?.score ?? 0;
-            item.averageScore = yr?.averageScore ?? 0;
-            item.place = yr?.place ?? null;
-        });
-    }
-
     async resetStats(): Promise<void> {
         console.log("🔄 Сброс статистики...");
-        const currentYear = getCurrentAcademicYear();
-        await District.updateMany({}, [{
-            $set: {
-                ratings: {
-                    $concatArrays: [
-                        { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                        [{ year: currentYear, score: 0, averageScore: 0, place: null }]
-                    ]
-                },
-                rate: 0
-            }
-        }] as any);
+        await District.updateMany({}, { score: 0, averageScore: 0, rate: 0 });
         // Reset status and recalculate base score from level mapping.
         // Use aggregation-style pipeline update (MongoDB 4.2+) to derive numeric score from level.
         await StudentResult.updateMany({}, [
@@ -241,50 +216,50 @@ export class StatsService {
 
             // Обнуляем баллы учителей
             console.log("👨‍🏫 Обнуляем баллы учителей...");
-            await Teacher.updateMany({}, [{
-                $set: {
-                    ratings: {
-                        $concatArrays: [
-                            { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", academicYearStart] } } },
-                            [{ year: academicYearStart, score: 0, averageScore: 0, place: null }]
-                        ]
-                    },
-                    teacherOfTheYearScore: 0,
-                    status: ''
+            await Teacher.updateMany(
+                {},
+                { 
+                    $set: { 
+                        score: 0,
+                        averageScore: 0,
+                        teacherOfTheYearScore: 0,
+                        place: null,
+                        status: ''
+                    }
                 }
-            }] as any);
+            );
             console.log("✅ Баллы учителей обнулены");
 
             // Обнуляем баллы школ
             console.log("🏫 Обнуляем баллы школ...");
-            await School.updateMany({}, [{
-                $set: {
-                    ratings: {
-                        $concatArrays: [
-                            { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", academicYearStart] } } },
-                            [{ year: academicYearStart, score: 0, averageScore: 0, place: null }]
-                        ]
-                    },
-                    schoolOfTheYearScore: 0,
-                    status: ''
+            await School.updateMany(
+                {},
+                { 
+                    $set: { 
+                        score: 0,
+                        averageScore: 0,
+                        schoolOfTheYearScore: 0,
+                        place: null,
+                        status: ''
+                    }
                 }
-            }] as any);
+            );
             console.log("✅ Баллы школ обнулены");
 
             // Обнуляем баллы районов
             console.log("🏛️ Обнуляем баллы районов...");
-            await District.updateMany({}, [{
-                $set: {
-                    ratings: {
-                        $concatArrays: [
-                            { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", academicYearStart] } } },
-                            [{ year: academicYearStart, score: 0, averageScore: 0, place: null }]
-                        ]
-                    },
-                    rate: 0,
-                    districtOfTheYearScore: 0
+            await District.updateMany(
+                {},
+                { 
+                    $set: { 
+                        score: 0,
+                        averageScore: 0,
+                        rate: 0,
+                        districtOfTheYearScore: 0,
+                        place: null
+                    }
                 }
-            }] as any);
+            );
             console.log("✅ Баллы районов обнулены");
 
             // Месяцы учебного года: сентябрь-декабрь (текущего года), январь-июнь (следующего года)
@@ -965,17 +940,14 @@ export class StatsService {
         const skip = (page - 1) * size;
 
         // Получаем ВСЕ данные для расчета мест
-        const currentYear = getCurrentAcademicYear();
-        const allData: any[] = await Teacher
+        const allData = await Teacher
             .find(filter)
             .collation({ locale: 'az', strength: 2 })
             .populate("district")
             .populate("school")
             .populate({ path: "school", populate: { path: "district", model: "District" } })
+            .sort(sortOptions)
             .lean();
-
-        // Проецируем баллы текущего учебного года в корень объекта
-        this.flattenCurrentYearRating(allData, currentYear);
 
         // Расчитываем места по тому же полю, по которому сортируем
         this.assignPlaces(allData, sortColumn as 'averageScore' | 'score');
@@ -984,9 +956,18 @@ export class StatsService {
         const paginatedData = allData.slice(skip, skip + size);
 
         // Добавляем значения по умолчанию для отсутствующих полей
-        paginatedData.forEach((teacher: any) => {
-            if (teacher.studentCount === undefined || teacher.studentCount === null) {
-                teacher.studentCount = 0;
+        paginatedData.forEach(teacher => {
+            if (teacher.score === undefined || teacher.score === null) {
+                teacher.score = 0;
+            }
+            if (teacher.averageScore === undefined || teacher.averageScore === null) {
+                teacher.averageScore = 0;
+            }
+            if ((teacher as any).studentCount === undefined || (teacher as any).studentCount === null) {
+                (teacher as any).studentCount = 0;
+            }
+            if ((teacher as any).place === undefined || (teacher as any).place === null) {
+                (teacher as any).place = null;
             }
         });
 
@@ -1014,15 +995,12 @@ export class StatsService {
         const skip = (page - 1) * size;
 
         // Получаем ВСЕ данные для расчета мест
-        const currentYear = getCurrentAcademicYear();
-        const allData: any[] = await School
+        const allData = await School
             .find(filter)
             .collation({ locale: 'az', strength: 2 })
             .populate("district")
+            .sort(sortOptions)
             .lean();
-
-        // Проецируем баллы текущего учебного года в корень объекта
-        this.flattenCurrentYearRating(allData, currentYear);
 
         // Расчитываем места по тому же полю, по которому сортируем
         this.assignPlaces(allData, sortColumn as 'averageScore' | 'score');
@@ -1031,9 +1009,18 @@ export class StatsService {
         const paginatedData = allData.slice(skip, skip + size);
 
         // Добавляем значения по умолчанию для отсутствующих полей
-        paginatedData.forEach((school: any) => {
-            if (school.studentCount === undefined || school.studentCount === null) {
-                school.studentCount = 0;
+        paginatedData.forEach(school => {
+            if (school.score === undefined || school.score === null) {
+                school.score = 0;
+            }
+            if (school.averageScore === undefined || school.averageScore === null) {
+                school.averageScore = 0;
+            }
+            if ((school as any).studentCount === undefined || (school as any).studentCount === null) {
+                (school as any).studentCount = 0;
+            }
+            if ((school as any).place === undefined || (school as any).place === null) {
+                (school as any).place = null;
             }
         });
 
@@ -1062,14 +1049,11 @@ export class StatsService {
         const skip = (page - 1) * size;
 
         // Получаем ВСЕ данные для расчета мест
-        const currentYear = getCurrentAcademicYear();
-        const allData: any[] = await District
+        const allData = await District
             .find(filter)
             .collation({ locale: 'az', strength: 2 })
+            .sort(sortOptions)
             .lean();
-
-        // Проецируем баллы текущего учебного года в корень объекта
-        this.flattenCurrentYearRating(allData, currentYear);
 
         // Расчитываем места по тому же полю, по которому сортируем
         this.assignPlaces(allData, sortColumn as 'averageScore' | 'score');
@@ -1078,9 +1062,18 @@ export class StatsService {
         const paginatedData = allData.slice(skip, skip + size);
 
         // Добавляем значения по умолчанию для отсутствующих полей
-        paginatedData.forEach((district: any) => {
-            if (district.studentCount === undefined || district.studentCount === null) {
-                district.studentCount = 0;
+        paginatedData.forEach(district => {
+            if (district.score === undefined || district.score === null) {
+                district.score = 0;
+            }
+            if (district.averageScore === undefined || district.averageScore === null) {
+                district.averageScore = 0;
+            }
+            if ((district as any).studentCount === undefined || (district as any).studentCount === null) {
+                (district as any).studentCount = 0;
+            }
+            if ((district as any).place === undefined || (district as any).place === null) {
+                (district as any).place = null;
             }
         });
 
@@ -1363,25 +1356,20 @@ export class StatsService {
 
             const teacherScores = await Teacher.aggregate(pipeline);
 
-            const currentYear = getCurrentAcademicYear();
-            const bulkOperations = teacherScores.map((teacher: any) => ({
+            const bulkOperations = teacherScores.map(teacher => ({
                 updateOne: {
                     filter: { _id: teacher._id },
-                    update: [{
-                        $set: {
-                            ratings: {
-                                $concatArrays: [
-                                    { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                                    [{ year: currentYear, score: teacher.totalScore, averageScore: teacher.averageScore, place: null }]
-                                ]
-                            }
-                        }
-                    }]
+                    update: { 
+                        $set: { 
+                            score: teacher.totalScore,
+                            averageScore: teacher.averageScore
+                        } 
+                    }
                 }
             }));
 
             if (bulkOperations.length > 0) {
-                await Teacher.bulkWrite(bulkOperations as any);
+                await Teacher.bulkWrite(bulkOperations);
                 console.log(`✅ Обновлено score и averageScore для ${bulkOperations.length} учителей`);
             }
         } catch (error) {
@@ -1392,70 +1380,51 @@ export class StatsService {
 
     private async updateTeacherRankings(): Promise<void> {
         try {
-            const currentYear = getCurrentAcademicYear();
-            // Получаем всех учителей с рейтингами
-            const teachers = await Teacher.find().select('_id ratings code').lean();
+            // Получаем всех учителей, отсортированных по score в убывающем порядке
+            const teachers = await Teacher.find({ score: { $exists: true } })
+                                         .sort({ score: -1, code: 1 })
+                                         .select('_id score');
 
-            // Проецируем балл текущего года
-            const teachersWithScore = teachers.map((t: any) => ({
-                _id: t._id,
-                currentScore: ((t.ratings || []).find((r: any) => r.year === currentYear) as any)?.score ?? 0,
-                code: t.code
-            }));
-
-            // Сортируем по баллу убывание, по коду возрастание
-            teachersWithScore.sort((a, b) => {
-                if (b.currentScore !== a.currentScore) return b.currentScore - a.currentScore;
-                return (a.code ?? 0) - (b.code ?? 0);
-            });
-
-            if (teachersWithScore.length === 0) {
-                console.log("Нет учителей для установки места в рейтинге.");
+            if (teachers.length === 0) {
+                console.log("Нет учителей с score для установки места в рейтинге.");
                 return;
             }
 
-            const bulkOperations: any[] = [];
+            // Подготавливаем bulk операции для обновления места
+            const bulkOperations = [];
             let currentPlace = 1;
-            let previousScore = teachersWithScore[0].currentScore;
+            let previousScore = teachers[0].score;
 
-            for (let i = 0; i < teachersWithScore.length; i++) {
-                const teacher = teachersWithScore[i];
-                if (teacher.currentScore < previousScore) {
+            for (let i = 0; i < teachers.length; i++) {
+                const teacher = teachers[i];
+                
+                // Если балл меньше предыдущего, увеличиваем место
+                if (teacher.score < previousScore) {
                     currentPlace = i + 1;
                 }
+                // Если балл такой же, как у предыдущего, место остается тем же
+
                 bulkOperations.push({
                     updateOne: {
                         filter: { _id: teacher._id },
-                        update: [{
-                            $set: {
-                                ratings: {
-                                    $map: {
-                                        input: { $ifNull: ["$ratings", []] },
-                                        as: "r",
-                                        in: {
-                                            $cond: {
-                                                if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
-                                                else: "$$r"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }]
+                        update: { $set: { place: currentPlace } }
                     }
                 });
-                previousScore = teacher.currentScore;
+
+                previousScore = teacher.score;
             }
 
+            // Выполняем массовое обновление мест
             if (bulkOperations.length > 0) {
                 await Teacher.bulkWrite(bulkOperations);
                 console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} учителей`);
-                const top = teachersWithScore[0];
-                const last = teachersWithScore[teachersWithScore.length - 1];
-                console.log(`🥇 Лидер рейтинга учителей: ${top.currentScore} баллов (место 1)`);
-                console.log(`📊 Всего в рейтинге: ${teachersWithScore.length} учителей`);
-                console.log(`🔢 Диапазон баллов: ${last.currentScore} - ${top.currentScore}`);
+                
+                // Показываем статистику рейтинга
+                const topTeacher = teachers[0];
+                const lastTeacher = teachers[teachers.length - 1];
+                console.log(`🥇 Лидер рейтинга учителей: ${topTeacher.score} баллов (место 1)`);
+                console.log(`📊 Всего в рейтинге: ${teachers.length} учителей`);
+                console.log(`🔢 Диапазон баллов: ${lastTeacher.score} - ${topTeacher.score}`);
             }
         } catch (error) {
             console.error("❌ Ошибка при обновлении места в рейтинге учителей:", error);
@@ -1467,26 +1436,13 @@ export class StatsService {
      * Обновляем общий score для всех школ
      */
     private async updateSchoolScores(): Promise<void> {
-        // Баллы школы = сумма баллов учителей за текущий учебный год
+        // Реализация обновления score для школ: баллы школы это сумма баллов ее учителей
         try {
-            const currentYear = getCurrentAcademicYear();
             const pipeline = [
-                {
-                    $addFields: {
-                        currentScore: {
-                            $let: {
-                                vars: {
-                                    yr: { $arrayElemAt: [{ $filter: { input: { $ifNull: ["$ratings", []] }, cond: { $eq: ["$$this.year", currentYear] } } }, 0] }
-                                },
-                                in: { $ifNull: ["$$yr.score", 0] }
-                            }
-                        }
-                    }
-                },
                 {
                     $group: {
                         _id: "$school",
-                        totalScore: { $sum: "$currentScore" }
+                        totalScore: { $sum: "$score" }
                     }
                 },
                 {
@@ -1515,24 +1471,20 @@ export class StatsService {
 
             const schoolScores = await Teacher.aggregate(pipeline).exec();
 
-            const bulkOperations = schoolScores.map((schoolScore: any) => ({
+            const bulkOperations = schoolScores.map(schoolScore => ({
                 updateOne: {
                     filter: { _id: schoolScore._id },
-                    update: [{
-                        $set: {
-                            ratings: {
-                                $concatArrays: [
-                                    { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                                    [{ year: currentYear, score: schoolScore.totalScore, averageScore: schoolScore.averageScore, place: null }]
-                                ]
-                            }
-                        }
-                    }]
+                    update: { 
+                        $set: { 
+                            score: schoolScore.totalScore,
+                            averageScore: schoolScore.averageScore
+                        } 
+                    }
                 }
             }));
 
             if (bulkOperations.length > 0) {
-                await School.bulkWrite(bulkOperations as any);
+                await School.bulkWrite(bulkOperations);
                 console.log(`✅ Обновлено score и averageScore для ${bulkOperations.length} школ`);
             }
         } catch (error) {
@@ -1543,67 +1495,51 @@ export class StatsService {
 
     private async updateSchoolRankings(): Promise<void> {
         try {
-            const currentYear = getCurrentAcademicYear();
-            const schools = await School.find().select('_id ratings code').lean();
+            // Получаем все школы, отсортированные по score в убывающем порядке
+            const schools = await School.find({ score: { $exists: true } })
+                                        .sort({ score: -1, code: 1 })
+                                        .select('_id score');
 
-            const schoolsWithScore = schools.map((s: any) => ({
-                _id: s._id,
-                currentScore: ((s.ratings || []).find((r: any) => r.year === currentYear) as any)?.score ?? 0,
-                code: s.code
-            }));
-
-            schoolsWithScore.sort((a, b) => {
-                if (b.currentScore !== a.currentScore) return b.currentScore - a.currentScore;
-                return (a.code ?? 0) - (b.code ?? 0);
-            });
-
-            if (schoolsWithScore.length === 0) {
-                console.log("Нет школ для установки места в рейтинге.");
+            if (schools.length === 0) {
+                console.log("Нет школ с score для установки места в рейтинге.");
                 return;
             }
 
-            const bulkOperations: any[] = [];
+            // Подготавливаем bulk операции для обновления места
+            const bulkOperations = [];
             let currentPlace = 1;
-            let previousScore = schoolsWithScore[0].currentScore;
+            let previousScore = schools[0].score;
 
-            for (let i = 0; i < schoolsWithScore.length; i++) {
-                const school = schoolsWithScore[i];
-                if (school.currentScore < previousScore) {
+            for (let i = 0; i < schools.length; i++) {
+                const school = schools[i];
+                
+                // Если балл меньше предыдущего, увеличиваем место
+                if (school.score < previousScore) {
                     currentPlace = i + 1;
                 }
+                // Если балл такой же, как у предыдущего, место остается тем же
+
                 bulkOperations.push({
                     updateOne: {
                         filter: { _id: school._id },
-                        update: [{
-                            $set: {
-                                ratings: {
-                                    $map: {
-                                        input: { $ifNull: ["$ratings", []] },
-                                        as: "r",
-                                        in: {
-                                            $cond: {
-                                                if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
-                                                else: "$$r"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }]
+                        update: { $set: { place: currentPlace } }
                     }
                 });
-                previousScore = school.currentScore;
+
+                previousScore = school.score;
             }
 
+            // Выполняем массовое обновление мест
             if (bulkOperations.length > 0) {
                 await School.bulkWrite(bulkOperations);
                 console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} школ`);
-                const top = schoolsWithScore[0];
-                const last = schoolsWithScore[schoolsWithScore.length - 1];
-                console.log(`🥇 Лидер рейтинга школ: ${top.currentScore} баллов (место 1)`);
-                console.log(`📊 Всего в рейтинге: ${schoolsWithScore.length} школ`);
-                console.log(`🔢 Диапазон баллов: ${last.currentScore} - ${top.currentScore}`);
+                
+                // Показываем статистику рейтинга
+                const topSchool = schools[0];
+                const lastSchool = schools[schools.length - 1];
+                console.log(`🥇 Лидер рейтинга школ: ${topSchool.score} баллов (место 1)`);
+                console.log(`📊 Всего в рейтинге: ${schools.length} школ`);
+                console.log(`🔢 Диапазон баллов: ${lastSchool.score} - ${topSchool.score}`);
             }
         } catch (error) {
             console.error("❌ Ошибка при обновлении рейтинга школ:", error);
@@ -1615,22 +1551,9 @@ export class StatsService {
      * Обновляет общий score для всех районов
      */
     private async updateDistrictScores(): Promise<void> {
-        // Баллы района = сумма баллов школ за текущий учебный год
+        // Реализация обновления score для районов: баллы района это сумма баллов его школ
         try {
-            const currentYear = getCurrentAcademicYear();
             const pipeline = [
-                {
-                    $addFields: {
-                        currentScore: {
-                            $let: {
-                                vars: {
-                                    yr: { $arrayElemAt: [{ $filter: { input: { $ifNull: ["$ratings", []] }, cond: { $eq: ["$$this.year", currentYear] } } }, 0] }
-                                },
-                                in: { $ifNull: ["$$yr.score", 0] }
-                            }
-                        }
-                    }
-                },
                 {
                     $lookup: {
                         from: 'students',
@@ -1642,7 +1565,7 @@ export class StatsService {
                 {
                     $group: {
                         _id: "$district",
-                        totalScore: { $sum: "$currentScore" },
+                        totalScore: { $sum: "$score" },
                         studentCount: { $sum: { $size: "$students" } }
                     }
                 },
@@ -1660,23 +1583,19 @@ export class StatsService {
             ];
             const districtScores = await School.aggregate(pipeline).exec();
 
-            const bulkOperations = districtScores.map((districtScore: any) => ({
+            const bulkOperations = districtScores.map(districtScore => ({
                 updateOne: {
                     filter: { _id: districtScore._id },
-                    update: [{
-                        $set: {
-                            ratings: {
-                                $concatArrays: [
-                                    { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                                    [{ year: currentYear, score: districtScore.totalScore, averageScore: districtScore.averageScore, place: null }]
-                                ]
-                            }
-                        }
-                    }]
+                    update: { 
+                        $set: { 
+                            score: districtScore.totalScore,
+                            averageScore: districtScore.averageScore
+                        } 
+                    }
                 }
             }));
             if (bulkOperations.length > 0) {
-                await District.bulkWrite(bulkOperations as any);
+                await District.bulkWrite(bulkOperations);
                 console.log(`✅ Обновлено score и averageScore для ${bulkOperations.length} районов`);
             }
         } catch (error) {
@@ -1687,67 +1606,51 @@ export class StatsService {
     
     private async updateDistrictRankings(): Promise<void> {
         try {
-            const currentYear = getCurrentAcademicYear();
-            const districts = await District.find().select('_id ratings code').lean();
+            // Получаем все районы, отсортированные по score в убывающем порядке
+            const districts = await District.find({ score: { $exists: true } })
+                                           .sort({ score: -1, code: 1 })
+                                           .select('_id score');
 
-            const districtsWithScore = districts.map((d: any) => ({
-                _id: d._id,
-                currentScore: ((d.ratings || []).find((r: any) => r.year === currentYear) as any)?.score ?? 0,
-                code: d.code
-            }));
-
-            districtsWithScore.sort((a, b) => {
-                if (b.currentScore !== a.currentScore) return b.currentScore - a.currentScore;
-                return (a.code ?? 0) - (b.code ?? 0);
-            });
-
-            if (districtsWithScore.length === 0) {
-                console.log("Нет районов для установки места в рейтинге.");
+            if (districts.length === 0) {
+                console.log("Нет районов с score для установки места в рейтинге.");
                 return;
             }
 
-            const bulkOperations: any[] = [];
+            // Подготавливаем bulk операции для обновления места
+            const bulkOperations = [];
             let currentPlace = 1;
-            let previousScore = districtsWithScore[0].currentScore;
+            let previousScore = districts[0].score;
 
-            for (let i = 0; i < districtsWithScore.length; i++) {
-                const district = districtsWithScore[i];
-                if (district.currentScore < previousScore) {
+            for (let i = 0; i < districts.length; i++) {
+                const district = districts[i];
+                
+                // Если балл меньше предыдущего, увеличиваем место
+                if (district.score < previousScore) {
                     currentPlace = i + 1;
                 }
+                // Если балл такой же, как у предыдущего, место остается тем же
+
                 bulkOperations.push({
                     updateOne: {
                         filter: { _id: district._id },
-                        update: [{
-                            $set: {
-                                ratings: {
-                                    $map: {
-                                        input: { $ifNull: ["$ratings", []] },
-                                        as: "r",
-                                        in: {
-                                            $cond: {
-                                                if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
-                                                else: "$$r"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }]
+                        update: { $set: { place: currentPlace } }
                     }
                 });
-                previousScore = district.currentScore;
+
+                previousScore = district.score;
             }
 
+            // Выполняем массовое обновление мест
             if (bulkOperations.length > 0) {
                 await District.bulkWrite(bulkOperations);
                 console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} районов`);
-                const top = districtsWithScore[0];
-                const last = districtsWithScore[districtsWithScore.length - 1];
-                console.log(`🥇 Лидер рейтинга районов: ${top.currentScore} баллов (место 1)`);
-                console.log(`📊 Всего в рейтинге: ${districtsWithScore.length} районов`);
-                console.log(`🔢 Диапазон баллов: ${last.currentScore} - ${top.currentScore}`);
+                
+                // Показываем статистику рейтинга
+                const topDistrict = districts[0];
+                const lastDistrict = districts[districts.length - 1];
+                console.log(`🥇 Лидер рейтинга районов: ${topDistrict.score} баллов (место 1)`);
+                console.log(`📊 Всего в рейтинге: ${districts.length} районов`);
+                console.log(`🔢 Диапазон баллов: ${lastDistrict.score} - ${topDistrict.score}`);
             }
         } catch (error) {
             console.error("❌ Ошибка при обновлении рейтинга районов:", error);
