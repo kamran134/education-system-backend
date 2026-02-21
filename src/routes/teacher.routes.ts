@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import { createAllTeachers, createTeacher, deleteTeacher, deleteTeachers, getTeacherById, getTeachers, getTeachersForFilter, repairTeachers, updateTeacher, updateTeachersStats } from "../controllers/teacher.controller";
+import { createAllTeachers, createTeacher, deleteTeacher, deleteTeachers, getTeacherById, getTeachers, getTeachersForFilter, repairTeachers, updateTeacher, updateTeachersStats, importLegacyTeachers } from "../controllers/teacher.controller";
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 
 const router = express.Router();
@@ -15,6 +15,8 @@ router.route("/search")
     .get(authMiddleware([]), getTeachers); // Allow all authenticated users
 router.route("/upload")
     .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), createAllTeachers);
+router.route("/legacy-import")
+    .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), importLegacyTeachers);
 router.route("/repair")
     .get(authMiddleware(["superadmin", "admin"]), repairTeachers);
 router.route("/update-stats")

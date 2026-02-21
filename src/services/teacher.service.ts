@@ -455,6 +455,80 @@ export class TeacherService {
 
         return filter;
     }
+
+    async importLegacyTeachers(records: any[]): Promise<{
+        inserted: number;
+        skipped: number;
+        errors: number;
+        details: { skippedCodes: number[]; errorMessages: string[] };
+    }> {
+        const LEGACY_YEAR = 2024;
+        let inserted = 0;
+        let skipped = 0;
+        let errors = 0;
+        const skippedCodes: number[] = [];
+        const errorMessages: string[] = [];
+
+        for (const record of records) {
+            try {
+                const code = Number(record.code);
+                if (!code || isNaN(code)) {
+                    errors++;
+                    errorMessages.push(`Record skipped: missing or invalid code (${JSON.stringify(record.code)})`);
+                    continue;
+                }
+
+                // Skip if teacher already exists
+                const existing = await Teacher.findOne({ code });
+                if (existing) {
+                    skipped++;
+                    skippedCodes.push(code);
+                    continue;
+                }
+
+                // Resolve school by school code (first 5 digits)
+                const schoolCode = Math.floor(code / 100);
+                const districtCode = Math.floor(code / 10000);
+
+                let schoolId: Types.ObjectId | null = null;
+                let districtId: Types.ObjectId | null = null;
+
+                if (schoolCode) {
+                    const schoolDoc = await School.findOne({ code: schoolCode });
+                    if (schoolDoc) {
+                        schoolId = schoolDoc._id as Types.ObjectId;
+                    }
+                }
+
+                if (districtCode) {
+                    const districtDoc = await District.findOne({ code: districtCode });
+                    if (districtDoc) {
+                        districtId = districtDoc._id as Types.ObjectId;
+                    }
+                }
+
+                const score = typeof record.score === 'number' ? record.score : 0;
+                const averageScore = typeof record.averageScore === 'number' ? record.averageScore : 0;
+
+                const teacherData: any = {
+                    code,
+                    fullname: record.fullname || '',
+                    school: schoolId,
+                    district: districtId,
+                    active: record.active !== undefined ? Boolean(record.active) : true,
+                    ratings: [{ year: LEGACY_YEAR, score, averageScore, place: null }],
+                };
+
+                await Teacher.create(teacherData);
+                inserted++;
+            } catch (err: any) {
+                errors++;
+                errorMessages.push(`Teacher code ${record.code}: ${err.message}`);
+            }
+        }
+
+        return { inserted, skipped, errors, details: { skippedCodes, errorMessages } };
+    }
 }
 
 // Legacy functions for backward compatibility

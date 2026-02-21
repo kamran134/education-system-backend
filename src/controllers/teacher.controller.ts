@@ -154,6 +154,26 @@ export class TeacherController {
             next(error);
         }
     }
+
+    importLegacyTeachers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            if (!req.file) {
+                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
+                return;
+            }
+
+            const result = await this.teacherUseCase.importLegacyTeachers(req.file.path);
+            const { inserted, skipped, errors } = result;
+            const total = inserted + skipped + errors;
+
+            res.json(ResponseHandler.success(
+                result,
+                `Processed ${total} records: ${inserted} inserted, ${skipped} skipped, ${errors} error(s)`
+            ));
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 // Legacy exports for backward compatibility
@@ -171,3 +191,4 @@ export const processTeachersFromExcel = teacherController.processTeachersFromExc
 export const checkExistingTeacherCodes = teacherController.checkExistingTeacherCodes;
 export const repairTeachers = teacherController.repairTeachers;
 export const updateTeachersStats = teacherController.updateTeachersStats;
+export const importLegacyTeachers = teacherController.importLegacyTeachers;
