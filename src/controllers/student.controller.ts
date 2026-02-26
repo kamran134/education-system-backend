@@ -363,6 +363,26 @@ export class StudentController {
             res.status(500).json(ResponseHandler.internalError('Kütləvi yükləmə zamanı xəta baş verdi', error));
         }
     }
+
+    async importLegacyStudents(req: Request, res: Response): Promise<void> {
+        try {
+            if (!req.file) {
+                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
+                return;
+            }
+
+            const result = await this.studentUseCase.importLegacyStudents(req.file.path);
+            const { inserted, skipped, errors } = result;
+            const total = inserted + skipped + errors;
+
+            res.json(ResponseHandler.success(
+                result,
+                `Processed ${total} records: ${inserted} inserted, ${skipped} skipped, ${errors} error(s)`
+            ));
+        } catch (error: any) {
+            res.status(500).json(ResponseHandler.internalError('Legacy import failed', error));
+        }
+    }
 }
 
 // Create instance and export methods for backward compatibility
@@ -380,3 +400,4 @@ export const repairStudents = (req: Request, res: Response) => studentController
 export const uploadStudentAvatar = (req: Request, res: Response) => studentController.uploadStudentAvatar(req, res);
 export const deleteStudentAvatar = (req: Request, res: Response) => studentController.deleteStudentAvatar(req, res);
 export const bulkUploadAvatars = (req: Request, res: Response) => studentController.bulkUploadAvatars(req, res);
+export const importLegacyStudents = (req: Request, res: Response) => studentController.importLegacyStudents(req, res);

@@ -222,21 +222,24 @@ export class StatsService {
             
             // Обнуляем баллы студентов
             console.log("👨‍🎓 Обнуляем баллы студентов...");
-            await Student.updateMany(
-                {},
-                { 
-                    $set: { 
-                        score: 0,
-                        averageScore: 0,
-                        participationScore: 0,
-                        developmentScore: 0,
-                        studentOfTheMonthScore: 0,
-                        republicWideStudentOfTheMonthScore: 0,
-                        place: null,
-                        status: ''
+            await Student.updateMany({}, [{
+                $set: {
+                    score: 0,
+                    averageScore: 0,
+                    participationScore: 0,
+                    developmentScore: 0,
+                    studentOfTheMonthScore: 0,
+                    republicWideStudentOfTheMonthScore: 0,
+                    place: null,
+                    status: '',
+                    ratings: {
+                        $concatArrays: [
+                            { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", academicYearStart] } } },
+                            [{ year: academicYearStart, score: 0, averageScore: 0, place: null }]
+                        ]
                     }
                 }
-            );
+            }] as any);
             console.log("✅ Баллы студентов обнулены");
 
             // Обнуляем баллы учителей
@@ -350,7 +353,10 @@ export class StatsService {
             console.log("🏆 Обновляем рейтинг студентов (place)...");
             await this.updateStudentPlaces();
 
-            console.log("👨‍🏫 Обновляем статистику учителей...");
+            console.log("� Сохраняем рейтинги студентов за текущий учебный год...");
+            await this.saveStudentRatingsSnapshot(academicYearStart);
+
+            console.log("�👨‍🏫 Обновляем статистику учителей...");
             await this.updateTeacherScores();
             await this.updateTeacherRankings();
 
@@ -1322,6 +1328,29 @@ export class StatsService {
 
         } catch (error) {
             console.error("❌ Ошибка при обновлении места в рейтинге:", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Сохраняет снапшот flat-полей студентов (score, averageScore, place) в ratings[]
+     * под ключом academicYearStart. Вызывается после updateStudentPlaces().
+     */
+    private async saveStudentRatingsSnapshot(academicYearStart: number): Promise<void> {
+        try {
+            await Student.updateMany({}, [{
+                $set: {
+                    ratings: {
+                        $concatArrays: [
+                            { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", academicYearStart] } } },
+                            [{ year: academicYearStart, score: "$score", averageScore: "$averageScore", place: "$place" }]
+                        ]
+                    }
+                }
+            }] as any);
+            console.log(`✅ Snapshot рейтинга студентов сохранён для учебного года ${academicYearStart}`);
+        } catch (error) {
+            console.error("❌ Ошибка при сохранении snapshot рейтинга студентов:", error);
             throw error;
         }
     }

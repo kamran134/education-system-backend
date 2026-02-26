@@ -613,6 +613,97 @@ export const deleteStudentsByIds = async (studentIds: string[]): Promise<{ resul
     }
 }
 
+export async function importLegacyStudents(records: any[]): Promise<{
+    inserted: number;
+    updated: number;
+    skipped: number;
+    errors: number;
+    details: { skippedCodes: number[]; errorMessages: string[] };
+}> {
+    const LEGACY_YEAR = 2024;
+    let inserted = 0;
+    let updated = 0;
+    let skipped = 0;
+    let errors = 0;
+    const skippedCodes: number[] = [];
+    const errorMessages: string[] = [];
+
+    for (const record of records) {
+        try {
+            const code = Number(record.code);
+            if (!code || isNaN(code)) {
+                errors++;
+                errorMessages.push(`Record skipped: missing or invalid code (${JSON.stringify(record.code)})`);
+                continue;
+            }
+
+            const existing = await Student.findOne({ code });
+            if (existing) {
+                // Already has a 2024 rating → truly skip
+                const has2024 = (existing.ratings || []).some((r: any) => r.year === LEGACY_YEAR);
+                if (has2024) {
+                    skipped++;
+                    skippedCodes.push(code);
+                    continue;
+                }
+                // Missing 2024 rating → add it
+                const legacyScore        = typeof record.score        === 'number' ? record.score        : 0;
+                const legacyAverageScore = typeof record.averageScore === 'number' ? record.averageScore : 0;
+                await Student.updateOne(
+                    { _id: existing._id },
+                    { $push: { ratings: { year: LEGACY_YEAR, score: legacyScore, averageScore: legacyAverageScore, place: null } } }
+                );
+                updated++;
+                continue;
+            }
+
+            // Resolve references from code structure: 1180303016
+            //   district  = first 3 digits: Math.floor(code / 10_000_000)
+            //   school    = first 5 digits: Math.floor(code / 100_000)
+            //   teacher   = first 7 digits: Math.floor(code / 1_000)
+            const districtCode = Math.floor(code / 10000000);
+            const schoolCode   = Math.floor(code / 100000);
+            const teacherCode  = Math.floor(code / 1000);
+
+            let districtId: Types.ObjectId | null = null;
+            let schoolId: Types.ObjectId | null = null;
+            let teacherId: Types.ObjectId | null = null;
+
+            const [districtDoc, schoolDoc, teacherDoc] = await Promise.all([
+                District.findOne({ code: districtCode }),
+                School.findOne({ code: schoolCode }),
+                Teacher.findOne({ code: teacherCode }),
+            ]);
+
+            if (districtDoc) districtId = districtDoc._id as Types.ObjectId;
+            if (schoolDoc)   schoolId   = schoolDoc._id as Types.ObjectId;
+            if (teacherDoc)  teacherId  = teacherDoc._id as Types.ObjectId;
+
+            const legacyScore        = typeof record.score        === 'number' ? record.score        : 0;
+            const legacyAverageScore = typeof record.averageScore === 'number' ? record.averageScore : 0;
+
+            await Student.create({
+                code,
+                firstName:  record.firstName  || '',
+                lastName:   record.lastName   || '',
+                middleName: record.middleName || '',
+                grade:      typeof record.grade === 'number' ? record.grade : null,
+                district:   districtId,
+                school:     schoolId,
+                teacher:    teacherId,
+                ratings: [{ year: LEGACY_YEAR, score: legacyScore, averageScore: legacyAverageScore, place: null }],
+                active: record.active !== undefined ? Boolean(record.active) : true,
+            });
+            inserted++;
+        } catch (err: any) {
+            errors++;
+            errorMessages.push(`Student code ${record.code}: ${err.message}`);
+        }
+    }
+
+    return { inserted, updated, skipped, errors, details: { skippedCodes, errorMessages } };
+}
+
 export const deleteStudentsByTeacherId = async (teacherId: string): Promise<{ result: DeleteResult, studentResults: DeleteResult }> => {
     try {
         const studentIds = await Student.find({ teacher: teacherId }).distinct('_id');

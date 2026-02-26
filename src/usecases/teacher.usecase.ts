@@ -140,6 +140,7 @@ export class TeacherUseCase {
 
     async importLegacyTeachers(filePath: string): Promise<{
         inserted: number;
+        updated: number;
         skipped: number;
         errors: number;
         details: { skippedCodes: number[]; errorMessages: string[] };

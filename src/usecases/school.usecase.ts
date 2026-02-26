@@ -163,6 +163,7 @@ export class SchoolUseCase {
 
     async importLegacySchools(filePath: string): Promise<{
         inserted: number;
+        updated: number;
         skipped: number;
         errors: number;
         details: { skippedCodes: number[]; errorMessages: string[] };

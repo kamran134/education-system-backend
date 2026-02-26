@@ -401,12 +401,14 @@ export class SchoolService {
 
     async importLegacySchools(records: any[]): Promise<{
         inserted: number;
+        updated: number;
         skipped: number;
         errors: number;
         details: { skippedCodes: number[]; errorMessages: string[] };
     }> {
         const LEGACY_YEAR = 2024;
         let inserted = 0;
+        let updated = 0;
         let skipped = 0;
         let errors = 0;
         const skippedCodes: number[] = [];
@@ -421,11 +423,23 @@ export class SchoolService {
                     continue;
                 }
 
-                // Skip if school already exists
                 const existing = await School.findOne({ code });
                 if (existing) {
-                    skipped++;
-                    skippedCodes.push(code);
+                    // Already has a 2024 rating → truly skip
+                    const has2024 = (existing.ratings || []).some((r: any) => r.year === LEGACY_YEAR);
+                    if (has2024) {
+                        skipped++;
+                        skippedCodes.push(code);
+                        continue;
+                    }
+                    // Missing 2024 rating → add it
+                    const score        = typeof record.score        === 'number' ? record.score        : 0;
+                    const averageScore = typeof record.averageScore === 'number' ? record.averageScore : 0;
+                    await School.updateOne(
+                        { _id: existing._id },
+                        { $push: { ratings: { year: LEGACY_YEAR, score, averageScore, place: null } } }
+                    );
+                    updated++;
                     continue;
                 }
 
@@ -460,7 +474,7 @@ export class SchoolService {
             }
         }
 
-        return { inserted, skipped, errors, details: { skippedCodes, errorMessages } };
+        return { inserted, updated, skipped, errors, details: { skippedCodes, errorMessages } };
     }
 }
 

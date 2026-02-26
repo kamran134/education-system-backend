@@ -1,7 +1,10 @@
 import express from "express";
-import { getStudents, getStudent, deleteAllStudents, deleteStudent, deleteStudents, searchStudents, repairStudents, updateStudent, createStudent, uploadStudentAvatar, deleteStudentAvatar, bulkUploadAvatars } from "../controllers/student.controller";
+import multer from "multer";
+import { getStudents, getStudent, deleteAllStudents, deleteStudent, deleteStudents, searchStudents, repairStudents, updateStudent, createStudent, uploadStudentAvatar, deleteStudentAvatar, bulkUploadAvatars, importLegacyStudents } from "../controllers/student.controller";
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 import { avatarUpload, bulkAvatarUpload } from "../config/multer";
+
+const upload = multer({ dest: 'uploads/' });
 
 const router = express.Router();
 
@@ -11,6 +14,8 @@ router.route("/")
     .delete(canDelete, deleteAllStudents);
 router.route("/repair")
     .get(authMiddleware(["superadmin", "admin"]), repairStudents);
+router.route("/legacy-import")
+    .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), importLegacyStudents);
 // router.route("/forStats")
 //     .get(getStudentsForStats);
 router.route("/search/:searchString").get(authMiddleware([]), searchStudents); // Allow all authenticated users

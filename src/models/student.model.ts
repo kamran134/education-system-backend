@@ -3,6 +3,12 @@ import { ITeacher } from "./teacher.model";
 import { ISchool } from "./school.model";
 import { IDistrict } from "./district.model";
 import { IStudentResult } from "./studentResult.model";
+import { YearRating } from "../types/yearRating";
+
+const YearRatingSchema = new Schema(
+    { year: Number, score: Number, averageScore: Number, place: { type: Number, default: null } },
+    { _id: false }
+);
 
 export interface IStudentInput {
     code: number;
@@ -32,6 +38,7 @@ export interface IStudent extends Document {
     status: string;
     avatarUrl?: string;
     participationCount?: number; // computed field: number of exams participated
+    ratings?: YearRating[];
 }
 
 export interface IStudentMini extends Document {
@@ -75,6 +82,7 @@ const StudentSchema: Schema = new Schema({
     republicWideStudentOfTheMonthScore: { type: Number, required: false },
     place: { type: Number, required: false },
     avatarUrl: { type: String, required: false },
+    ratings: { type: [YearRatingSchema], required: false, default: [] },
 });
 
 export default mongoose.model<IStudent>("Student", StudentSchema);

@@ -1,7 +1,9 @@
+import * as fs from "fs";
 import { IStudent, IStudentInput } from "../models/student.model";
 import { IStudentResult } from "../models/studentResult.model";
 import { StudentService } from "../services/student.service";
 import { StudentResultService } from "../services/studentResult.service";
+import { importLegacyStudents } from "../services/student.service";
 import { PaginationOptions, FilterOptions, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { Types } from "mongoose";
@@ -147,6 +149,44 @@ export class StudentUseCase {
         missedTeachers: number[]
     }> {
         return await this.studentService.repairStudentAssignments();
+    }
+
+    async importLegacyStudents(filePath: string): Promise<{
+        inserted: number;
+        updated: number;
+        skipped: number;
+        errors: number;
+        details: { skippedCodes: number[]; errorMessages: string[] };
+    }> {
+        if (!filePath) {
+            throw new Error('File path is required');
+        }
+
+        let rawContent: string;
+        try {
+            rawContent = fs.readFileSync(filePath, 'utf-8').trim();
+        } catch (err: any) {
+            throw new Error(`Failed to read file: ${err.message}`);
+        } finally {
+            try { fs.unlinkSync(filePath); } catch {}
+        }
+
+        let records: any[];
+        if (rawContent.startsWith('[')) {
+            records = JSON.parse(rawContent);
+        } else {
+            records = rawContent
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0)
+                .map(line => JSON.parse(line));
+        }
+
+        if (!Array.isArray(records) || records.length === 0) {
+            throw new Error('File must contain a non-empty array or newline-delimited JSON records');
+        }
+
+        return await importLegacyStudents(records);
     }
 
     private validateStudentData(data: IStudentInput): ValidationResult {
