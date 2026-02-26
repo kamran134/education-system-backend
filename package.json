@@ -6,7 +6,8 @@
     "start": "node dist/index.js",
     "dev": "nodemon src/index.ts",
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "patch-package"
   },
   "keywords": [],
   "author": "",
@@ -42,6 +43,7 @@
     "@types/node": "^22.10.1",
     "@types/xlsx": "^0.0.35",
     "nodemon": "^3.1.7",
+    "patch-package": "^8.0.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
   }

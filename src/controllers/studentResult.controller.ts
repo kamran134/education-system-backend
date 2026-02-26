@@ -15,6 +15,48 @@ export const getStudentResults = async (req: Request, res: Response) => {
     }
 }
 
+export const exportStudentResultsAsJson = async (req: Request, res: Response) => {
+    try {
+        const { examId } = req.query;
+
+        const filter: any = {};
+        if (examId) {
+            filter.exam = new Types.ObjectId(examId as string);
+        }
+
+        const results = await StudentResult.find(filter).populate("student");
+
+        const exportData = results.map((result) => {
+            const student = result.student as any;
+            const fullName = [student?.lastName, student?.firstName, student?.middleName]
+                .map((part) => (part ?? '').trim())
+                .filter(Boolean)
+                .join(' ')
+                .trim();
+            return {
+                studentCode: student?.code ?? null,
+                fullName: fullName || null,
+                disciplines: result.disciplines,
+                grade: result.grade,
+                level: result.level,
+                score: result.score,
+                totalScore: result.totalScore,
+                status: result.status ?? null,
+            };
+        });
+
+        const filename = examId
+            ? `results_exam_${examId}.json`
+            : `results_all.json`;
+
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.status(200).send(JSON.stringify(exportData, null, 2));
+    } catch (error) {
+        res.status(500).json({ message: "Export zamanı xəta baş verdi!", error });
+    }
+};
+
 export const createAllResults = async (req: Request, res: Response) => {
     try {
         if (!req.file) {
