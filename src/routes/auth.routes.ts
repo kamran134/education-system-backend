@@ -18,13 +18,13 @@ const loginLimiter = rateLimit({
 router.get("/check-role/:id", checkRole);
 router.post("/login", loginLimiter, login); // Применяем строгий лимит только к login
 router.post("/register", register);
-router.post("/approve/:id", authMiddleware(["superadmin"]), approveUser);
+router.post("/approve/:id", authMiddleware(["superadmin", "admin"]), approveUser);
 router.post("/logout", logout);
 router.post("/logout-all", authMiddleware([]), logoutFromAllDevices);
 router.post("/refresh", refreshToken);
 router.get("/me", authMiddleware([]), me);
 router.get("/sessions", authMiddleware([]), getActiveSessions);
-router.get("/debug-cookies", (req, res) => {
+router.get("/debug-cookies", authMiddleware(["superadmin"]), (req, res) => {
     console.log('[DEBUG] All cookies:', req.cookies);
     res.json({ 
         cookies: req.cookies, 

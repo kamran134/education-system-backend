@@ -168,11 +168,11 @@ export const canDelete = (req: Request, res: Response, next: NextFunction) => {
             studentId?: string;
         }
 
-        // Модератор НЕ может удалять
-        if (decoded.role === "moderator") {
+        // Только superadmin и admin могут удалять
+        if (decoded.role !== "superadmin" && decoded.role !== "admin") {
             res.status(403).json({
                 success: false,
-                message: "Moderatorlar silmə əməliyyatı edə bilməz"
+                message: "Yalnız superadmin və adminlər silmə əməliyyatı edə bilər"
             });
             return;
         }

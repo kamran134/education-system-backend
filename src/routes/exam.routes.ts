@@ -5,13 +5,13 @@ import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 const router = express.Router();
 
 router.route("/")
-    .get(getExams)
+    .get(authMiddleware([]), getExams)
     .post(authMiddleware(["superadmin", "admin", "moderator"]), createExam)
     .delete(canDelete, deleteAllExams);
 router.route("/:id")
     .put(authMiddleware(["superadmin"]), updateExam)
     .delete(canDelete, deleteExam);
 router.route("/filter")
-    .get(getExamsForFilter)
+    .get(authMiddleware([]), getExamsForFilter)
 
 export default router;

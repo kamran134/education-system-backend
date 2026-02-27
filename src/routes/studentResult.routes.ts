@@ -6,7 +6,7 @@ import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
 
-router.route("/").get(getStudentResults);
+router.route("/").get(authMiddleware([]), getStudentResults);
 router.route("/import-json")
     .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), importLegacyResults);
 router.route("/upload")
