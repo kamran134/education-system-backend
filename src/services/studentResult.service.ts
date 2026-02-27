@@ -1,3 +1,4 @@
+import fs from "fs";
 import { DeleteResult, Types } from "mongoose";
 import Exam, { IExam } from "../models/exam.model";
 import Student, { IStudent, IStudentInput } from "../models/student.model";
@@ -726,4 +727,108 @@ export const deleteResultsByExamId = async (examId: string): Promise<{ deletedCo
     }
 
     return { deletedCount: deletedResults.deletedCount || 0 };
+}
+
+export async function importLegacyResultsFromJson(filePath: string): Promise<{
+    inserted: number;
+    skipped: number;
+    errors: number;
+    details: { skippedCodes: any[]; errorMessages: string[] };
+}> {
+    let inserted = 0;
+    let skipped = 0;
+    let errors = 0;
+    const skippedNames: string[] = [];
+    const errorMessages: string[] = [];
+
+    let records: any[];
+    try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        records = JSON.parse(content);
+    } finally {
+        deleteFile(filePath);
+    }
+
+    // Build fullName -> student map
+    const allStudents = await Student.find({});
+    const studentMap = new Map<string, any>();
+    for (const student of allStudents) {
+        const fullName = [student.lastName, student.firstName, student.middleName]
+            .map((part: any) => (part ?? '').trim())
+            .filter(Boolean)
+            .join(' ')
+            .trim();
+        if (fullName) {
+            studentMap.set(fullName, student);
+        }
+    }
+
+    for (const record of records) {
+        const { fullName, studentCode, examId, ...resultData } = record;
+
+        if (!fullName || typeof fullName !== 'string') {
+            skipped++;
+            skippedNames.push('(no fullName)');
+            continue;
+        }
+
+        const normalizedName = fullName.trim();
+        const student = studentMap.get(normalizedName);
+        if (!student) {
+            skipped++;
+            skippedNames.push(normalizedName);
+            continue;
+        }
+
+        let examObjectId: Types.ObjectId | null = null;
+        if (examId) {
+            try {
+                examObjectId = new Types.ObjectId(examId);
+            } catch {
+                errors++;
+                errorMessages.push(`${normalizedName}: invalid examId "${examId}"`);
+                continue;
+            }
+        }
+
+        try {
+            await StudentResult.updateOne(
+                { student: student._id, exam: examObjectId },
+                {
+                    $set: {
+                        student: student._id,
+                        exam: examObjectId,
+                        grade: resultData.grade ?? 0,
+                        disciplines: {
+                            az: resultData.disciplines?.az ?? 0,
+                            math: resultData.disciplines?.math ?? 0,
+                            lifeKnowledge: resultData.disciplines?.lifeKnowledge ?? 0,
+                            logic: resultData.disciplines?.logic ?? 0,
+                            english: resultData.disciplines?.english ?? 0,
+                        },
+                        questionCounts: { az: 0, math: 0 },
+                        totalScore: resultData.totalScore ?? 0,
+                        score: resultData.score ?? 0,
+                        participationScore: 0,
+                        level: resultData.level ?? '',
+                        status: resultData.status ?? null,
+                        month: 0,
+                        year: 2024,
+                    }
+                },
+                { upsert: true }
+            );
+            inserted++;
+        } catch (err: any) {
+            errors++;
+            errorMessages.push(`${normalizedName}: ${err.message}`);
+        }
+    }
+
+    return {
+        inserted,
+        skipped,
+        errors,
+        details: { skippedCodes: skippedNames, errorMessages }
+    };
 }

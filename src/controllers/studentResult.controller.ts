@@ -120,6 +120,21 @@ export class StudentResultController {
             next(error);
         }
     }
+
+    importLegacyResults = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            if (!req.file) {
+                res.status(400).json(ResponseHandler.badRequest("Fayl yüklənməyib!"));
+                return;
+            }
+
+            const result = await this.studentResultUseCase.importLegacyResults(req.file.path);
+
+            res.status(200).json(ResponseHandler.success(result, "İdxal tamamlandı!"));
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 const studentResultController = new StudentResultController();
@@ -131,3 +146,4 @@ export const updateStudentResult = studentResultController.updateStudentResult;
 export const deleteStudentResult = studentResultController.deleteStudentResult;
 export const createAllResults = studentResultController.processStudentResultsFromExcel;
 export const deleteResults = studentResultController.deleteResultsByExamId;
+export const importLegacyResults = studentResultController.importLegacyResults;

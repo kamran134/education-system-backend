@@ -1,5 +1,5 @@
 import { IStudentResult, IStudentResultInput } from "../models/studentResult.model";
-import { StudentResultService, processStudentResultsFromExcel, deleteResultsByExamId } from "../services/studentResult.service";
+import { StudentResultService, processStudentResultsFromExcel, deleteResultsByExamId, importLegacyResultsFromJson } from "../services/studentResult.service";
 import { PaginationOptions, FilterOptions, SortOptions } from "../types/common.types";
 import { Types } from "mongoose";
 
@@ -62,6 +62,19 @@ export class StudentResultUseCase {
             return await deleteResultsByExamId(examId);
         } catch (error) {
             throw new Error(`Failed to delete results by exam ID: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+
+    async importLegacyResults(filePath: string): Promise<{
+        inserted: number;
+        skipped: number;
+        errors: number;
+        details: { skippedCodes: any[]; errorMessages: string[] };
+    }> {
+        try {
+            return await importLegacyResultsFromJson(filePath);
+        } catch (error) {
+            throw new Error(`Failed to import legacy results: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 }

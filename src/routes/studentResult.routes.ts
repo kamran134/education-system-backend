@@ -1,12 +1,14 @@
 import express from "express";
 import multer from "multer";
-import { createAllResults, deleteResults, getStudentResults, updateStudentResult, deleteStudentResult } from "../controllers/studentResult.controller";
+import { createAllResults, deleteResults, getStudentResults, updateStudentResult, deleteStudentResult, importLegacyResults } from "../controllers/studentResult.controller";
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 
 const router = express.Router();
 const upload = multer({ dest: "uploads/" });
 
 router.route("/").get(getStudentResults);
+router.route("/import-json")
+    .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), importLegacyResults);
 router.route("/upload")
     .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), createAllResults);
 router.route("/:id")

@@ -208,7 +208,12 @@ export class StatsService {
             // Обнуляем баллы в результатах студентов (StudentResult)
             console.log("📝 Обнуляем баллы в результатах экзаменов...");
             await StudentResult.updateMany(
-                {},
+                {
+                    $or: [
+                        { month: { $in: [9, 10, 11, 12] }, year: academicYearStart },
+                        { month: { $in: [1, 2, 3, 4, 5, 6] }, year: academicYearEnd }
+                    ]
+                },
                 {
                     $set: {
                         developmentScore: 0,

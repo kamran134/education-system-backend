@@ -82,7 +82,7 @@ export interface IStudentResultsGrouped {
 
 const StudentResultSchema: Schema = new Schema({
     student: { type: Types.ObjectId, ref: 'Student', required: true },
-    exam: { type: Types.ObjectId, ref: 'Exam', required: true },
+    exam: { type: Types.ObjectId, ref: 'Exam', required: false },
     grade: { type: Number, required: true },
     disciplines: {
         az: { type: Number, required: true },
