@@ -15,13 +15,14 @@ const readBookletExcel = (filePath: string): any[][] => {
 
 export interface BookletFilterOptions {
     examId?: Types.ObjectId | string;
+    districtId?: Types.ObjectId | string;
     variant?: string;
     grade?: number;
 }
 
 export class BookletService {
     async findById(id: string): Promise<IBooklet | null> {
-        return await Booklet.findById(id).populate("exam");
+        return await Booklet.findById(id).populate("exam").populate("district");
     }
 
     async findOne(filter: BookletFilterOptions): Promise<IBooklet | null> {
@@ -187,6 +188,7 @@ export class BookletService {
         const [data, totalCount] = await Promise.all([
             Booklet.find(filter)
                 .populate("exam")
+                .populate("district")
                 .sort(sortOptions)
                 .skip(pagination.skip)
                 .limit(pagination.size),
@@ -201,6 +203,9 @@ export class BookletService {
 
         if (filters.examId) {
             filter.exam = filters.examId;
+        }
+        if (filters.districtId) {
+            filter.district = filters.districtId;
         }
         if (filters.variant) {
             filter.variant = filters.variant;

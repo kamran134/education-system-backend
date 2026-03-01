@@ -20,6 +20,10 @@ router.route("/")
 router.route("/upload")
     .post(upload.single("file"), authMiddleware(["superadmin", "admin", "moderator"]), uploadBooklets);
 
+// Public route — no auth required
+router.route("/public/:id")
+    .get(getBookletById);
+
 router.route("/:id")
     .get(authMiddleware([]), getBookletById)
     .put(authMiddleware(["superadmin", "admin", "moderator"]), updateBooklet)

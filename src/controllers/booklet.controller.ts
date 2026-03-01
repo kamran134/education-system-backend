@@ -21,6 +21,9 @@ export class BookletController {
             if (req.query.examId) {
                 filters.examId = new Types.ObjectId(req.query.examId as string);
             }
+            if (req.query.districtId) {
+                filters.districtId = new Types.ObjectId(req.query.districtId as string);
+            }
             if (req.query.variant) {
                 filters.variant = req.query.variant as string;
             }
