@@ -13,6 +13,7 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } fr
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { calculateParticipationScore } from "../types/participation.types";
+import { getCurrentAcademicYear } from '../utils/academic-year.util';
 
 export class StudentResultService {
     async findById(id: string): Promise<IStudentResult | null> {
@@ -172,7 +173,12 @@ export const deleteStudentResultsByStudents = async (studentIds: string[]): Prom
 export const markAllDevelopingStudents = async (): Promise<void> => {
     console.log("🔄 Обновление статусов студентов...");
     
-    const studentResultsGrouped: IStudentResultsGrouped[] = await getStudentResultsGroupedByStudent();
+    // Фильтруем только результаты текущего учебного года
+    const academicYear = getCurrentAcademicYear();
+    const academicYearStartDate = new Date(academicYear, 8, 1); // 1 сентября
+    const academicYearEndDate = new Date(academicYear + 1, 5, 30); // 30 июня
+    
+    const studentResultsGrouped: IStudentResultsGrouped[] = await getStudentResultsGroupedByStudent(academicYearStartDate, academicYearEndDate);
     if (studentResultsGrouped.length === 0) return;
     
     const bulkOperations = [];
@@ -220,8 +226,8 @@ export const markAllDevelopingStudents = async (): Promise<void> => {
     console.log("✅ Статусы студентов обновлены.");
 }
 
-export const getStudentResultsGroupedByStudent = async (): Promise<IStudentResultsGrouped[]> => {
-    return await StudentResult.aggregate([
+export const getStudentResultsGroupedByStudent = async (academicYearStartDate?: Date, academicYearEndDate?: Date): Promise<IStudentResultsGrouped[]> => {
+    const pipeline: any[] = [
         {
             $lookup: {
                 from: 'exams',
@@ -231,6 +237,21 @@ export const getStudentResultsGroupedByStudent = async (): Promise<IStudentResul
             }
         },
         { $unwind: '$examData' },
+    ];
+
+    // Фильтруем по учебному году, если указаны даты
+    if (academicYearStartDate && academicYearEndDate) {
+        pipeline.push({
+            $match: {
+                'examData.date': {
+                    $gte: academicYearStartDate,
+                    $lte: academicYearEndDate
+                }
+            }
+        });
+    }
+
+    pipeline.push(
         {
             $sort: {
                 student: 1,
@@ -243,13 +264,19 @@ export const getStudentResultsGroupedByStudent = async (): Promise<IStudentResul
                 results: { $push: '$$ROOT' }
             }
         }
-    ]);
+    );
+
+    return await StudentResult.aggregate(pipeline);
 }
 
 export const markDevelopingStudents = async (month: number, year: number): Promise<void> => {
     try {
         const bulkOperations = [];
         console.log(`🔄 Поиск развивающихся студентов за ${month}/${year}...`);
+
+        // Определяем начало учебного года для фильтрации предыдущих результатов
+        const academicYearStart = month >= 9 ? year : year - 1;
+        const academicYearStartDate = new Date(academicYearStart, 8, 1); // 1 сентября
 
         const exams = await getExamsByMonthYear(month, year);
         if (!exams.length) {
@@ -307,10 +334,11 @@ export const markDevelopingStudents = async (month: number, year: number): Promi
                 }).populate('exam');
 
                 // Фильтруем только те результаты, которые РАНЬШЕ текущего экзамена по дате
+                // И в пределах текущего учебного года (начиная с 1 сентября)
                 const olderResults = allStudentResults.filter(prevResult => {
                     if (!prevResult.exam || typeof prevResult.exam === 'string') return false;
                     const prevExamDate = new Date((prevResult.exam as IExam).date);
-                    return prevExamDate < currentExamDate;
+                    return prevExamDate < currentExamDate && prevExamDate >= academicYearStartDate;
                 });
 
                 console.log(`📊 Студент ${currentResult.student}: текущий экзамен ${currentExamDate.toISOString()}, всего результатов: ${allStudentResults.length}, предыдущих: ${olderResults.length}`);

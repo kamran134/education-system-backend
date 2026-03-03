@@ -1205,8 +1205,21 @@ export class StatsService {
      */
     private async updateStudentScores(): Promise<void> {
         try {
+            // Определяем диапазон месяцев текущего учебного года
+            const academicYear = getCurrentAcademicYear();
+            const academicYearEnd = academicYear + 1;
+
             // Агрегация для подсчета общего score каждого студента
+            // Только за текущий учебный год (сентябрь-декабрь academicYear + январь-июнь academicYear+1)
             const pipeline = [
+                {
+                    $match: {
+                        $or: [
+                            { month: { $in: [9, 10, 11, 12] }, year: academicYear },
+                            { month: { $in: [1, 2, 3, 4, 5, 6] }, year: academicYearEnd }
+                        ]
+                    }
+                },
                 {
                     $group: {
                         _id: '$student',
