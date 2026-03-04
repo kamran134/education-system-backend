@@ -132,8 +132,9 @@ export class StatsService {
             const uniqueMonths = new Set<string>();
             for (const exam of exams) {
                 const date = new Date(exam.date);
-                const year = date.getFullYear();
-                const month = date.getMonth() + 1;
+                // Используем UTC-методы — даты хранятся как UTC midnight
+                const year = date.getUTCFullYear();
+                const month = date.getUTCMonth() + 1;
                 uniqueMonths.add(`${year}-${month}`);
             }
 

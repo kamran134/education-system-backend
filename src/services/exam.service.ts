@@ -88,13 +88,13 @@ export class ExamService {
     }
 
     async getExamsByMonthYear(month: number, year: number): Promise<IExam[]> {
-        // Определяем диапазон дат для поиска экзаменов
-        const startDate = new Date(year, month - 1, 1);
-        const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+        // Используем UTC чтобы диапазон не зависел от timezone сервера
+        const startDate = new Date(Date.UTC(year, month - 1, 1));
+        const endDate = new Date(Date.UTC(year, month, 1));
 
         // Получаем все экзамены за указанный месяц и год
         const exams: IExam[] = await Exam.find({
-            date: { $gte: startDate, $lte: endDate }
+            date: { $gte: startDate, $lt: endDate }
         });
 
         return exams;
@@ -204,13 +204,14 @@ export class ExamService {
             const month = parseInt(filters.month);
             if (!isNaN(month) && month >= 1 && month <= 12) {
                 // Если год не указан, используем текущий год
-                const year = filters.year ? parseInt(filters.year) : new Date().getFullYear();
-                const startOfMonth = new Date(year, month - 1, 1);
-                const endOfMonth = new Date(year, month, 0, 23, 59, 59, 999);
+                const year = filters.year ? parseInt(filters.year) : new Date().getUTCFullYear();
+                // Используем UTC чтобы диапазон не зависел от timezone сервера
+                const startOfMonth = new Date(Date.UTC(year, month - 1, 1));
+                const endOfMonth = new Date(Date.UTC(year, month, 1));
                 
                 filter.date = {
                     $gte: startOfMonth,
-                    $lte: endOfMonth
+                    $lt: endOfMonth
                 };
             }
         }

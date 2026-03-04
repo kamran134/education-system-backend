@@ -175,8 +175,9 @@ export const markAllDevelopingStudents = async (): Promise<void> => {
     
     // Фильтруем только результаты текущего учебного года
     const academicYear = getCurrentAcademicYear();
-    const academicYearStartDate = new Date(academicYear, 8, 1); // 1 сентября
-    const academicYearEndDate = new Date(academicYear + 1, 5, 30); // 30 июня
+    // Используем UTC чтобы граничные даты не зависели от timezone сервера
+    const academicYearStartDate = new Date(Date.UTC(academicYear, 8, 1)); // 1 сентября UTC
+    const academicYearEndDate = new Date(Date.UTC(academicYear + 1, 6, 1)); // 1 июля UTC (exclusive)
     
     const studentResultsGrouped: IStudentResultsGrouped[] = await getStudentResultsGroupedByStudent(academicYearStartDate, academicYearEndDate);
     if (studentResultsGrouped.length === 0) return;
@@ -276,7 +277,8 @@ export const markDevelopingStudents = async (month: number, year: number): Promi
 
         // Определяем начало учебного года для фильтрации предыдущих результатов
         const academicYearStart = month >= 9 ? year : year - 1;
-        const academicYearStartDate = new Date(academicYearStart, 8, 1); // 1 сентября
+        // Используем UTC чтобы граничная дата не зависела от timezone сервера
+        const academicYearStartDate = new Date(Date.UTC(academicYearStart, 8, 1)); // 1 сентября UTC
 
         const exams = await getExamsByMonthYear(month, year);
         if (!exams.length) {
@@ -544,8 +546,9 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
         }
 
         const examDate = new Date(exam.date);
-        const month = examDate.getMonth() + 1; // JavaScript months are 0-indexed
-        const year = examDate.getFullYear();
+        // Используем UTC-методы — даты хранятся как UTC midnight (без смещения timezone)
+        const month = examDate.getUTCMonth() + 1;
+        const year = examDate.getUTCFullYear();
 
         const resultReadedData = rows.slice(3).map(row => ({
             examId: new Types.ObjectId(examId),

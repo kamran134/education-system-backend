@@ -42,6 +42,12 @@ export class ExamUseCase {
         ValidationUtils.validateRequired(examData.code, 'Exam code');
         ValidationUtils.validateRequired(examData.date, 'Exam date');
 
+        // Парсим дату как UTC midnight чтобы избежать смещения timezone.
+        // Фронт присылает строку "YYYY-MM-DD".
+        if (typeof examData.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(examData.date as any)) {
+            examData.date = new Date((examData.date as any) + 'T00:00:00.000Z') as any;
+        }
+
         // Check if exam with same code already exists
         const existingExam = await this.examService.findByCode(examData.code);
         if (existingExam) {
