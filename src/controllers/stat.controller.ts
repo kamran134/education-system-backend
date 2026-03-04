@@ -52,10 +52,11 @@ export const getStudentsStatistics = async (req: Request, res: Response) => {
         }
 
         const [year, monthStr] = (month as string).split("-");
+        const yearNum: number = parseInt(year, 10);
         const monthIndex: number = parseInt(monthStr, 10) - 1;
-        const selectedMonth = new Date(parseInt(year, 10), monthIndex, 1);
-        const startDate = new Date(selectedMonth);
-        const endDate = new Date(new Date(startDate).setMonth(startDate.getMonth() + 1));
+        // Используем UTC чтобы диапазон не зависел от timezone сервера
+        const startDate = new Date(Date.UTC(yearNum, monthIndex, 1));
+        const endDate = new Date(Date.UTC(yearNum, monthIndex + 1, 1));
 
         if (examIds.length === 0) {
             examIds = await Exam.find({ date: { $gte: startDate, $lt: endDate } }).select('_id');

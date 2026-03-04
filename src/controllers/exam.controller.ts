@@ -37,14 +37,20 @@ export const createExam = async (req: Request, res: Response) => {
     try {
         const { name, code, date } = req.body;
 
-        const existingExam = await Exam.findOne({ code, date });
+        // Парсим дату как UTC midnight чтобы избежать смещения timezone.
+        // Фронт присылает строку "YYYY-MM-DD".
+        const parsedDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+            ? new Date(date + 'T00:00:00.000Z')
+            : new Date(date);
+
+        const existingExam = await Exam.findOne({ code, date: parsedDate });
 
         if (existingExam) {
             res.status(400).json({ message: "Bu kodda və tarixdə imtahan artıq mövcuddur!" });
             return;
         }
 
-        const exam = new Exam({ name, code, date });
+        const exam = new Exam({ name, code, date: parsedDate });
         const savedExam = await exam.save();
         res.status(201).json(savedExam);
     } catch (error) {

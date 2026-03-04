@@ -39,8 +39,9 @@ export const updateStats = async (): Promise<number> => {
 
         for (const exam of exams) {
             const date = new Date(exam.date);
-            const year = date.getFullYear();
-            const month = date.getMonth() + 1; // Январь — 1, Февраль — 2 и т. д.
+            // Используем UTC-методы — даты хранятся как UTC midnight
+            const year = date.getUTCFullYear();
+            const month = date.getUTCMonth() + 1; // Январь — 1, Февраль — 2 и т. д.
             uniqueMonths.add(`${year}-${month}`);
         }
 
