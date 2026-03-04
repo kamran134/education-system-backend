@@ -63,6 +63,12 @@ export class ExamUseCase {
             throw new Error(validationError);
         }
 
+        // Парсим дату как UTC midnight чтобы избежать смещения timezone.
+        // Фронт присылает строку "YYYY-MM-DD".
+        if (updateData.date && typeof updateData.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(updateData.date as any)) {
+            updateData.date = new Date((updateData.date as any) + 'T00:00:00.000Z') as any;
+        }
+
         // If updating code, check for conflicts
         if (updateData.code) {
             const existingExam = await this.examService.findByCode(updateData.code);
