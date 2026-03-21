@@ -9,7 +9,7 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult, Fil
 import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
-import { escapeRegex } from "../utils/validation.util";
+import { buildCommonFilter } from "../utils/filter.util";
 import { updateEntityStats } from "../utils/stats.utils";
 import { updateEntityPlaces } from "../utils/ranking.util";
 
@@ -225,26 +225,10 @@ export class SchoolService {
     }
 
     private buildFilter(filters: FilterOptions): any {
-        const filter: any = {}; // Показываем все школы
-
+        const filter = buildCommonFilter(filters, 5);
         if (filters.districtIds && filters.districtIds.length > 0) {
             filter.district = { $in: filters.districtIds };
         }
-
-        if (filters.code) {
-            const { start, end } = RequestParser.parseCodeRange(filters.code, 5);
-            filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
-        }
-
-        if (filters.search) {
-            // Search by school name (case-insensitive)
-            filter.name = { $regex: escapeRegex(filters.search), $options: 'i' };
-        }
-
-        if (filters.active !== undefined) {
-            filter.active = filters.active;
-        }
-
         return filter;
     }
 

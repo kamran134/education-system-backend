@@ -6,6 +6,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
+import { buildCommonFilter } from "../utils/filter.util";
 
 export class ExamService {
     async findById(id: string): Promise<IExam | null> {
@@ -159,14 +160,10 @@ export class ExamService {
     }
 
     private buildFilter(filters: FilterOptions): any {
-        const filter: any = {};
+        // code range + active handled by util; search and date filters remain custom
+        const filter = buildCommonFilter(filters, 3, null);
 
-        if (filters.code) {
-            const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
-            filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
-        }
-
-        // Поиск по названию или коду экзамена
+        // Search by exam name or code
         if (filters.search && filters.search.trim() !== '') {
             const searchTerm = filters.search.trim();
             
@@ -210,10 +207,6 @@ export class ExamService {
                     $lt: endOfMonth
                 };
             }
-        }
-
-        if (filters.active !== undefined) {
-            filter.active = filters.active;
         }
 
         // Поддержка для dateFrom/dateTo (если не используются year/month фильтры)
