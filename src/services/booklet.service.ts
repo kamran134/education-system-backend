@@ -1,13 +1,26 @@
 import { Types } from "mongoose";
 import xlsx from "xlsx";
+import fs from "fs";
 import Booklet, { IBooklet, IBookletCreate, IBookletDisciplines } from "../models/booklet.model";
 import District from "../models/district.model";
 import { PaginationOptions, SortOptions } from "../types/common.types";
 import { deleteFile } from "./file.service";
 
+const MAX_BOOKLET_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
+
 /** Reads an Excel file and returns rows as arrays of display (formatted) values. */
 const readBookletExcel = (filePath: string): any[][] => {
-    const workbook = xlsx.readFile(filePath, { cellFormula: false });
+    const stat = fs.statSync(filePath);
+    if (stat.size > MAX_BOOKLET_SIZE_BYTES) {
+        throw new Error(`Fayl çox böyükdür: maksimum 50 MB icazə verilir`);
+    }
+    const workbook = xlsx.readFile(filePath, {
+        cellFormula: false,
+        cellHTML: false,
+        cellNF: false,
+        cellStyles: false,
+        sheetStubs: false,
+    });
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
     return xlsx.utils.sheet_to_json<any[]>(sheet, { header: 1, raw: false, defval: null });
