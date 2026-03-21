@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import dontenv from "dotenv";
+import dotenv from "dotenv";
 import path from "path";
 import connectDB from "./config/db";
 import districtRoutes from "./routes/district.routes";
@@ -23,7 +23,7 @@ import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middleware/errorHandler";
 import { startTokenCleanupScheduler } from "./services/token.service";
 
-dontenv.config();
+dotenv.config();
 connectDB();
 
 // Запускаем планировщик очистки токенов

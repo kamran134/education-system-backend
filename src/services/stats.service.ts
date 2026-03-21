@@ -644,34 +644,9 @@ export class StatsService {
             console.log("🔢 Подсчитываем общий score для студентов...");
             await this.updateStudentScores();
 
-            // // Шаг 6.1: Обновляем статистику для учителей, школ и районов
-            // console.log("👨‍🏫 Обновляем статистику учителей...");
-            // const teacherService = new TeacherService();
-            // await teacherService.updateTeachersStats();
-
-            // console.log("🏫 Обновляем статистику школ...");
-            // const schoolService = new SchoolService();
-            // await schoolService.updateSchoolsStats();
-
-            // console.log("🏛️ Обновляем статистику районов...");
-            // const districtService = new DistrictService();
-            // await districtService.updateDistrictsStats();
-
             // Шаг 7: Обновляем место в рейтинге (place) для всех студентов
             console.log("🏆 Обновляем рейтинг студентов (place)...");
             await this.updateStudentPlaces();
-
-            // // Шаг 8: Назначаем учителей года
-            // console.log("👨‍🏫 Назначаем учителей года...");
-            // await this.updateTeachersOfTheYear();
-
-            // // Шаг 9: Назначаем школы года
-            // console.log("🏫 Назначаем школы года...");
-            // await this.updateSchoolsOfTheYear();
-
-            // // Шаг 10: Назначаем районы года
-            // console.log("🏛️ Назначаем районы года...");
-            // await this.updateDistrictsOfTheYear();
 
             console.log("✅ Статистика обновлена успешно!");
             return 200;

@@ -70,50 +70,10 @@ export class SchoolService {
             await School.bulkWrite(bulkOps);
         }
 
-        // ЗАКОММЕНТИРОВАНО: Обновление studentCount из суммы учителей (количество студентов устанавливается только вручную или через Excel)
-        // console.log("👥 Обновляем количество студентов школ из суммы учителей...");
-        // await this.updateSchoolStudentCountFromTeachers();
-
         // Обновляем место в рейтинге (place) для всех школ
         console.log("🏆 Обновляем рейтинг школ (place)...");
         await this.updateSchoolPlaces();
     }
-
-    /**
-     * ЗАКОММЕНТИРОВАНО: Обновляет studentCount школ из суммы studentCount их учителей
-     * (количество студентов устанавливается только вручную или через Excel)
-     */
-    /*
-    private async updateSchoolStudentCountFromTeachers(): Promise<void> {
-        try {
-            // Получаем агрегацию по школам с суммой studentCount учителей
-            const schoolStats = await Teacher.aggregate([
-                { $match: { school: { $exists: true, $ne: null }, active: true } },
-                { 
-                    $group: {
-                        _id: "$school",
-                        totalStudentCount: { $sum: "$studentCount" }
-                    }
-                }
-            ]);
-
-            // Подготавливаем bulk операции для обновления
-            const bulkOperations = schoolStats.map(stat => ({
-                updateOne: {
-                    filter: { _id: stat._id },
-                    update: { $set: { studentCount: stat.totalStudentCount } }
-                }
-            }));
-
-            if (bulkOperations.length > 0) {
-                await School.bulkWrite(bulkOperations);
-                console.log(`✅ Обновлено studentCount для ${bulkOperations.length} школ`);
-            }
-        } catch (error) {
-            console.error("❌ Ошибка при обновлении studentCount школ:", error);
-        }
-    }
-    */
 
     /**
      * Обновляет место в рейтинге (place) для всех школ на основе их averageScore

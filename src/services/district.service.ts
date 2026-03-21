@@ -69,50 +69,10 @@ export class DistrictService {
             await District.bulkWrite(bulkOps);
         }
 
-        // ЗАКОММЕНТИРОВАНО: Обновление studentCount из суммы школ (количество студентов устанавливается только вручную или через Excel)
-        // console.log("👥 Обновляем количество студентов районов из суммы школ...");
-        // await this.updateDistrictStudentCountFromSchools();
-
         // Обновляем место в рейтинге (place) для всех районов
         console.log("🏆 Обновляем рейтинг районов (place)...");
         await this.updateDistrictPlaces();
     }
-
-    /**
-     * ЗАКОММЕНТИРОВАНО: Обновляет studentCount районов из суммы studentCount их школ
-     * (количество студентов устанавливается только вручную или через Excel)
-     */
-    /*
-    private async updateDistrictStudentCountFromSchools(): Promise<void> {
-        try {
-            // Получаем агрегацию по районам с суммой studentCount школ
-            const districtStats = await School.aggregate([
-                { $match: { district: { $exists: true, $ne: null }, active: true } },
-                { 
-                    $group: {
-                        _id: "$district",
-                        totalStudentCount: { $sum: "$studentCount" }
-                    }
-                }
-            ]);
-
-            // Подготавливаем bulk операции для обновления
-            const bulkOperations = districtStats.map(stat => ({
-                updateOne: {
-                    filter: { _id: stat._id },
-                    update: { $set: { studentCount: stat.totalStudentCount } }
-                }
-            }));
-
-            if (bulkOperations.length > 0) {
-                await District.bulkWrite(bulkOperations);
-                console.log(`✅ Обновлено studentCount для ${bulkOperations.length} районов`);
-            }
-        } catch (error) {
-            console.error("❌ Ошибка при обновлении studentCount районов:", error);
-        }
-    }
-    */
 
     /**
      * Обновляет место в рейтинге (place) для всех районов на основе их averageScore
