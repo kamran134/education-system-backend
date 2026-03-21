@@ -44,19 +44,27 @@ export class DistrictService {
             const stat = statsMap.get(districtId)!;
             stat.sum += score;
         }
-        // Обновляем каждый район
-        for (const [districtId, { sum, studentCount }] of statsMap.entries()) {
+        // Обновляем все районы одним bulkWrite вместо N+1 запросов
+        const bulkOps = Array.from(statsMap.entries()).map(([districtId, { sum, studentCount }]) => {
             const average = studentCount > 0 ? sum / studentCount : 0;
-            await District.findByIdAndUpdate(districtId, [{
-                $set: {
-                    ratings: {
-                        $concatArrays: [
-                            { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                            [{ year: currentYear, score: sum, averageScore: average, place: null }]
-                        ]
-                    }
+            return {
+                updateOne: {
+                    filter: { _id: new Types.ObjectId(districtId) },
+                    update: [{
+                        $set: {
+                            ratings: {
+                                $concatArrays: [
+                                    { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
+                                    [{ year: currentYear, score: sum, averageScore: average, place: null }]
+                                ]
+                            }
+                        }
+                    }] as any
                 }
-            }] as any);
+            };
+        });
+        if (bulkOps.length > 0) {
+            await District.bulkWrite(bulkOps);
         }
 
         // ЗАКОММЕНТИРОВАНО: Обновление studentCount из суммы школ (количество студентов устанавливается только вручную или через Excel)

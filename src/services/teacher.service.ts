@@ -46,19 +46,27 @@ export class TeacherService {
             const stat = statsMap.get(teacherId)!;
             stat.sum += score;
         }
-        // Обновляем каждого учителя
-        for (const [teacherId, { sum, studentCount }] of statsMap.entries()) {
+        // Обновляем всех учителей одним bulkWrite вместо N+1 запросов
+        const bulkOps = Array.from(statsMap.entries()).map(([teacherId, { sum, studentCount }]) => {
             const average = sum > 0 ? sum / studentCount : 0;
-            await Teacher.findByIdAndUpdate(teacherId, [{
-                $set: {
-                    ratings: {
-                        $concatArrays: [
-                            { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                            [{ year: currentYear, score: sum, averageScore: average, place: null }]
-                        ]
-                    }
+            return {
+                updateOne: {
+                    filter: { _id: new Types.ObjectId(teacherId) },
+                    update: [{
+                        $set: {
+                            ratings: {
+                                $concatArrays: [
+                                    { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
+                                    [{ year: currentYear, score: sum, averageScore: average, place: null }]
+                                ]
+                            }
+                        }
+                    }] as any
                 }
-            }] as any);
+            };
+        });
+        if (bulkOps.length > 0) {
+            await Teacher.bulkWrite(bulkOps);
         }
 
         // Обновляем место в рейтинге (place) для всех учителей
