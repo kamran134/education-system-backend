@@ -285,13 +285,21 @@ export class StudentController {
             for (const file of files) {
                 try {
                     // Извлекаем код студента из имени файла (без расширения)
-                    const studentCode = path.parse(file.originalname).name;
+                    const rawName = path.parse(file.originalname).name;
+
+                    // Санитизация: код студента — строго 10 цифр
+                    if (!/^\d{10}$/.test(rawName)) {
+                        results.notFound.push(rawName.slice(0, 20)); // ограничиваем длину в ответе
+                        fs.unlinkSync(file.path);
+                        continue;
+                    }
+                    const studentCode = parseInt(rawName, 10);
                     
                     // Находим студента по коду
                     const student = await Student.findOne({ code: studentCode });
                     
                     if (!student) {
-                        results.notFound.push(studentCode);
+                        results.notFound.push(rawName);
                         // Удаляем временный файл
                         fs.unlinkSync(file.path);
                         continue;
@@ -319,15 +327,15 @@ export class StudentController {
                     student.avatarUrl = `/uploads/students/avatars/${filename}`;
                     await student.save();
                     
-                    results.successful.push(studentCode);
+                    results.successful.push(String(studentCode));
                     
                     // Удаляем временный файл
                     fs.unlinkSync(file.path);
                     
                 } catch (fileError: any) {
                     console.error(`Error processing file ${file.originalname}:`, fileError);
-                    const studentCode = path.parse(file.originalname).name;
-                    results.corrupted.push(studentCode);
+                    const rawErrName = path.parse(file.originalname).name;
+                    results.corrupted.push(rawErrName.slice(0, 20));
                     
                     // Удаляем временный файл
                     try {
