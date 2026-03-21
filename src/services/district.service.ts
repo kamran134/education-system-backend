@@ -9,6 +9,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { buildCommonFilter } from "../utils/filter.util";
+import { CODE_LENGTHS } from "../utils/entity-codes.const";
 import { updateEntityStats } from "../utils/stats.utils";
 import { updateEntityPlaces } from "../utils/ranking.util";
 
@@ -233,7 +234,7 @@ export class DistrictService {
     }
 
     private buildFilter(filters: FilterOptions): any {
-        return buildCommonFilter(filters, 2);
+        return buildCommonFilter(filters, CODE_LENGTHS.DISTRICT);
     }
 }
 

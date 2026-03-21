@@ -12,6 +12,7 @@ import { deleteFile } from "./file.service";
 import { buildCommonFilter } from "../utils/filter.util";
 import { updateEntityStats } from "../utils/stats.utils";
 import { updateEntityPlaces } from "../utils/ranking.util";
+import { CODE_DIVISORS, CODE_LENGTHS } from "../utils/entity-codes.const";
 
 export class TeacherService {
     /**
@@ -109,8 +110,8 @@ export class TeacherService {
                 
                 // Extract codes from teacher code (7 digits)
                 // Example: 1500188 -> school=15001 (first 5 digits), district=150 (first 3 digits)
-                const schoolCode = Math.floor(teacherCode / 100); // 15001
-                const districtCode = Math.floor(teacherCode / 10000); // 150
+                const schoolCode = Math.floor(teacherCode / CODE_DIVISORS.TEACHER_TO_SCHOOL); // 15001
+                const districtCode = Math.floor(teacherCode / CODE_DIVISORS.TEACHER_TO_DISTRICT); // 150
 
                 console.log(`Processing teacher ${teacherCode}: school=${schoolCode}, district=${districtCode}`);
 
@@ -312,7 +313,7 @@ export class TeacherService {
     }
 
     private buildFilter(filters: FilterOptions): any {
-        const filter = buildCommonFilter(filters, 7, 'fullname');
+        const filter = buildCommonFilter(filters, CODE_LENGTHS.TEACHER, 'fullname');
         if (filters.districtIds && filters.districtIds.length > 0 && (!filters.schoolIds || filters.schoolIds.length === 0)) {
             filter.district = { $in: filters.districtIds };
         }
@@ -367,8 +368,8 @@ export class TeacherService {
                 }
 
                 // Resolve school by school code (first 5 digits)
-                const schoolCode = Math.floor(code / 100);
-                const districtCode = Math.floor(code / 10000);
+                const schoolCode = Math.floor(code / CODE_DIVISORS.TEACHER_TO_SCHOOL);
+                const districtCode = Math.floor(code / CODE_DIVISORS.TEACHER_TO_DISTRICT);
 
                 let schoolId: Types.ObjectId | null = null;
                 let districtId: Types.ObjectId | null = null;

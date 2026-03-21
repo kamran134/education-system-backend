@@ -13,6 +13,7 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } fr
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { calculateParticipationScore } from "../types/participation.types";
+import { CODE_DIVISORS, CODE_RANGES } from "../utils/entity-codes.const";
 import { getCurrentAcademicYear } from '../utils/academic-year.util';
 
 export class StudentResultService {
@@ -555,14 +556,14 @@ export class StudentResultService {
         }));
 
         // Валидация кодов студентов (10 цифр: 1000000000-9999999999)
-        const correctStudentDataToInsert = studentDataToInsert.filter(data => data.code >= 1000000000 && data.code <= 9999999999);
+        const correctStudentDataToInsert = studentDataToInsert.filter(data => data.code >= CODE_RANGES.STUDENT_MIN && data.code <= CODE_RANGES.STUDENT_MAX);
         const invalidStudentCodes = studentDataToInsert
-            .filter(data => data.code < 1000000000 || data.code > 9999999999)
+            .filter(data => data.code < CODE_RANGES.STUDENT_MIN || data.code > CODE_RANGES.STUDENT_MAX)
             .map(data => data.code);
 
         // Валидация кодов учителей (извлекаем из кода студента: первые 7 цифр)
         const invalidTeacherCodes: number[] = [];
-        const teacherCodesToCheck = [...new Set(correctStudentDataToInsert.map(s => Math.floor(s.code / 1000)))];
+        const teacherCodesToCheck = [...new Set(correctStudentDataToInsert.map(s => Math.floor(s.code / CODE_DIVISORS.STUDENT_TO_TEACHER)))];
         const existingTeachers = await Teacher.find({ code: { $in: teacherCodesToCheck } });
         const existingTeacherCodes = new Set(existingTeachers.map(t => t.code));
         
@@ -574,7 +575,7 @@ export class StudentResultService {
 
         // Валидация кодов школ (извлекаем из кода учителя: первые 5 цифр)
         const invalidSchoolCodes: number[] = [];
-        const schoolCodesToCheck = [...new Set(existingTeachers.map(t => Math.floor(t.code / 100)))];
+        const schoolCodesToCheck = [...new Set(existingTeachers.map(t => Math.floor(t.code / CODE_DIVISORS.TEACHER_TO_SCHOOL)))];
         const existingSchools = await School.find({ code: { $in: schoolCodesToCheck } });
         const existingSchoolCodes = new Set(existingSchools.map(s => s.code));
         
@@ -586,7 +587,7 @@ export class StudentResultService {
 
         // Валидация кодов районов (извлекаем из кода школы: первые 3 цифры)
         const invalidDistrictCodes: number[] = [];
-        const districtCodesToCheck = [...new Set(existingSchools.map(s => Math.floor(s.code / 100)))];
+        const districtCodesToCheck = [...new Set(existingSchools.map(s => Math.floor(s.code / CODE_DIVISORS.SCHOOL_TO_DISTRICT)))];
         const existingDistricts = await District.find({ code: { $in: districtCodesToCheck } });
         const existingDistrictCodes = new Set(existingDistricts.map(d => d.code));
         

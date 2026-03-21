@@ -7,6 +7,7 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
 import { buildCommonFilter } from "../utils/filter.util";
+import { CODE_LENGTHS } from "../utils/entity-codes.const";
 
 export class ExamService {
     async findById(id: string): Promise<IExam | null> {
@@ -161,7 +162,7 @@ export class ExamService {
 
     private buildFilter(filters: FilterOptions): any {
         // code range + active handled by util; search and date filters remain custom
-        const filter = buildCommonFilter(filters, 3, null);
+        const filter = buildCommonFilter(filters, CODE_LENGTHS.EXAM, null);
 
         // Search by exam name or code
         if (filters.search && filters.search.trim() !== '') {

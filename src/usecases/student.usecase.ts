@@ -6,6 +6,7 @@ import { StudentResultService } from "../services/studentResult.service";
 import { importLegacyStudents } from "../services/student.service";
 import { PaginationOptions, FilterOptions, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
+import { CODE_LENGTHS } from "../utils/entity-codes.const";
 import { Types } from "mongoose";
 
 export class StudentUseCase {
@@ -194,7 +195,7 @@ export class StudentUseCase {
             ValidationUtils.validateRequired(data.firstName, 'First name'),
             ValidationUtils.validateRequired(data.lastName, 'Last name'),
             ValidationUtils.validateRequired(data.code, 'Student code'),
-            ValidationUtils.validateCode(data.code, 10, 10),
+            ValidationUtils.validateCode(data.code, CODE_LENGTHS.STUDENT, CODE_LENGTHS.STUDENT),
             ValidationUtils.validateNumber(data.grade, 'Grade', 1, 12)
         ]);
     }

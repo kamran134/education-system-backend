@@ -3,6 +3,7 @@ import { ITeacher, ITeacherCreate } from "../models/teacher.model";
 import { TeacherService } from "../services/teacher.service";
 import { PaginationOptions, FilterOptions, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
+import { CODE_LENGTHS } from "../utils/entity-codes.const";
 import { Types } from "mongoose";
 
 export class TeacherUseCase {
@@ -180,7 +181,7 @@ export class TeacherUseCase {
         return ValidationUtils.combine([
             ValidationUtils.validateRequired(data.fullname, 'Full name'),
             ValidationUtils.validateRequired(data.code, 'Teacher code'),
-            ValidationUtils.validateCode(data.code, 7, 7)
+            ValidationUtils.validateCode(data.code, CODE_LENGTHS.TEACHER, CODE_LENGTHS.TEACHER)
         ]);
     }
 }

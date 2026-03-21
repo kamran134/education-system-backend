@@ -3,6 +3,7 @@ import { ISchool, ISchoolCreate } from "../models/school.model";
 import { SchoolService } from "../services/school.service";
 import { PaginationOptions, FilterOptions, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
+import { CODE_LENGTHS } from "../utils/entity-codes.const";
 import { Types } from "mongoose";
 
 export class SchoolUseCase {
@@ -205,7 +206,7 @@ export class SchoolUseCase {
         return ValidationUtils.combine([
             ValidationUtils.validateRequired(data.name, 'School name'),
             ValidationUtils.validateRequired(data.code, 'School code'),
-            ValidationUtils.validateCode(data.code, 5, 5)
+            ValidationUtils.validateCode(data.code, CODE_LENGTHS.SCHOOL, CODE_LENGTHS.SCHOOL)
         ]);
     }
 }

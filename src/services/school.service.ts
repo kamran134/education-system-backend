@@ -12,6 +12,7 @@ import { deleteFile } from "./file.service";
 import { buildCommonFilter } from "../utils/filter.util";
 import { updateEntityStats } from "../utils/stats.utils";
 import { updateEntityPlaces } from "../utils/ranking.util";
+import { CODE_RANGES, CODE_LENGTHS } from "../utils/entity-codes.const";
 
 export class SchoolService {
     /**
@@ -139,9 +140,9 @@ export class SchoolService {
             }));
 
             // Filter correct schools (school code must be 5 digits: 10000-99999)
-            const correctSchoolsToInsert = dataToInsert.filter(data => data.code > 9999);
+            const correctSchoolsToInsert = dataToInsert.filter(data => data.code >= CODE_RANGES.SCHOOL_MIN);
             const incorrectSchoolCodes = dataToInsert
-                .filter(data => data.code <= 9999)
+                .filter(data => data.code < CODE_RANGES.SCHOOL_MIN)
                 .map(data => data.code);
 
             // Check existing schools
@@ -225,7 +226,7 @@ export class SchoolService {
     }
 
     private buildFilter(filters: FilterOptions): any {
-        const filter = buildCommonFilter(filters, 5);
+        const filter = buildCommonFilter(filters, CODE_LENGTHS.SCHOOL);
         if (filters.districtIds && filters.districtIds.length > 0) {
             filter.district = { $in: filters.districtIds };
         }

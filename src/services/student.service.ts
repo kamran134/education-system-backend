@@ -11,6 +11,7 @@ import { buildScorePlaceMap } from "../utils/ranking.util";
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
+import { CODE_DIVISORS } from "../utils/entity-codes.const";
 
 export class StudentService {
 
@@ -278,9 +279,9 @@ export class StudentService {
                 let hasChanges = false;
                 
                 // Extract codes from student code
-                const teacherCode = Math.floor(studentCode / 1000); // 1500188
-                const schoolCode = Math.floor(studentCode / 100000); // 15001
-                const districtCode = Math.floor(studentCode / 10000000); // 150
+                const teacherCode = Math.floor(studentCode / CODE_DIVISORS.STUDENT_TO_TEACHER);
+                const schoolCode = Math.floor(studentCode / CODE_DIVISORS.STUDENT_TO_SCHOOL);
+                const districtCode = Math.floor(studentCode / CODE_DIVISORS.STUDENT_TO_DISTRICT);
 
                 console.log(`Processing student ${studentCode}: teacher=${teacherCode}, school=${schoolCode}, district=${districtCode}`);
 
@@ -355,7 +356,7 @@ export class StudentService {
 
     async assignTeacherToStudent(student: IStudentInput | IStudent): Promise<void> {
         try {
-            const teacherCode = Math.floor(student.code / 1000);
+            const teacherCode = Math.floor(student.code / CODE_DIVISORS.STUDENT_TO_TEACHER);
             const teacher: ITeacher | null = await Teacher.findOne({ code: teacherCode });
             
             if (teacher) {

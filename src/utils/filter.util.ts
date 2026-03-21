@@ -6,7 +6,8 @@ import { escapeRegex } from './validation.util';
  * Builds a MongoDB filter object from common FilterOptions fields.
  *
  * @param filters      - Incoming filter options
- * @param codeLength   - Number of digits for parseCodeRange (2=district, 3=exam, 5=school, 7=teacher, 10=student)
+ * @param codeLength   - Number of digits for parseCodeRange — use CODE_LENGTHS constants
+ *                       (3=district/exam, 5=school, 7=teacher, 10=student)
  * @param searchField  - Document field to apply text search against ('name', 'fullname', …).
  *                       Pass null to skip search (service handles it manually).
  */
