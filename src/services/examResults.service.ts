@@ -23,7 +23,7 @@ export class ExamResultsService {
         page: number = 1,
         size: number = 25
     ): Promise<{ data: IStudentResult[], totalCount: number }> {
-        
+      try {
         console.log('🎯 ExamResults Service - Filters:', filters);
         
         const pipeline: any[] = [];
@@ -261,6 +261,9 @@ export class ExamResultsService {
         const data = await StudentResult.aggregate(pipeline);
 
         return { data, totalCount };
+      } catch (error: any) {
+        throw new Error(`ExamResults aggregation failed: ${error.message}`);
+      }
     }
 
     async getExamResultById(id: string): Promise<IStudentResult | null> {
