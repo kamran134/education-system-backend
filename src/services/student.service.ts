@@ -189,12 +189,52 @@ export class StudentService {
         console.log('👨‍🎓 getFilteredStudents called with filters:', JSON.stringify(filters, null, 2));
         const filter = this.buildFilter(filters);
         console.log('👨‍🎓 Built MongoDB filter:', JSON.stringify(filter, null, 2));
-        
-        // Build aggregation pipeline to include participationCount
-        const pipeline: any[] = [
-            // Filter students
+
+        // Step 1: Lightweight pipeline — fetch only score for ALL filtered students.
+        // No expensive $lookups. Used to:
+        //   a) calculate total count
+        //   b) build score→place map (same dense-rank logic as assignPlaces)
+        const allScores: Array<{ score?: number }> = await Student.aggregate([
             { $match: filter },
-            
+            { $project: { score: 1 } }
+        ]);
+
+        const totalCount = allScores.length;
+        console.log('👨‍🎓 Found students:', totalCount);
+
+        if (totalCount === 0) {
+            return { data: [], totalCount: 0 };
+        }
+
+        // Build score→place map from all filtered scores (same algorithm as assignPlaces)
+        const scorePlaceMap = new Map<number, number>();
+        {
+            const sortedByScore = [...allScores].sort((a, b) => (b.score || 0) - (a.score || 0));
+            let currentPlace = 1;
+            let previousScore: number | null = null;
+
+            sortedByScore.forEach((item, index) => {
+                const currentScore = item.score || 0;
+                if (index === 0) {
+                    scorePlaceMap.set(currentScore, 1);
+                    previousScore = currentScore;
+                } else if (currentScore < previousScore!) {
+                    currentPlace++;
+                    scorePlaceMap.set(currentScore, currentPlace);
+                    previousScore = currentScore;
+                } else {
+                    scorePlaceMap.set(currentScore, currentPlace);
+                }
+            });
+        }
+
+        // Step 2: Full pipeline with all $lookups, but sort + paginate in MongoDB.
+        // Only loads one page of data — no more loading all N thousand records.
+        const sortDir = sort.sortDirection === 'asc' ? 1 : -1;
+
+        const pipeline: any[] = [
+            { $match: filter },
+
             // Lookup student results to count participations
             {
                 $lookup: {
@@ -204,14 +244,8 @@ export class StudentService {
                     as: 'results'
                 }
             },
-            
-            // Add participationCount field
-            {
-                $addFields: {
-                    participationCount: { $size: '$results' }
-                }
-            },
-            
+            { $addFields: { participationCount: { $size: '$results' } } },
+
             // Lookup teacher
             {
                 $lookup: {
@@ -222,7 +256,7 @@ export class StudentService {
                 }
             },
             { $unwind: { path: '$teacher', preserveNullAndEmptyArrays: true } },
-            
+
             // Lookup school
             {
                 $lookup: {
@@ -233,7 +267,7 @@ export class StudentService {
                 }
             },
             { $unwind: { path: '$school', preserveNullAndEmptyArrays: true } },
-            
+
             // Lookup district
             {
                 $lookup: {
@@ -244,60 +278,24 @@ export class StudentService {
                 }
             },
             { $unwind: { path: '$district', preserveNullAndEmptyArrays: true } },
-            
-            // Remove results array (we only need the count)
-            {
-                $project: {
-                    results: 0
-                }
-            }
+
+            // Remove raw results array (we only need the count)
+            { $project: { results: 0 } },
+
+            // Sort, then paginate — all in MongoDB
+            { $sort: { [sort.sortColumn]: sortDir } },
+            { $skip: pagination.skip },
+            { $limit: pagination.size }
         ];
-        
-        // Execute pipeline to get all filtered data
-        const allData = await Student.aggregate(pipeline).collation({ locale: 'az', strength: 2 });
 
-        console.log('👨‍🎓 Found students:', allData.length);
+        const pageData = await Student.aggregate(pipeline).collation({ locale: 'az', strength: 2 });
 
-        // Sort in JavaScript with Azerbaijani locale for proper text sorting
-        allData.sort((a, b) => {
-            let aVal: any = a;
-            let bVal: any = b;
-            
-            // Navigate to nested field if needed
-            const fieldPath = sort.sortColumn.split('.');
-            for (const key of fieldPath) {
-                aVal = aVal?.[key];
-                bVal = bVal?.[key];
-            }
-            
-            // Handle null/undefined values
-            if (aVal == null && bVal == null) return 0;
-            if (aVal == null) return sort.sortDirection === 'asc' ? -1 : 1;
-            if (bVal == null) return sort.sortDirection === 'asc' ? 1 : -1;
-            
-            // Sort based on type
-            if (typeof aVal === 'string' && typeof bVal === 'string') {
-                const comparison = aVal.localeCompare(bVal, 'az', { sensitivity: 'base' });
-                return sort.sortDirection === 'asc' ? comparison : -comparison;
-            } else if (typeof aVal === 'number' && typeof bVal === 'number') {
-                return sort.sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
-            } else {
-                // Fallback for other types
-                return sort.sortDirection === 'asc' ? 
-                    (aVal > bVal ? 1 : -1) : 
-                    (aVal < bVal ? 1 : -1);
-            }
+        // Apply pre-computed places to this page
+        pageData.forEach((student: any) => {
+            student.place = scorePlaceMap.get(student.score || 0) || null;
         });
 
-        // Recalculate places based on score for filtered data
-        this.assignPlaces(allData, 'score');
-
-        // Apply pagination after place calculation
-        const paginatedData = allData.slice(pagination.skip, pagination.skip + pagination.size);
-
-        const totalCount = allData.length;
-
-        return { data: paginatedData as unknown as IStudent[], totalCount };
+        return { data: pageData as unknown as IStudent[], totalCount };
     }
 
     async repairStudentAssignments(): Promise<{ 
