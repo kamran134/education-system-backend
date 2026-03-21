@@ -288,8 +288,9 @@ export const register = async (req: Request, res: Response) => {
             return;
         }
 
-        if (!password || typeof password !== "string" || password.trim().length < 6) {
-            res.status(400).json({ message: "Parol təqdim edilməyib və ya düzgün formatda deyil!" });
+        const pw = password?.toString() ?? '';
+        if (!pw || pw.trim().length < 8 || !/[a-zA-Z]/.test(pw) || !/[0-9]/.test(pw)) {
+            res.status(400).json({ message: "Parol ən azı 8 simvol olmalı, hərf və rəqəm daxil etməlidir!" });
             return;
         }
 

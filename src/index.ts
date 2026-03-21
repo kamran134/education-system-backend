@@ -48,15 +48,11 @@ if (process.env.NODE_ENV !== 'production') {
   app.use(morgan("dev"));
 }
 // app.use(morgan("dev")); // Закомментировано для отключения на проде
-app.use(cors({
-    origin: [
-        'http://localhost:4200', 
-        'http://localhost:5173', 
-        'https://isim.kpm.az',
-        'https://newisim.kpm.az'
-    ],
-    credentials: true
-}));
+const corsOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+    : ['http://localhost:4200', 'http://localhost:5173', 'https://isim.kpm.az', 'https://newisim.kpm.az'];
+
+app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use(cookieParser());
@@ -67,8 +63,17 @@ app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 // Общий лимит для всех запросов (более мягкий)
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 минут
-    max: 1000, // 1000 запросов за 15 минут (~66 запросов в минуту)
+    max: 300, // 300 запросов за 15 минут (~20 запросов в минуту)
     message: { success: false, message: 'Çox sayda sorğu göndərdiniz. Zəhmət olmasa bir az gözləyin.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Строгий лимит для auth endpoints
+const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 минут
+    max: 20, // 20 попыток входа за 15 минут
+    message: { success: false, message: 'Çox sayda giriş cəhdi. Zəhmət olmasa bir az gözləyin.' },
     standardHeaders: true,
     legacyHeaders: false,
 });
@@ -92,7 +97,7 @@ app.use("/api/stats", statRoutes);
 app.use("/api/statistics", statisticsRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/user-settings", userSettingsRoutes);
-app.use("/api/auth", authRoutes); // Auth роуты без дополнительных ограничений
+app.use("/api/auth", authLimiter, authRoutes);
 
 app.use((req, res, next) => {
     res.status(404).json({ message: 'Məlumat tapılmadı' });
