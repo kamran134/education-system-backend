@@ -141,22 +141,14 @@ export const addUser = async (userData: IUserCreate): Promise<IUser> => {
 }
 
 export const editUser = async (id: string, updateData: Partial<IUserCreate>): Promise<IUser | null> => {
-    try {
-        return await userService.update(id, updateData);
-    } catch (error) {
-        return null;
-    }
+    return await userService.update(id, updateData);
 }
 
 export const removeUser = async (id: string): Promise<IUser | null> => {
-    try {
-        const user = await userService.findById(id);
-        if (user) {
-            await userService.delete(id);
-            return user;
-        }
-        return null;
-    } catch (error) {
-        return null;
+    const user = await userService.findById(id);
+    if (user) {
+        await userService.delete(id);
+        return user;
     }
+    return null;
 }
