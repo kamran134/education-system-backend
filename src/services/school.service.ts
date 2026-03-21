@@ -31,26 +31,28 @@ export class SchoolService {
             }
         }] as any);
         
-        // Получаем всех студентов с school и score
-        const students = await Student.find({}, { school: 1, score: 1 }).populate('school', 'studentCount');
-        // Группируем по school
-        const statsMap = new Map<string, { sum: number, studentCount: number }>();
-        for (const student of students) {
-            const schoolId = student.school?._id?.toString();
-            if (!schoolId) continue;
-            const score = typeof student.score === 'number' ? student.score : 0;
-            if (!statsMap.has(schoolId)) {
-                statsMap.set(schoolId, { sum: 0, studentCount: student.school?.studentCount || 0 });
-            }
-            const stat = statsMap.get(schoolId)!;
-            stat.sum += score;
-        }
+        // Группируем студентов по школам в MongoDB (без загрузки всех записей в память)
+        const schoolStats: { _id: Types.ObjectId; sum: number; studentCount: number }[] = await Student.aggregate([
+            { $match: { school: { $exists: true, $ne: null } } },
+            { $group: {
+                _id: '$school',
+                sum: { $sum: { $cond: [{ $isNumber: '$score' }, '$score', 0] } }
+            }},
+            { $lookup: {
+                from: 'schools',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'schoolData'
+            }},
+            { $unwind: '$schoolData' },
+            { $project: { _id: 1, sum: 1, studentCount: { $ifNull: ['$schoolData.studentCount', 0] } } }
+        ]);
         // Обновляем все школы одним bulkWrite вместо N+1 запросов
-        const bulkOps = Array.from(statsMap.entries()).map(([schoolId, { sum, studentCount }]) => {
+        const bulkOps = schoolStats.map(({ _id: schoolId, sum, studentCount }) => {
             const average = studentCount > 0 ? sum / studentCount : 0;
             return {
                 updateOne: {
-                    filter: { _id: new Types.ObjectId(schoolId) },
+                    filter: { _id: schoolId },
                     update: [{
                         $set: {
                             ratings: {

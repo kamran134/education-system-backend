@@ -30,26 +30,28 @@ export class DistrictService {
             }
         }] as any);
         
-        // Получаем всех студентов с district и score
-        const students = await Student.find({}, { district: 1, score: 1 }).populate('district', 'studentCount');
-        // Группируем по district
-        const statsMap = new Map<string, { sum: number, studentCount: number }>();
-        for (const student of students) {
-            const districtId = student.district?._id?.toString();
-            if (!districtId) continue;
-            const score = typeof student.score === 'number' ? student.score : 0;
-            if (!statsMap.has(districtId)) {
-                statsMap.set(districtId, { sum: 0, studentCount: student.district?.studentCount || 0 });
-            }
-            const stat = statsMap.get(districtId)!;
-            stat.sum += score;
-        }
+        // Группируем студентов по районам в MongoDB (без загрузки всех записей в память)
+        const districtStats: { _id: Types.ObjectId; sum: number; studentCount: number }[] = await Student.aggregate([
+            { $match: { district: { $exists: true, $ne: null } } },
+            { $group: {
+                _id: '$district',
+                sum: { $sum: { $cond: [{ $isNumber: '$score' }, '$score', 0] } }
+            }},
+            { $lookup: {
+                from: 'districts',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'districtData'
+            }},
+            { $unwind: '$districtData' },
+            { $project: { _id: 1, sum: 1, studentCount: { $ifNull: ['$districtData.studentCount', 0] } } }
+        ]);
         // Обновляем все районы одним bulkWrite вместо N+1 запросов
-        const bulkOps = Array.from(statsMap.entries()).map(([districtId, { sum, studentCount }]) => {
+        const bulkOps = districtStats.map(({ _id: districtId, sum, studentCount }) => {
             const average = studentCount > 0 ? sum / studentCount : 0;
             return {
                 updateOne: {
-                    filter: { _id: new Types.ObjectId(districtId) },
+                    filter: { _id: districtId },
                     update: [{
                         $set: {
                             ratings: {

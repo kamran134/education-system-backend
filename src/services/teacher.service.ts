@@ -31,27 +31,28 @@ export class TeacherService {
             }
         }] as any);
         
-        // Получаем всех студентов с teacher и score
-        const students = await Student.find({}, { teacher: 1, score: 1 }).populate('teacher', 'studentCount');
-        
-        // Группируем по teacher
-        const statsMap = new Map<string, { sum: number, studentCount: number }>();
-        for (const student of students) {
-            const teacherId = student.teacher?._id?.toString();
-            if (!teacherId) continue;
-            const score = typeof student.score === 'number' ? student.score : 0;
-            if (!statsMap.has(teacherId)) {
-                statsMap.set(teacherId, { sum: 0, studentCount: student.teacher?.studentCount || 0 });
-            }
-            const stat = statsMap.get(teacherId)!;
-            stat.sum += score;
-        }
+        // Группируем студентов по учителям в MongoDB (без загрузки всех записей в память)
+        const teacherStats: { _id: Types.ObjectId; sum: number; studentCount: number }[] = await Student.aggregate([
+            { $match: { teacher: { $exists: true, $ne: null } } },
+            { $group: {
+                _id: '$teacher',
+                sum: { $sum: { $cond: [{ $isNumber: '$score' }, '$score', 0] } }
+            }},
+            { $lookup: {
+                from: 'teachers',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'teacherData'
+            }},
+            { $unwind: '$teacherData' },
+            { $project: { _id: 1, sum: 1, studentCount: { $ifNull: ['$teacherData.studentCount', 0] } } }
+        ]);
         // Обновляем всех учителей одним bulkWrite вместо N+1 запросов
-        const bulkOps = Array.from(statsMap.entries()).map(([teacherId, { sum, studentCount }]) => {
+        const bulkOps = teacherStats.map(({ _id: teacherId, sum, studentCount }) => {
             const average = sum > 0 ? sum / studentCount : 0;
             return {
                 updateOne: {
-                    filter: { _id: new Types.ObjectId(teacherId) },
+                    filter: { _id: teacherId },
                     update: [{
                         $set: {
                             ratings: {
