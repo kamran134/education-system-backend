@@ -171,7 +171,7 @@ export class BookletService {
 
             return { processedCount: 1, errors };
         } finally {
-            deleteFile(filePath);
+            await deleteFile(filePath).catch(() => {});
         }
     }
 

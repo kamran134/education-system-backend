@@ -10,6 +10,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { escapeRegex } from "../utils/validation.util";
 
 export class TeacherService {
     /**
@@ -404,7 +405,7 @@ export class TeacherService {
             }
 
             // Clean up
-            deleteFile(filePath);
+            await deleteFile(filePath).catch(() => {});
 
             return {
                 processedData,
@@ -418,7 +419,7 @@ export class TeacherService {
                 }
             };
         } catch (error) {
-            deleteFile(filePath);
+            await deleteFile(filePath).catch(() => {});
             throw error;
         }
     }
@@ -446,7 +447,7 @@ export class TeacherService {
 
         if (filters.search) {
             // Search by teacher fullname (case-insensitive)
-            filter.fullname = { $regex: filters.search, $options: 'i' };
+            filter.fullname = { $regex: escapeRegex(filters.search), $options: 'i' };
         }
 
         if (filters.active !== undefined) {

@@ -69,3 +69,8 @@ export class ValidationUtils {
         };
     }
 }
+
+/** Экранирует спецсимволы RegExp из пользовательского ввода (защита от ReDoS). */
+export function escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

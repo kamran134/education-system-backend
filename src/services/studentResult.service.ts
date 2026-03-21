@@ -709,7 +709,7 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
         }
 
         // Remove the uploaded file
-        deleteFile(filePath);
+        await deleteFile(filePath).catch(() => {});
 
         const bulkOps = resultsToInsert.map(result => ({
             updateOne: {
@@ -734,7 +734,7 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
             }
         };
     } catch (error) {
-        deleteFile(filePath);
+        await deleteFile(filePath).catch(() => {});
         throw error;
     }
 }
@@ -777,7 +777,7 @@ export async function importLegacyResultsFromJson(filePath: string): Promise<{
         const content = fs.readFileSync(filePath, 'utf-8');
         records = JSON.parse(content);
     } finally {
-        deleteFile(filePath);
+        await deleteFile(filePath).catch(() => {});
     }
 
     // Build fullName -> student map

@@ -5,6 +5,7 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult, Fil
 import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
+import { escapeRegex } from "../utils/validation.util";
 
 export class ExamService {
     async findById(id: string): Promise<IExam | null> {
@@ -139,7 +140,7 @@ export class ExamService {
             processedData.push(...createdExams.map(e => e.toObject() as IExam));
 
             // Clean up
-            deleteFile(filePath);
+            await deleteFile(filePath).catch(() => {});
 
             return {
                 processedData,
@@ -147,7 +148,7 @@ export class ExamService {
                 skippedItems: existingExamCodes.map(code => ({ code, reason: 'Already exists' }))
             };
         } catch (error) {
-            deleteFile(filePath);
+            await deleteFile(filePath).catch(() => {});
             throw error;
         }
     }
@@ -176,12 +177,7 @@ export class ExamService {
                 filter.code = { $gte: parseInt(start), $lte: parseInt(end) };
             } else {
                 // Иначе ищем по названию
-                try {
-                    const searchRegex = new RegExp(searchTerm, 'i');
-                    filter.name = searchRegex;
-                } catch (regexError) {
-                    console.error('Error building regex:', regexError);
-                }
+                filter.name = new RegExp(escapeRegex(searchTerm), 'i');
             }
         }
 

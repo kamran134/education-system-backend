@@ -9,6 +9,7 @@ import { Request } from "express";
 import { deleteStudentResultsByStudentId } from "./studentResult.service";
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
+import { escapeRegex } from "../utils/validation.util";
 
 export class StudentService {
     // Функция для расчета мест с учетом одинаковых баллов
@@ -110,9 +111,9 @@ export class StudentService {
             // Single word search
             matchCondition = {
                 $or: [
-                    { firstName: { $regex: searchTerms[0], $options: 'i' } },
-                    { lastName: { $regex: searchTerms[0], $options: 'i' } },
-                    { middleName: { $regex: searchTerms[0], $options: 'i' } },
+                    { firstName: { $regex: escapeRegex(searchTerms[0]), $options: 'i' } },
+                    { lastName: { $regex: escapeRegex(searchTerms[0]), $options: 'i' } },
+                    { middleName: { $regex: escapeRegex(searchTerms[0]), $options: 'i' } },
                     { code: parseInt(searchTerms[0]) || 0 }
                 ]
             };
@@ -120,9 +121,9 @@ export class StudentService {
             // Multiple words - each word must be found in firstName, lastName, or middleName
             const nameConditions = searchTerms.map(term => ({
                 $or: [
-                    { firstName: { $regex: term, $options: 'i' } },
-                    { lastName: { $regex: term, $options: 'i' } },
-                    { middleName: { $regex: term, $options: 'i' } }
+                    { firstName: { $regex: escapeRegex(term), $options: 'i' } },
+                    { lastName: { $regex: escapeRegex(term), $options: 'i' } },
+                    { middleName: { $regex: escapeRegex(term), $options: 'i' } }
                 ]
             }));
             
@@ -478,17 +479,17 @@ export class StudentService {
                 if (searchTerms.length === 1) {
                     // Single word search
                     filter.$or = [
-                        { firstName: { $regex: searchTerms[0], $options: 'i' } },
-                        { lastName: { $regex: searchTerms[0], $options: 'i' } },
-                        { middleName: { $regex: searchTerms[0], $options: 'i' } }
+                        { firstName: { $regex: escapeRegex(searchTerms[0]), $options: 'i' } },
+                        { lastName: { $regex: escapeRegex(searchTerms[0]), $options: 'i' } },
+                        { middleName: { $regex: escapeRegex(searchTerms[0]), $options: 'i' } }
                     ];
                 } else {
                     // Multiple words - each word must be found in firstName, lastName, or middleName
                     const nameConditions = searchTerms.map(term => ({
                         $or: [
-                            { firstName: { $regex: term, $options: 'i' } },
-                            { lastName: { $regex: term, $options: 'i' } },
-                            { middleName: { $regex: term, $options: 'i' } }
+                            { firstName: { $regex: escapeRegex(term), $options: 'i' } },
+                            { lastName: { $regex: escapeRegex(term), $options: 'i' } },
+                            { middleName: { $regex: escapeRegex(term), $options: 'i' } }
                         ]
                     }));
                     

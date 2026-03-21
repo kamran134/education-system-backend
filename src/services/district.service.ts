@@ -9,6 +9,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { escapeRegex } from "../utils/validation.util";
 
 export class DistrictService {
     /**
@@ -346,7 +347,7 @@ export class DistrictService {
             }
 
             // Clean up
-            deleteFile(filePath);
+            await deleteFile(filePath).catch(() => {});
 
             return {
                 processedData,
@@ -354,7 +355,7 @@ export class DistrictService {
                 skippedItems: existingDistrictCodes.map(code => ({ code, reason: 'Already exists' }))
             };
         } catch (error) {
-            deleteFile(filePath);
+            await deleteFile(filePath).catch(() => {});
             throw error;
         }
     }
@@ -411,7 +412,7 @@ export class DistrictService {
 
         if (filters.search) {
             // Search by district name (case-insensitive)
-            filter.name = { $regex: filters.search, $options: 'i' };
+            filter.name = { $regex: escapeRegex(filters.search), $options: 'i' };
         }
 
         if (filters.active !== undefined) {
