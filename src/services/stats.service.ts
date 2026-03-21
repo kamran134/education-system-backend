@@ -12,6 +12,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { Types } from "mongoose";
 import { getCurrentAcademicYear } from '../utils/academic-year.util';
 import { assignPlaces } from '../utils/ranking.util';
+import { MemoryCache } from '../utils/memory-cache.util';
 
 export interface StatisticsFilter extends FilterOptions {
     month?: string;
@@ -20,6 +21,12 @@ export interface StatisticsFilter extends FilterOptions {
 }
 
 export class StatsService {
+    private cache = new MemoryCache(5 * 60 * 1000); // 5 min TTL
+
+    // Инвалидирует кэш после обновления статистики
+    invalidateCache(): void {
+        this.cache.clear();
+    }
     // Функция для проверки, является ли уровень лицейным
     private isLiceyLevel(level: string): boolean {
         const normalizedLevel = level.trim().toUpperCase();
@@ -126,6 +133,7 @@ export class StatsService {
             await districtService.countDistrictsRates();
 
             console.log("✅ Статистика обновлена успешно.");
+            this.cache.clear();
             return 200;
         } catch (error) {
             console.error("Ошибка при обновлении статистики:", error);
@@ -336,6 +344,7 @@ export class StatsService {
             await this.updateDistrictRankings();
 
             console.log("\n✅ Полное обновление статистики за учебный год завершено!");
+            this.cache.clear();
             return 200;
 
         } catch (error) {
@@ -895,6 +904,10 @@ export class StatsService {
         sortColumn: string,
         sortDirection: string
     ): Promise<{ data: ITeacher[], totalCount: number }> {
+        const cacheKey = `teacher::${JSON.stringify(filters)}::${sortColumn}::${sortDirection}`;
+        const cached = this.cache.get<{ data: ITeacher[], totalCount: number }>(cacheKey);
+        if (cached) return cached;
+
         const filter: any = { active: true };
 
         if (filters.districtIds && filters.districtIds.length > 0) {
@@ -940,7 +953,9 @@ export class StatsService {
 
         const totalCount = await Teacher.countDocuments(filter);
 
-        return { data: paginatedData as unknown as ITeacher[], totalCount };
+        const result = { data: paginatedData as unknown as ITeacher[], totalCount };
+        this.cache.set(cacheKey, result);
+        return result;
     }
 
     async getSchoolStatistics(
@@ -948,6 +963,10 @@ export class StatsService {
         sortColumn: string,
         sortDirection: string
     ): Promise<{ data: ISchool[], totalCount: number }> {
+        const cacheKey = `school::${JSON.stringify(filters)}::${sortColumn}::${sortDirection}`;
+        const cached = this.cache.get<{ data: ISchool[], totalCount: number }>(cacheKey);
+        if (cached) return cached;
+
         const filter: any = { active: true };
 
         if (filters.districtIds && filters.districtIds.length > 0) {
@@ -987,7 +1006,9 @@ export class StatsService {
 
         const totalCount = await School.countDocuments(filter);
 
-        return { data: paginatedData as unknown as ISchool[], totalCount };
+        const result = { data: paginatedData as unknown as ISchool[], totalCount };
+        this.cache.set(cacheKey, result);
+        return result;
     }
 
     async getDistrictStatistics(
@@ -995,6 +1016,10 @@ export class StatsService {
         sortColumn: string,
         sortDirection: string
     ): Promise<{ data: IDistrict[], totalCount: number }> {
+        const cacheKey = `district::${JSON.stringify(filters)}::${sortColumn}::${sortDirection}`;
+        const cached = this.cache.get<{ data: IDistrict[], totalCount: number }>(cacheKey);
+        if (cached) return cached;
+
         const filter: any = {};
 
         if (filters.code) {
@@ -1034,7 +1059,9 @@ export class StatsService {
 
         const totalCount = await District.countDocuments(filter);
 
-        return { data: paginatedData as unknown as IDistrict[], totalCount };
+        const result = { data: paginatedData as unknown as IDistrict[], totalCount };
+        this.cache.set(cacheKey, result);
+        return result;
     }
 
     private buildStudentStatsPipeline(filters: StatisticsFilter, examIds: Types.ObjectId[]): any[] {
