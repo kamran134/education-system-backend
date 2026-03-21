@@ -10,68 +10,14 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
 import { escapeRegex } from "../utils/validation.util";
+import { updateEntityStats } from "../utils/stats.utils";
 
 export class DistrictService {
     /**
      * Обновляет статистику по районам: studentCount, score, averageScore
      */
     async updateDistrictsStats(): Promise<void> {
-        const currentYear = getCurrentAcademicYear();
-        // Сначала обнуляем статистику всех районов
-        console.log("🧹 Обнуляем статистику районов...");
-        await District.updateMany({}, [{
-            $set: {
-                ratings: {
-                    $concatArrays: [
-                        { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                        [{ year: currentYear, score: 0, averageScore: 0, place: null }]
-                    ]
-                }
-            }
-        }] as any);
-        
-        // Группируем студентов по районам в MongoDB (без загрузки всех записей в память)
-        const districtStats: { _id: Types.ObjectId; sum: number; studentCount: number }[] = await Student.aggregate([
-            { $match: { district: { $exists: true, $ne: null } } },
-            { $group: {
-                _id: '$district',
-                sum: { $sum: { $cond: [{ $isNumber: '$score' }, '$score', 0] } }
-            }},
-            { $lookup: {
-                from: 'districts',
-                localField: '_id',
-                foreignField: '_id',
-                as: 'districtData'
-            }},
-            { $unwind: '$districtData' },
-            { $project: { _id: 1, sum: 1, studentCount: { $ifNull: ['$districtData.studentCount', 0] } } }
-        ]);
-        // Обновляем все районы одним bulkWrite вместо N+1 запросов
-        const bulkOps = districtStats.map(({ _id: districtId, sum, studentCount }) => {
-            const average = studentCount > 0 ? sum / studentCount : 0;
-            return {
-                updateOne: {
-                    filter: { _id: districtId },
-                    update: [{
-                        $set: {
-                            ratings: {
-                                $concatArrays: [
-                                    { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                                    [{ year: currentYear, score: sum, averageScore: average, place: null }]
-                                ]
-                            }
-                        }
-                    }] as any
-                }
-            };
-        });
-        if (bulkOps.length > 0) {
-            await District.bulkWrite(bulkOps);
-        }
-
-        // Обновляем место в рейтинге (place) для всех районов
-        console.log("🏆 Обновляем рейтинг районов (place)...");
-        await this.updateDistrictPlaces();
+        await updateEntityStats(District, 'district', 'districts', 'районов', () => this.updateDistrictPlaces());
     }
 
     /**

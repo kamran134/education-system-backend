@@ -11,68 +11,14 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
 import { escapeRegex } from "../utils/validation.util";
+import { updateEntityStats } from "../utils/stats.utils";
 
 export class TeacherService {
     /**
      * Обновляет статистику по учителям: studentCount, score, averageScore
      */
     async updateTeachersStats(): Promise<void> {
-        const currentYear = getCurrentAcademicYear();
-        // Сначала обнуляем статистику всех учителей
-        console.log("🧹 Обнуляем статистику учителей...");
-        await Teacher.updateMany({}, [{
-            $set: {
-                ratings: {
-                    $concatArrays: [
-                        { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                        [{ year: currentYear, score: 0, averageScore: 0, place: null }]
-                    ]
-                }
-            }
-        }] as any);
-        
-        // Группируем студентов по учителям в MongoDB (без загрузки всех записей в память)
-        const teacherStats: { _id: Types.ObjectId; sum: number; studentCount: number }[] = await Student.aggregate([
-            { $match: { teacher: { $exists: true, $ne: null } } },
-            { $group: {
-                _id: '$teacher',
-                sum: { $sum: { $cond: [{ $isNumber: '$score' }, '$score', 0] } }
-            }},
-            { $lookup: {
-                from: 'teachers',
-                localField: '_id',
-                foreignField: '_id',
-                as: 'teacherData'
-            }},
-            { $unwind: '$teacherData' },
-            { $project: { _id: 1, sum: 1, studentCount: { $ifNull: ['$teacherData.studentCount', 0] } } }
-        ]);
-        // Обновляем всех учителей одним bulkWrite вместо N+1 запросов
-        const bulkOps = teacherStats.map(({ _id: teacherId, sum, studentCount }) => {
-            const average = sum > 0 ? sum / studentCount : 0;
-            return {
-                updateOne: {
-                    filter: { _id: teacherId },
-                    update: [{
-                        $set: {
-                            ratings: {
-                                $concatArrays: [
-                                    { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                                    [{ year: currentYear, score: sum, averageScore: average, place: null }]
-                                ]
-                            }
-                        }
-                    }] as any
-                }
-            };
-        });
-        if (bulkOps.length > 0) {
-            await Teacher.bulkWrite(bulkOps);
-        }
-
-        // Обновляем место в рейтинге (place) для всех учителей
-        console.log("🏆 Обновляем рейтинг учителей (place)...");
-        await this.updateTeacherPlaces();
+        await updateEntityStats(Teacher, 'teacher', 'teachers', 'учителей', () => this.updateTeacherPlaces());
     }
 
     /**
