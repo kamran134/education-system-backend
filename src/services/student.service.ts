@@ -7,56 +7,12 @@ import Student from "../models/student.model";
 import StudentResult from "../models/studentResult.model";
 
 import { deleteStudentResultsByStudentId } from "./studentResult.service";
+import { buildScorePlaceMap } from "../utils/ranking.util";
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
 
 export class StudentService {
-    // Функция для расчета мест с учетом одинаковых баллов
-    private assignPlaces<T extends { averageScore?: number; score?: number; place?: number | null }>(
-        items: T[],
-        scoreField: 'averageScore' | 'score' = 'averageScore'
-    ): T[] {
-        if (items.length === 0) return items;
-
-        // Create a sorted copy by score to determine places WITHOUT modifying original array order
-        const sortedByScore = [...items].sort((a, b) => {
-            const scoreA = a[scoreField] || 0;
-            const scoreB = b[scoreField] || 0;
-            return scoreB - scoreA; // Descending order (higher score = better place)
-        });
-
-        // Build a map of scores to places
-        const scorePlaceMap = new Map<number, number>();
-        let currentPlace = 1;
-        let previousScore: number | null = null;
-
-        sortedByScore.forEach((item, index) => {
-            const currentScore = item[scoreField] || 0;
-
-            if (index === 0) {
-                // First element always gets place 1
-                scorePlaceMap.set(currentScore, 1);
-                previousScore = currentScore;
-            } else if (currentScore < previousScore!) {
-                // Score is lower - increment place first, then assign
-                currentPlace++;
-                scorePlaceMap.set(currentScore, currentPlace);
-                previousScore = currentScore;
-            } else {
-                // Same score - same place (don't increment)
-                scorePlaceMap.set(currentScore, currentPlace);
-            }
-        });
-
-        // Assign places to original items WITHOUT changing their order
-        items.forEach(item => {
-            const score = item[scoreField] || 0;
-            item.place = scorePlaceMap.get(score) || null;
-        });
-
-        return items;
-    }
 
     async findById(id: string): Promise<IStudent | null> {
         return await Student.findById(id).populate('district school teacher');
@@ -206,27 +162,8 @@ export class StudentService {
             return { data: [], totalCount: 0 };
         }
 
-        // Build score→place map from all filtered scores (same algorithm as assignPlaces)
-        const scorePlaceMap = new Map<number, number>();
-        {
-            const sortedByScore = [...allScores].sort((a, b) => (b.score || 0) - (a.score || 0));
-            let currentPlace = 1;
-            let previousScore: number | null = null;
-
-            sortedByScore.forEach((item, index) => {
-                const currentScore = item.score || 0;
-                if (index === 0) {
-                    scorePlaceMap.set(currentScore, 1);
-                    previousScore = currentScore;
-                } else if (currentScore < previousScore!) {
-                    currentPlace++;
-                    scorePlaceMap.set(currentScore, currentPlace);
-                    previousScore = currentScore;
-                } else {
-                    scorePlaceMap.set(currentScore, currentPlace);
-                }
-            });
-        }
+        // Build score→place map from all filtered scores (dense ranking)
+        const scorePlaceMap = buildScorePlaceMap(allScores);
 
         // Step 2: Full pipeline with all $lookups, but sort + paginate in MongoDB.
         // Only loads one page of data — no more loading all N thousand records.

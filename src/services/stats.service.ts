@@ -11,6 +11,7 @@ import { FilterOptions } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { Types } from "mongoose";
 import { getCurrentAcademicYear } from '../utils/academic-year.util';
+import { assignPlaces } from '../utils/ranking.util';
 
 export interface StatisticsFilter extends FilterOptions {
     month?: string;
@@ -19,44 +20,6 @@ export interface StatisticsFilter extends FilterOptions {
 }
 
 export class StatsService {
-    // Функция для расчета мест с учетом одинаковых баллов
-    private assignPlaces<T extends { averageScore?: number; score?: number; place?: number | null }>(
-        items: T[],
-        scoreField: 'averageScore' | 'score' = 'averageScore'
-    ): T[] {
-        if (items.length === 0) return items;
-
-        // Сортируем по убыванию (высокий балл = лучшее место)
-        items.sort((a, b) => {
-            const scoreA = a[scoreField] || 0;
-            const scoreB = b[scoreField] || 0;
-            return scoreB - scoreA;
-        });
-
-        let currentPlace = 1;
-        let previousScore: number | null = null;
-
-        items.forEach((item, index) => {
-            const currentScore = item[scoreField] || 0;
-
-            if (index === 0) {
-                // Первый элемент всегда место 1
-                item.place = 1;
-                previousScore = currentScore;
-            } else if (currentScore < previousScore!) {
-                // Балл меньше предыдущего - новое место
-                currentPlace++;
-                item.place = currentPlace;
-                previousScore = currentScore;
-            } else {
-                // Балл такой же - то же место
-                item.place = currentPlace;
-            }
-        });
-
-        return items;
-    }
-
     // Функция для проверки, является ли уровень лицейным
     private isLiceyLevel(level: string): boolean {
         const normalizedLevel = level.trim().toUpperCase();
@@ -963,7 +926,7 @@ export class StatsService {
         this.flattenCurrentYearRating(allData, currentYear);
 
         // Расчитываем места по тому же полю, по которому сортируем
-        this.assignPlaces(allData, sortColumn as 'averageScore' | 'score');
+        assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
         // Применяем пагинацию
         const paginatedData = allData.slice(skip, skip + size);
@@ -1010,7 +973,7 @@ export class StatsService {
         this.flattenCurrentYearRating(allData, currentYear);
 
         // Расчитываем места по тому же полю, по которому сортируем
-        this.assignPlaces(allData, sortColumn as 'averageScore' | 'score');
+        assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
         // Применяем пагинацию
         const paginatedData = allData.slice(skip, skip + size);
@@ -1057,7 +1020,7 @@ export class StatsService {
         this.flattenCurrentYearRating(allData, currentYear);
 
         // Расчитываем места по тому же полю, по которому сортируем
-        this.assignPlaces(allData, sortColumn as 'averageScore' | 'score');
+        assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
         // Применяем пагинацию
         const paginatedData = allData.slice(skip, skip + size);

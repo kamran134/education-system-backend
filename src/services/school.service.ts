@@ -9,86 +9,18 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult, Fil
 import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
 import { escapeRegex } from "../utils/validation.util";
 import { updateEntityStats } from "../utils/stats.utils";
+import { updateEntityPlaces } from "../utils/ranking.util";
 
 export class SchoolService {
     /**
      * Обновляет статистику по школам: studentCount, score, averageScore
      */
     async updateSchoolsStats(): Promise<void> {
-        await updateEntityStats(School, 'school', 'schools', 'школ', () => this.updateSchoolPlaces());
+        await updateEntityStats(School, 'school', 'schools', 'школ', () => updateEntityPlaces(School, 'школ', { active: true }));
     }
 
-    /**
-     * Обновляет место в рейтинге (place) для всех школ на основе их averageScore
-     */
-    private async updateSchoolPlaces(): Promise<void> {
-        try {
-            const currentYear = getCurrentAcademicYear();
-            const schools = await School.find({ active: true }).select('_id ratings code').lean();
-
-            const schoolsWithAvg = schools.map((s: any) => ({
-                _id: s._id,
-                averageScore: ((s.ratings || []).find((r: any) => r.year === currentYear) as any)?.averageScore ?? 0,
-                code: s.code
-            })).filter(s => s.averageScore > 0);
-
-            if (schoolsWithAvg.length === 0) {
-                console.log("Нет школ с averageScore > 0 для установки места в рейтинге.");
-                return;
-            }
-
-            schoolsWithAvg.sort((a, b) => {
-                if (b.averageScore !== a.averageScore) return b.averageScore - a.averageScore;
-                return (a.code ?? 0) - (b.code ?? 0);
-            });
-
-            const bulkOperations: any[] = [];
-            let currentPlace = 1;
-            let previousScore: number | null = null;
-
-            for (let i = 0; i < schoolsWithAvg.length; i++) {
-                const school = schoolsWithAvg[i];
-                if (i > 0 && previousScore !== null && school.averageScore < previousScore) {
-                    currentPlace = i + 1;
-                }
-                bulkOperations.push({
-                    updateOne: {
-                        filter: { _id: school._id },
-                        update: [{
-                            $set: {
-                                ratings: {
-                                    $map: {
-                                        input: { $ifNull: ["$ratings", []] },
-                                        as: "r",
-                                        in: {
-                                            $cond: {
-                                                if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
-                                                else: "$$r"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }]
-                    }
-                });
-                previousScore = school.averageScore;
-            }
-
-            if (bulkOperations.length > 0) {
-                await School.bulkWrite(bulkOperations);
-                console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} школ`);
-            }
-
-        } catch (error) {
-            console.error("❌ Ошибка при обновлении места в рейтинге школ:", error);
-            throw error;
-        }
-    }
     async findById(id: string): Promise<ISchool | null> {
         return await School.findById(id).populate('district');
     }

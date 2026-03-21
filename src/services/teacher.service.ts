@@ -9,91 +9,18 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult, Fil
 import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
 import { escapeRegex } from "../utils/validation.util";
 import { updateEntityStats } from "../utils/stats.utils";
+import { updateEntityPlaces } from "../utils/ranking.util";
 
 export class TeacherService {
     /**
      * Обновляет статистику по учителям: studentCount, score, averageScore
      */
     async updateTeachersStats(): Promise<void> {
-        await updateEntityStats(Teacher, 'teacher', 'teachers', 'учителей', () => this.updateTeacherPlaces());
+        await updateEntityStats(Teacher, 'teacher', 'teachers', 'учителей', () => updateEntityPlaces(Teacher, 'учителей', { active: true }));
     }
 
-    /**
-     * Обновляет место в рейтинге (place) для всех учителей на основе их averageScore
-     */
-    private async updateTeacherPlaces(): Promise<void> {
-        try {
-            const currentYear = getCurrentAcademicYear();
-            const teachers = await Teacher.find({ active: true }).select('_id ratings code').lean();
-
-            const teachersWithAvg = teachers.map((t: any) => ({
-                _id: t._id,
-                averageScore: ((t.ratings || []).find((r: any) => r.year === currentYear) as any)?.averageScore ?? 0,
-                code: t.code
-            })).filter(t => t.averageScore > 0);
-
-            if (teachersWithAvg.length === 0) {
-                console.log("Нет учителей с averageScore > 0 для установки места в рейтинге.");
-                return;
-            }
-
-            teachersWithAvg.sort((a, b) => {
-                if (b.averageScore !== a.averageScore) return b.averageScore - a.averageScore;
-                return (a.code ?? 0) - (b.code ?? 0);
-            });
-
-            const bulkOperations: any[] = [];
-            let currentPlace = 1;
-            let previousScore: number | null = null;
-
-            for (let i = 0; i < teachersWithAvg.length; i++) {
-                const teacher = teachersWithAvg[i];
-                if (i > 0 && previousScore !== null && teacher.averageScore < previousScore) {
-                    currentPlace = i + 1;
-                }
-                bulkOperations.push({
-                    updateOne: {
-                        filter: { _id: teacher._id },
-                        update: [{
-                            $set: {
-                                ratings: {
-                                    $map: {
-                                        input: { $ifNull: ["$ratings", []] },
-                                        as: "r",
-                                        in: {
-                                            $cond: {
-                                                if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
-                                                else: "$$r"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }]
-                    }
-                });
-                previousScore = teacher.averageScore;
-            }
-
-            if (bulkOperations.length > 0) {
-                await Teacher.bulkWrite(bulkOperations);
-                console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} учителей`);
-                const top = teachersWithAvg[0];
-                const last = teachersWithAvg[teachersWithAvg.length - 1];
-                console.log(`🥇 Лидер рейтинга учителей: ${top.averageScore} баллов (место 1)`);
-                console.log(`📊 Всего в рейтинге: ${teachersWithAvg.length} учителей`);
-                console.log(`🔢 Диапазон баллов: ${last.averageScore} - ${top.averageScore}`);
-            }
-
-        } catch (error) {
-            console.error("❌ Ошибка при обновлении места в рейтинге учителей:", error);
-            throw error;
-        }
-    }
     async findById(id: string): Promise<ITeacher | null> {
         return await Teacher.findById(id).populate('district school');
     }
