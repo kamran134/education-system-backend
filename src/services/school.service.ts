@@ -4,7 +4,7 @@ import District from "../models/district.model";
 import Teacher from "../models/teacher.model";
 import Student from "../models/student.model";
 import StudentResult from "../models/studentResult.model";
-import { Request } from "express";
+
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult, FileProcessingResult } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
@@ -395,36 +395,4 @@ export class SchoolService {
     }
 }
 
-// Legacy functions for backward compatibility
-const schoolService = new SchoolService();
-
-export const getFiltredSchools = async (req: Request): Promise<{ data: ISchool[], totalCount: number }> => {
-    const pagination = RequestParser.parsePagination(req);
-    const filters = RequestParser.parseFilterOptions(req);
-    const sort = RequestParser.parseSorting(req, 'averageScore', 'desc');
-
-    return await schoolService.getFilteredSchools(pagination, filters, sort);
-}
-
-export const checkExistingSchools = async (codes: number[]): Promise<ISchool[]> => {
-    try {
-        const result = await School.find({ code: { $in: codes } });
-        return result;
-    } catch (error) {
-        console.error(error);
-        throw new Error("Не удалось осуществить поиск школ!");
-    }
-}
-
-export const checkExistingSchoolCodes = async (codes: number[]): Promise<number[]> => {
-    return await schoolService.checkExistingSchoolCodes(codes);
-}
-
-export const deleteSchoolById = async (id: string): Promise<void> => {
-    return await schoolService.delete(id);
-}
-
-export const deleteSchoolsByIds = async (ids: string[]): Promise<BulkOperationResult> => {
-    const objectIds = ids.map(id => new Types.ObjectId(id));
-    return await schoolService.deleteBulk(objectIds);
-}
+export const schoolService = new SchoolService();

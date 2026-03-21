@@ -1,10 +1,16 @@
 import { Request, Response } from 'express';
-import { addUser, editUser, getFilteredUsers, getUserByEmail, getUserById, removeUser } from '../services/user.service';
+import { UserService } from '../services/user.service';
+import { RequestParser } from '../utils/request-parser.util';
 import bcrypt from "bcrypt";
+
+const userService = new UserService();
 
 export const getUsers = async (req: Request, res: Response) => {
     try {
-        const { data, totalCount } = await getFilteredUsers(req);
+        const pagination = RequestParser.parsePagination(req);
+        const filters = RequestParser.parseFilterOptions(req);
+        const sort = RequestParser.parseSorting(req, 'email', 'asc');
+        const { data, totalCount } = await userService.getFilteredUsers(pagination, filters, sort);
         res.status(200).json({ data, totalCount, message: "Users retrieved successfully" });
     }
     catch (error) {
@@ -29,7 +35,7 @@ export const createUser = async (req: Request, res: Response) => {
         }
 
         // Check if the user already exists
-        const existingUser = await getUserByEmail(newUser.email);
+        const existingUser = await userService.findByEmail(newUser.email);
 
         if (existingUser) {
             res.status(400).json({ message: "İstifadəçi artıq mövcuddur" });
@@ -60,7 +66,7 @@ export const createUser = async (req: Request, res: Response) => {
         newUser.passwordHash = await bcrypt.hash(newUser.password, 10); // Hash the password
 
         // Create the user
-        await addUser(newUser);
+        await userService.create(newUser);
         
         res.status(201).json({ message: "İstifadəçi uğurla yaradıldı" });
     } catch (error) {
@@ -86,7 +92,7 @@ export const updateUser = async (req: Request, res: Response) => {
         }
 
         // Check if the user exists
-        const existingUser = await getUserById(id);
+        const existingUser = await userService.findById(id);
 
         if (!existingUser) {
             res.status(404).json({ message: "İstifadəçi tapılmadı" });
@@ -124,7 +130,7 @@ export const updateUser = async (req: Request, res: Response) => {
             return;
         }
 
-        await editUser(id, updateData);
+        await userService.update(id, updateData);
         
         res.status(200).json({ message: "İstifadəçi məlumatları yeniləndi!" });
     } catch (error) {
@@ -143,7 +149,7 @@ export const deleteUser = async (req: Request, res: Response) => {
         }
 
         // Check if the user exists
-        const existingUser = await getUserById(id);
+        const existingUser = await userService.findById(id);
 
         if (!existingUser) {
             res.status(404).json({ message: "İstifadəçi tapılmadı" });
@@ -156,7 +162,7 @@ export const deleteUser = async (req: Request, res: Response) => {
         }
 
         // Delete the user
-        await removeUser(id);
+        await userService.delete(id);
         
         res.status(200).json({ message: "İstifadəçi uğurla silindi" });
     } catch (error) {

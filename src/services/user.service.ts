@@ -1,8 +1,8 @@
 import { DeleteResult, Types } from "mongoose";
 import User, { IUser, IUserCreate, UserRole } from "../models/user.model";
-import { Request } from "express";
+
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } from "../types/common.types";
-import { RequestParser } from "../utils/request-parser.util";
+
 
 export class UserService {
     async findById(id: string): Promise<IUser | null> {
@@ -117,38 +117,4 @@ export class UserService {
     }
 }
 
-// Legacy functions for backward compatibility
-const userService = new UserService();
-
-export const getFilteredUsers = async (req: Request): Promise<{ data: IUser[], totalCount: number }> => {
-    const pagination = RequestParser.parsePagination(req);
-    const filters = RequestParser.parseFilterOptions(req);
-    const sort = RequestParser.parseSorting(req, 'email', 'asc');
-
-    return await userService.getFilteredUsers(pagination, filters, sort);
-}
-
-export const getUserById = async (id: string): Promise<IUser | null> => {
-    return await userService.findById(id);
-}
-
-export const getUserByEmail = async (email: string): Promise<IUser | null> => {
-    return await userService.findByEmail(email);
-}
-
-export const addUser = async (userData: IUserCreate): Promise<IUser> => {
-    return await userService.create(userData);
-}
-
-export const editUser = async (id: string, updateData: Partial<IUserCreate>): Promise<IUser | null> => {
-    return await userService.update(id, updateData);
-}
-
-export const removeUser = async (id: string): Promise<IUser | null> => {
-    const user = await userService.findById(id);
-    if (user) {
-        await userService.delete(id);
-        return user;
-    }
-    return null;
-}
+export const userService = new UserService();

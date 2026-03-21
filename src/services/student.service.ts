@@ -5,7 +5,7 @@ import School from "../models/school.model";
 import District from "../models/district.model";
 import Student from "../models/student.model";
 import StudentResult from "../models/studentResult.model";
-import { Request } from "express";
+
 import { deleteStudentResultsByStudentId } from "./studentResult.service";
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
@@ -416,7 +416,7 @@ export class StudentService {
         };
     }
 
-    private async assignTeacherToStudent(student: IStudentInput | IStudent): Promise<void> {
+    async assignTeacherToStudent(student: IStudentInput | IStudent): Promise<void> {
         try {
             const teacherCode = Math.floor(student.code / 1000);
             const teacher: ITeacher | null = await Teacher.findOne({ code: teacherCode });
@@ -517,87 +517,7 @@ export class StudentService {
     }
 }
 
-// Legacy functions for backward compatibility
-export const assignTeacherToStudent = async (student: IStudentInput) => {
-    const service = new StudentService();
-    await (service as any).assignTeacherToStudent(student);
-}
-
-export const getFiltredStudents = async (req: Request): Promise<{ data: IStudent[], totalCount: number }> => {
-    const service = new StudentService();
-    const pagination = RequestParser.parsePagination(req);
-    const filters = RequestParser.parseFilterOptions(req);
-    const sort = RequestParser.parseSorting(req, 'averageScore', 'desc');
-
-    // Handle defective filter
-    const defective = req.query.defective?.toString().toLowerCase() === 'true';
-    if (defective) {
-        const filter = {
-            $or: [
-                { teacher: null },
-                { school: null },
-                { district: null },
-            ]
-        };
-        
-        const sortOptions: any = {};
-        sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
-
-        const [data, totalCount] = await Promise.all([
-            Student.find(filter)
-                .populate('district school teacher')
-                .sort(sortOptions)
-                .skip(pagination.skip)
-                .limit(pagination.size),
-            Student.countDocuments(filter)
-        ]);
-
-        return { data, totalCount };
-    }
-
-    // Handle exam filter specially
-    if (filters.examIds && filters.examIds.length > 0) {
-        console.log('🔥 Filtering students by examIds:', filters.examIds);
-        const studentsInExam = await StudentResult.find({ exam: { $in: filters.examIds } }).distinct('student');
-        console.log('🔥 Students found in exam:', studentsInExam.length);
-        console.log('🔥 Student IDs:', studentsInExam);
-        
-        filters.districtIds = undefined;
-        filters.schoolIds = undefined;
-        filters.teacherIds = undefined;
-        const customFilter = service.buildExamFilter(filters, studentsInExam);
-        
-        console.log('🔍 Custom filter for exam students:', JSON.stringify(customFilter));
-        
-        const sortOptions: any = {};
-        sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
-
-        const [data, totalCount] = await Promise.all([
-            Student.find(customFilter)
-                .populate('district school teacher')
-                .sort(sortOptions)
-                .skip(pagination.skip)
-                .limit(pagination.size),
-            Student.countDocuments(customFilter)
-        ]);
-
-        console.log('✅ Filtered students count:', totalCount);
-        return { data, totalCount };
-    }
-
-    return await service.getFilteredStudents(pagination, filters, sort);
-}
-
-export const deleteStudentById = async (id: string) => {
-    try {
-        Promise.all([
-            deleteStudentResultsByStudentId(id),
-            Student.findByIdAndDelete(id)
-        ]);
-    } catch (error) {
-        throw error;
-    }
-}
+export const studentService = new StudentService();
 
 export const deleteStudentsByIds = async (studentIds: string[]): Promise<{ result: DeleteResult, studentResults: DeleteResult }> => {
     try {

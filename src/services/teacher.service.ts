@@ -1,4 +1,4 @@
-import { Request } from "express";
+
 import Teacher, { ITeacher, ITeacherCreate } from "../models/teacher.model";
 import Student from "../models/student.model";
 import School from "../models/school.model";
@@ -501,36 +501,4 @@ export class TeacherService {
     }
 }
 
-// Legacy functions for backward compatibility
-const teacherService = new TeacherService();
-
-export const checkExistingTeachers = async (codes: number[]): Promise<ITeacher[]> => {
-    try {
-        const result = await Teacher.find({ code: { $in: codes } });
-        return result;
-    } catch (error) {
-        console.error(error);
-        throw new Error("Не удалось осуществить поиск!");
-    }
-}
-
-export const checkExistingTeacherCodes = async (codes: number[]): Promise<number[]> => {
-    return await teacherService.checkExistingTeacherCodes(codes);
-}
-
-export const getFiltredTeachers = async (req: Request): Promise<{ data: ITeacher[], totalCount: number }> => {
-    const pagination = RequestParser.parsePagination(req);
-    const filters = RequestParser.parseFilterOptions(req);
-    const sort = RequestParser.parseSorting(req, 'averageScore', 'desc');
-
-    return await teacherService.getFilteredTeachers(pagination, filters, sort);
-}
-
-export const deleteTeacherById = async (id: string): Promise<void> => {
-    return await teacherService.delete(id);
-}
-
-export const deleteTeachersByIds = async (ids: string[]): Promise<BulkOperationResult> => {
-    const objectIds = ids.map(id => new Types.ObjectId(id));
-    return await teacherService.deleteBulk(objectIds);
-}
+export const teacherService = new TeacherService();

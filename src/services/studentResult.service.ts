@@ -7,8 +7,8 @@ import Teacher from "../models/teacher.model";
 import School from "../models/school.model";
 import District from "../models/district.model";
 import { calculateLevel, calculateLevelNumb } from "./common.service";
-import { getExamsByMonthYear } from "./exam.service";
-import { assignTeacherToStudent } from "./student.service";
+import { examService } from "./exam.service";
+import { studentService } from "./student.service";
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } from "../types/common.types";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
@@ -119,7 +119,7 @@ export class StudentResultService {
 
         // Assign teacher to student
         await Promise.all(newStudents.map(async (student) => {
-            await assignTeacherToStudent(student);
+            await studentService.assignTeacherToStudent(student);
         }));
 
         const studentsWithTeacher = newStudents.filter(student => student.teacher);
@@ -143,34 +143,8 @@ export class StudentResultService {
 
         return filter;
     }
-}
 
-// Legacy functions for backward compatibility
-const studentResultService = new StudentResultService();
-
-export const processStudentResults = async (studentDataToInsert: IStudentInput[]): 
-    Promise<{students: IStudent[], studentsWithoutTeacher: number[]}> => {
-    return await studentResultService.processStudentResults(studentDataToInsert);
-}
-
-export const deleteStudentResultsByExamId = async (examId: string): Promise<DeleteResult> => {
-    return await StudentResult.deleteMany({ exam: examId });
-}
-
-export const deleteStudentResultsByStudentId = async (studentId: string): Promise<DeleteResult> => {
-    return await StudentResult.deleteMany({ student: studentId });
-}
-
-export const deleteStudentResultsByExams = async (examIds: string[]): Promise<DeleteResult> => {
-    return await StudentResult.deleteMany({ exam: { $in: examIds } });
-}
-
-export const deleteStudentResultsByStudents = async (studentIds: string[]): Promise<DeleteResult> => {
-    return await StudentResult.deleteMany({ student: { $in: studentIds } });
-}
-
-// Additional legacy functions that may be used elsewhere
-export const markAllDevelopingStudents = async (): Promise<void> => {
+    async markAllDevelopingStudents(): Promise<void> {
     console.log("🔄 Обновление статусов студентов...");
     
     // Фильтруем только результаты текущего учебного года
@@ -179,7 +153,7 @@ export const markAllDevelopingStudents = async (): Promise<void> => {
     const academicYearStartDate = new Date(Date.UTC(academicYear, 8, 1)); // 1 сентября UTC
     const academicYearEndDate = new Date(Date.UTC(academicYear + 1, 6, 1)); // 1 июля UTC (exclusive)
     
-    const studentResultsGrouped: IStudentResultsGrouped[] = await getStudentResultsGroupedByStudent(academicYearStartDate, academicYearEndDate);
+        const studentResultsGrouped: IStudentResultsGrouped[] = await this.getStudentResultsGroupedByStudent(academicYearStartDate, academicYearEndDate);
     if (studentResultsGrouped.length === 0) return;
     
     const bulkOperations = [];
@@ -227,7 +201,7 @@ export const markAllDevelopingStudents = async (): Promise<void> => {
     console.log("✅ Статусы студентов обновлены.");
 }
 
-export const getStudentResultsGroupedByStudent = async (academicYearStartDate?: Date, academicYearEndDate?: Date): Promise<IStudentResultsGrouped[]> => {
+    private async getStudentResultsGroupedByStudent(academicYearStartDate?: Date, academicYearEndDate?: Date): Promise<IStudentResultsGrouped[]> {
     const pipeline: any[] = [
         {
             $lookup: {
@@ -270,7 +244,7 @@ export const getStudentResultsGroupedByStudent = async (academicYearStartDate?: 
     return await StudentResult.aggregate(pipeline);
 }
 
-export const markDevelopingStudents = async (month: number, year: number): Promise<void> => {
+    async markDevelopingStudents(month: number, year: number): Promise<void> {
     try {
         const bulkOperations = [];
         console.log(`🔄 Поиск развивающихся студентов за ${month}/${year}...`);
@@ -280,7 +254,7 @@ export const markDevelopingStudents = async (month: number, year: number): Promi
         // Используем UTC чтобы граничная дата не зависела от timezone сервера
         const academicYearStartDate = new Date(Date.UTC(academicYearStart, 8, 1)); // 1 сентября UTC
 
-        const exams = await getExamsByMonthYear(month, year);
+        const exams = await examService.getExamsByMonthYear(month, year);
         if (!exams.length) {
             console.log("Не найдены экзамены за указанный период.");
             return;
@@ -391,12 +365,12 @@ export const markDevelopingStudents = async (month: number, year: number): Promi
     }
 }
 
-export const markTopStudents = async (month: number, year: number): Promise<void> => {
+    async markTopStudents(month: number, year: number): Promise<void> {
     try {
         const bulkOperations = [];
         console.log(`🔄 Определение лучших студентов месяца за ${month}/${year}...`);
 
-        const examIds = await getExamsByMonthYear(month, year);
+        const examIds = await examService.getExamsByMonthYear(month, year);
         if (!examIds.length) {
             console.log("Не найдены экзамены за указанный период.");
             return;
@@ -460,12 +434,12 @@ export const markTopStudents = async (month: number, year: number): Promise<void
     }
 }
 
-export const markTopStudentsRepublic = async (month: number, year: number): Promise<void> => {
+    async markTopStudentsRepublic(month: number, year: number): Promise<void> {
     try {
         const bulkOperations = [];
         console.log(`🔄 Определение лучших студентов республики за ${month}/${year}...`);
 
-        const examIds = await getExamsByMonthYear(month, year);
+        const examIds = await examService.getExamsByMonthYear(month, year);
         if (!examIds.length) {
             console.log("Не найдены экзамены за указанный период.");
             return;
@@ -531,7 +505,7 @@ export const markTopStudentsRepublic = async (month: number, year: number): Prom
     }
 }
 
-export const processStudentResultsFromExcel = async (filePath: string, examId: string): Promise<any> => {
+    async processStudentResultsFromExcel(filePath: string, examId: string): Promise<any> {
     try {
         const rows: any[] = readExcel(filePath);
 
@@ -622,7 +596,7 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
             }
         });
 
-        const {students, studentsWithoutTeacher} = await processStudentResults(correctStudentDataToInsert);
+        const {students, studentsWithoutTeacher} = await this.processStudentResults(correctStudentDataToInsert);
 
         // нужны только те студенты, которые есть в базе и те, у кого totalScore = az + math + lifeKnowledge + logic + english
         const filtredResults = resultReadedData.filter(result => 
@@ -739,7 +713,7 @@ export const processStudentResultsFromExcel = async (filePath: string, examId: s
     }
 }
 
-export const deleteResultsByExamId = async (examId: string): Promise<{ deletedCount: number }> => {
+    async deleteResultsByExamId(examId: string): Promise<{ deletedCount: number }> {
     const objectId = new Types.ObjectId(examId);
 
     // Шаг 1: Найти всех студентов, у которых есть результаты по этому экзамену
@@ -760,7 +734,7 @@ export const deleteResultsByExamId = async (examId: string): Promise<{ deletedCo
     return { deletedCount: deletedResults.deletedCount || 0 };
 }
 
-export async function importLegacyResultsFromJson(filePath: string): Promise<{
+    async importLegacyResultsFromJson(filePath: string): Promise<{
     inserted: number;
     skipped: number;
     errors: number;
@@ -862,4 +836,24 @@ export async function importLegacyResultsFromJson(filePath: string): Promise<{
         errors,
         details: { skippedCodes: skippedNames, errorMessages }
     };
+    }
+}
+
+export const studentResultService = new StudentResultService();
+
+// Standalone DB utility functions used cross-service
+export const deleteStudentResultsByExamId = async (examId: string): Promise<DeleteResult> => {
+    return await StudentResult.deleteMany({ exam: examId });
+}
+
+export const deleteStudentResultsByStudentId = async (studentId: string): Promise<DeleteResult> => {
+    return await StudentResult.deleteMany({ student: studentId });
+}
+
+export const deleteStudentResultsByExams = async (examIds: string[]): Promise<DeleteResult> => {
+    return await StudentResult.deleteMany({ exam: { $in: examIds } });
+}
+
+export const deleteStudentResultsByStudents = async (studentIds: string[]): Promise<DeleteResult> => {
+    return await StudentResult.deleteMany({ student: { $in: studentIds } });
 }

@@ -1,5 +1,5 @@
 import { IStudentResult, IStudentResultInput } from "../models/studentResult.model";
-import { StudentResultService, processStudentResultsFromExcel, deleteResultsByExamId, importLegacyResultsFromJson } from "../services/studentResult.service";
+import { StudentResultService } from "../services/studentResult.service";
 import { PaginationOptions, FilterOptions, SortOptions } from "../types/common.types";
 import { Types } from "mongoose";
 
@@ -51,7 +51,7 @@ export class StudentResultUseCase {
 
     async processStudentResultsFromExcel(filePath: string, examId: string): Promise<StudentResultFileProcessingResult> {
         try {
-            return await processStudentResultsFromExcel(filePath, examId);
+            return await this.studentResultService.processStudentResultsFromExcel(filePath, examId);
         } catch (error) {
             throw new Error(`Failed to process student results from Excel: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
@@ -59,7 +59,7 @@ export class StudentResultUseCase {
 
     async deleteResultsByExamId(examId: string): Promise<{ deletedCount: number }> {
         try {
-            return await deleteResultsByExamId(examId);
+            return await this.studentResultService.deleteResultsByExamId(examId);
         } catch (error) {
             throw new Error(`Failed to delete results by exam ID: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
@@ -72,7 +72,7 @@ export class StudentResultUseCase {
         details: { skippedCodes: any[]; errorMessages: string[] };
     }> {
         try {
-            return await importLegacyResultsFromJson(filePath);
+            return await this.studentResultService.importLegacyResultsFromJson(filePath);
         } catch (error) {
             throw new Error(`Failed to import legacy results: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }

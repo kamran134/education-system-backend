@@ -5,8 +5,8 @@ import Teacher, { ITeacher } from "../models/teacher.model";
 import Student from "../models/student.model";
 import StudentResult, { IStudentResult } from "../models/studentResult.model";
 import { LevelScore } from "../types/levelScore.enum";
-import { markAllDevelopingStudents, markDevelopingStudents, markTopStudents, markTopStudentsRepublic } from "./studentResult.service";
-import { countDistrictsRates } from "./district.service";
+import { studentResultService } from "./studentResult.service";
+import { districtService } from "./district.service";
 import { FilterOptions } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { Types } from "mongoose";
@@ -119,9 +119,7 @@ export class StatsService {
         try {
             // Reset all statistics
             await this.resetStats();
-            await countDistrictsRates();
-            
-            // Get all exam dates
+            await districtService.countDistrictsRates();
             const exams: IExam[] = await Exam.find({}, { date: 1 });
             if (!exams.length) {
                 console.log("Нет экзаменов в базе.");
@@ -155,14 +153,14 @@ export class StatsService {
             for (const monthData of sortedMonths) {
                 console.log(`🔄 Обработка месяца: ${monthData.key}...`);
                 
-                await markDevelopingStudents(monthData.month, monthData.year);
-                await markTopStudents(monthData.month, monthData.year);
-                await markTopStudentsRepublic(monthData.month, monthData.year);
+                await studentResultService.markDevelopingStudents(monthData.month, monthData.year);
+                await studentResultService.markTopStudents(monthData.month, monthData.year);
+                await studentResultService.markTopStudentsRepublic(monthData.month, monthData.year);
             }
 
             // Final processing for all developing students
-            await markAllDevelopingStudents();
-            await countDistrictsRates();
+            await studentResultService.markAllDevelopingStudents();
+            await districtService.countDistrictsRates();
 
             console.log("✅ Статистика обновлена успешно.");
             return 200;
@@ -485,7 +483,7 @@ export class StatsService {
             }
 
             // Шаг 5: Находим развивающихся студентов за этот месяц
-            await markDevelopingStudents(month, year);
+            await studentResultService.markDevelopingStudents(month, year);
 
         } catch (error) {
             console.error(`❌ Ошибка при обновлении статистики для месяца ${month}/${year}:`, error);

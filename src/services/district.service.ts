@@ -339,34 +339,4 @@ export class DistrictService {
     }
 }
 
-// Legacy functions for backward compatibility
-const districtService = new DistrictService();
-
-export const checkExistingDistrict = async (district: IDistrict): Promise<boolean> => {
-    try {
-        const foundedDistrict = await District.find({ code: district.code });
-        return foundedDistrict.length > 0;
-    } catch (error) {
-        console.error(error);
-        return true;
-    }
-}
-
-export const checkExistingDistricts = async (codes: number[]): Promise<IDistrict[]> => {
-    try {
-        console.log("🔍 Поиск районов по кодам...");
-        const result = await District.find({ code: { $in: codes } });
-        return result;
-    } catch (error) {
-        console.error(error);
-        throw new Error("Не удалось осуществить поиск!");
-    }
-}
-
-export const checkExistingDistrictCodes = async (codes: number[]): Promise<number[]> => {
-    return await districtService.checkExistingDistrictCodes(codes);
-};
-
-export const countDistrictsRates = async (): Promise<void> => {
-    return await districtService.countDistrictsRates();
-}
+export const districtService = new DistrictService();

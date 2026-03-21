@@ -233,9 +233,4 @@ export class ExamService {
     }
 }
 
-// Legacy function for backward compatibility
-const examService = new ExamService();
-
-export const getExamsByMonthYear = async (month: number, year: number): Promise<IExam[] | []> => {
-    return await examService.getExamsByMonthYear(month, year);
-}
+export const examService = new ExamService();
