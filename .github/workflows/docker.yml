@@ -20,3 +20,27 @@ jobs:
         run: |
           docker build -t ghcr.io/kamran134/education-system-backend:latest .
           docker push ghcr.io/kamran134/education-system-backend:latest
+
+      - name: Install SSH Key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > deploy_key
+          chmod 600 deploy_key
+
+      - name: Write .env to server
+        env:
+          MONGO_URI: ${{ secrets.MONGO_URI }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+        run: |
+          echo "MONGO_URI=${MONGO_URI}" > backend.env
+          echo "JWT_SECRET=${JWT_SECRET}" >> backend.env
+          echo "JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}" >> backend.env
+          echo "NODE_ENV=production" >> backend.env
+          echo "PORT=5000" >> backend.env
+          scp -i deploy_key -o StrictHostKeyChecking=no backend.env ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/isim/.env
+          rm -f backend.env
+
+      - name: Deploy backend on server
+        run: |
+          ssh -i deploy_key -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "cd ~/isim && docker compose pull backend && docker compose up -d backend"

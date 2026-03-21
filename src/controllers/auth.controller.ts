@@ -4,12 +4,7 @@ import jwt from "jsonwebtoken";
 import { validationResult } from "express-validator";
 import User from "../models/user.model";
 import TokenService from "../services/token.service";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "superrefreshsecret";
+import { JWT_SECRET, JWT_REFRESH_SECRET } from "../config/env";
 
 // Refresh токены теперь хранятся в MongoDB в коллекции пользователей
 

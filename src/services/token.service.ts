@@ -1,11 +1,11 @@
 import User from "../models/user.model";
 import jwt from "jsonwebtoken";
+import { JWT_REFRESH_SECRET } from "../config/env";
 
 /**
  * Сервис для управления refresh токенами
  */
 export class TokenService {
-    private static readonly JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "superrefreshsecret";
 
     /**
      * Очищает все истекшие refresh токены из базы данных
@@ -25,7 +25,7 @@ export class TokenService {
                 for (const token of user.refreshTokens) {
                     try {
                         // Проверяем, не истек ли токен
-                        jwt.verify(token, this.JWT_REFRESH_SECRET);
+                        jwt.verify(token, JWT_REFRESH_SECRET);
                         validTokens.push(token);
                     } catch (error) {
                         // Токен истек или невалиден, не добавляем его в validTokens
