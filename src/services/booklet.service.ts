@@ -106,9 +106,12 @@ export class BookletService {
             }
 
             // Read district code from B1 (row 0, col 1) and booklet name from D1 (row 0, col 3)
-            const row1: any[] = rows[0];
-            const districtCodeRaw = row1?.[1];
-            const bookletName     = String(row1?.[3] ?? "").trim() || undefined;
+            const row1: any[] = Array.isArray(rows[0]) ? rows[0] : [];
+            if (row1.length < 2) {
+                throw new Error("Fayl düzgün formatda deyil: 1-ci sətirdə ən azı 2 sütun olmalıdır (A1, B1)");
+            }
+            const districtCodeRaw = row1[1];
+            const bookletName     = String(row1[3] ?? "").trim() || undefined;
 
             let districtId: string | undefined;
             if (districtCodeRaw != null && String(districtCodeRaw).trim() !== "") {
@@ -123,8 +126,12 @@ export class BookletService {
                 districtId = district._id.toString();
             }
 
-            const headerRow: any[] = rows[2]; // row 3 (0-indexed)
-            const dataRows: any[][] = rows.slice(3); // row 4+ (0-indexed)
+            const headerRow: any[] = Array.isArray(rows[2]) ? rows[2] : [];
+            const dataRows: any[][] = rows.slice(3);
+
+            if (dataRows.length === 0 || !Array.isArray(dataRows[0])) {
+                throw new Error("Fayl düzgün formatda deyil: 4-cü sətirdən başlayaraq məlumat sırları olmalıdır");
+            }
 
             // Detect all column indices from the header row
             let variantColIdx = 0;  // fallback: column A
