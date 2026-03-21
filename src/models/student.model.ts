@@ -85,4 +85,10 @@ const StudentSchema: Schema = new Schema({
     ratings: { type: [YearRatingSchema], required: false, default: [] },
 });
 
+// Indexes to support $lookup joins and filter conditions in aggregation pipelines
+StudentSchema.index({ teacher: 1 });
+StudentSchema.index({ school: 1 });
+StudentSchema.index({ district: 1 });
+StudentSchema.index({ code: 1 });
+
 export default mongoose.model<IStudent>("Student", StudentSchema);

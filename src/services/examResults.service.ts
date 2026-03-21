@@ -1,4 +1,5 @@
 import StudentResult, { IStudentResult } from "../models/studentResult.model";
+import Exam from "../models/exam.model";
 import { Types } from "mongoose";
 
 export interface ExamResultsFilter {
@@ -27,39 +28,47 @@ export class ExamResultsService {
         
         const pipeline: any[] = [];
 
-        // Match stage
-        const matchConditions: any = {};
+        // ── EARLY MATCH ──────────────────────────────────────────────────────
+        // Apply all filters that map to fields directly on StudentResult BEFORE
+        // the expensive nested $lookup. This drastically reduces the number of
+        // documents that go through the join stages.
+        const earlyMatch: any = {};
 
-        // Date filters
-        if (filters.dateFrom || filters.dateTo) {
-            const examPipeline: any[] = [
-                {
-                    $lookup: {
-                        from: 'exams',
-                        localField: 'exam',
-                        foreignField: '_id',
-                        as: 'examInfo'
-                    }
-                }
-            ];
-
-            if (filters.dateFrom || filters.dateTo) {
-                const dateFilter: any = {};
-                if (filters.dateFrom) {
-                    dateFilter.$gte = new Date(filters.dateFrom);
-                }
-                if (filters.dateTo) {
-                    dateFilter.$lte = new Date(filters.dateTo);
-                }
-                examPipeline.push({
-                    $match: {
-                        'examInfo.date': dateFilter
-                    }
-                });
-            }
-
-            pipeline.push(...examPipeline);
+        // Filter by exam IDs (StudentResult.exam is a direct ObjectId ref)
+        if (filters.examIds && filters.examIds.length > 0) {
+            earlyMatch.exam = { $in: filters.examIds.map(id => new Types.ObjectId(id)) };
         }
+
+        // Filter by grade (directly on StudentResult)
+        if (filters.grades && filters.grades.length > 0) {
+            earlyMatch.grade = { $in: filters.grades };
+        }
+
+        // Date filter: query Exam separately to get matching IDs, then filter
+        // by exam ref — avoids a $lookup+$match at the start of the pipeline
+        // and also eliminates the duplicate exam $lookup that existed before.
+        if (filters.dateFrom || filters.dateTo) {
+            const dateFilter: any = {};
+            if (filters.dateFrom) dateFilter.$gte = new Date(filters.dateFrom);
+            if (filters.dateTo)   dateFilter.$lte = new Date(filters.dateTo);
+            const matchingExams = await Exam.find({ date: dateFilter }).select('_id').lean();
+            const dateExamIds = matchingExams.map((e: any) => e._id);
+            if (earlyMatch.exam) {
+                // Intersect: both examIds filter AND date filter must be satisfied
+                earlyMatch.$and = [
+                    { exam: earlyMatch.exam },
+                    { exam: { $in: dateExamIds } }
+                ];
+                delete earlyMatch.exam;
+            } else {
+                earlyMatch.exam = { $in: dateExamIds };
+            }
+        }
+
+        if (Object.keys(earlyMatch).length > 0) {
+            pipeline.push({ $match: earlyMatch });
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         // Lookup student data with nested lookups
         pipeline.push({
@@ -196,24 +205,7 @@ export class ExamResultsService {
             });
         }
 
-        // Filter by exam
-        if (filters.examIds && filters.examIds.length > 0) {
-            console.log('🔥 Filtering by examIds:', filters.examIds);
-            const examObjectIds = filters.examIds.map(id => new Types.ObjectId(id));
-            console.log('🔥 Exam ObjectIds:', examObjectIds);
-            filterConditions.push({
-                'exam._id': { $in: examObjectIds }
-            });
-        }
-
-        // Filter by grade
-        if (filters.grades && filters.grades.length > 0) {
-            console.log('🔥 Filtering by grades:', filters.grades);
-            console.log('🔥 Grades type:', typeof filters.grades[0]);
-            filterConditions.push({
-                'grade': { $in: filters.grades }
-            });
-        }
+        // Note: examIds and grades are already applied in the early $match stage above.
 
         if (filterConditions.length > 0) {
             console.log('📋 Filter Conditions:', JSON.stringify(filterConditions, null, 2));

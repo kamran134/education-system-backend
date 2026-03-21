@@ -111,5 +111,9 @@ const StudentResultSchema: Schema = new Schema({
 });
 
 StudentResultSchema.index({ student: 1, exam: 1 }, { unique: true });
+// Indexes to support early $match filtering in examResults pipeline
+StudentResultSchema.index({ exam: 1 });
+StudentResultSchema.index({ grade: 1 });
+StudentResultSchema.index({ exam: 1, grade: 1 });
 
 export default mongoose.model<IStudentResult>("StudentResult", StudentResultSchema);
