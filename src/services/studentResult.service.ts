@@ -599,18 +599,22 @@ export class StudentResultService {
 
         const {students, studentsWithoutTeacher} = await this.processStudentResults(correctStudentDataToInsert);
 
-        // нужны только те студенты, которые есть в базе и те, у кого totalScore = az + math + lifeKnowledge + logic + english
-        const filtredResults = resultReadedData.filter(result => 
-            students.map(student => student.code).includes(result.studentCode)
+        const studentCodeSet = new Set(students.map(student => student.code));
+
+        // нужны только те студенты, которые есть в базе и те, у кого totalScore = az + math + lifeKnowledge + logic + english и totalScore > 0
+        const filtredResults = resultReadedData.filter(result =>
+            studentCodeSet.has(result.studentCode)
             && result.totalScore === (result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0))
             && result.totalScore > 0
         );
 
-        // Студенты с некорректными результатами (неправильная сумма баллов)
-        const studentsWithIncorrectResults = resultReadedData.filter(result => 
-            students.map(student => student.code).includes(result.studentCode)
-            && result.totalScore !== (result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0))
-        ).map(result => ({
+        // Студенты с некорректными результатами (неправильная сумма баллов, или сумма верна но = 0)
+        const studentsWithIncorrectResults = resultReadedData.filter(result => {
+            if (!studentCodeSet.has(result.studentCode)) return false;
+            const calculatedTotal = result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0);
+            // Сумма не совпадает ИЛИ итоговый балл равен нулю (нет ни одного правильного ответа)
+            return result.totalScore !== calculatedTotal || result.totalScore <= 0;
+        }).map(result => ({
             studentCode: result.studentCode,
             totalScore: result.totalScore,
             calculatedTotal: result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0),
@@ -704,7 +708,9 @@ export class StudentResultService {
                 studentsWithoutTeacher,
                 studentsWithIncorrectResults: studentsWithIncorrectResults.map(s => ({
                     code: s.studentCode,
-                    reason: `Səhv cəm: ${s.calculatedTotal}, Faylda: ${s.totalScore}`
+                    reason: s.totalScore <= 0
+                        ? `Sıfır xal: şagird heç bir sual cavablandırmayıb`
+                        : `Səhv cəm: ${s.calculatedTotal}, Faylda: ${s.totalScore}`
                 }))
             }
         };
