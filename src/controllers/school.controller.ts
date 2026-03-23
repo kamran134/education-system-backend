@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { Types } from "mongoose";
 import { SchoolUseCase } from "../usecases/school.usecase";
 import { SchoolService } from "../services/school.service";
 import { RequestParser } from "../utils/request-parser.util";
@@ -29,10 +30,10 @@ export class SchoolController {
             // Role-based filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
                 // District representer sees only schools in their district
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 // School director sees only their school
-                filters.schoolIds = [req.user.schoolId as any];
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             }
 
             const result = await this.schoolUseCase.getSchools(pagination, filters, sort);

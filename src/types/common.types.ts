@@ -34,11 +34,11 @@ export interface SortOptions {
     sortDirection: 'asc' | 'desc';
 }
 
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
     success: boolean;
     data?: T;
     message?: string;
-    error?: any;
+    error?: unknown;
 }
 
 export interface BulkOperationResult {
@@ -51,7 +51,7 @@ export interface BulkOperationResult {
 export interface FileProcessingResult<T> {
     processedData: T[];
     errors: string[];
-    skippedItems: any[];
+    skippedItems: unknown[];
     validationErrors?: {
         // For Teachers
         incorrectTeacherCodes?: number[];

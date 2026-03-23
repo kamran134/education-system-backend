@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { Types } from "mongoose";
 import { StatsUseCase } from "../usecases/stats.usecase";
 import { StatsService } from "../services/stats.service";
 import { RequestParser } from "../utils/request-parser.util";
@@ -52,11 +53,11 @@ export class StatsController {
 
             // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [req.user.schoolId as any];
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [req.user.teacherId as any];
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
             }
 
             const statistics = await this.statsUseCase.getStudentStatistics(filters);
@@ -84,11 +85,11 @@ export class StatsController {
 
             // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [req.user.schoolId as any];
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [req.user.teacherId as any];
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
             }
 
             const students = await this.statsUseCase.getDevelopingStudents(filters);
@@ -116,11 +117,11 @@ export class StatsController {
 
             // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [req.user.schoolId as any];
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [req.user.teacherId as any];
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
             }
 
             const students = await this.statsUseCase.getStudentsOfMonth(filters);
@@ -148,11 +149,11 @@ export class StatsController {
 
             // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [req.user.schoolId as any];
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [req.user.teacherId as any];
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
             }
 
             const students = await this.statsUseCase.getStudentsOfMonthByRepublic(filters);
@@ -196,11 +197,11 @@ export class StatsController {
 
             // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [req.user.schoolId as any];
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [req.user.teacherId as any];
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
             }
 
             const statistics = await this.statsUseCase.getTeacherStatistics(filters);
@@ -223,9 +224,9 @@ export class StatsController {
 
             // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [req.user.schoolId as any];
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             }
 
             const statistics = await this.statsUseCase.getSchoolStatistics(filters);
@@ -248,7 +249,7 @@ export class StatsController {
 
             // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             }
 
             const statistics = await this.statsUseCase.getDistrictStatistics(filters);

@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { Types } from "mongoose";
 import { StudentUseCase } from "../usecases/student.usecase";
 import { StudentService } from "../services/student.service";
 import { StudentResultService } from "../services/studentResult.service";
@@ -27,13 +28,13 @@ export class StudentController {
             // Role-based filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
                 // District representer sees students from their district schools
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 // School director sees students from their school
-                filters.schoolIds = [req.user.schoolId as any];
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
                 // Teacher sees only their students
-                filters.teacherIds = [req.user.teacherId as any];
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 // Student sees only themselves - filter by student ID
                 // We'll need to add this filter type

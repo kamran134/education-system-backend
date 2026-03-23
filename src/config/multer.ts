@@ -1,6 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { Request } from 'express';
 
 // Настройка хранилища для аватаров студентов
 const avatarStorage = multer.diskStorage({
@@ -30,7 +31,7 @@ const avatarStorage = multer.diskStorage({
 });
 
 // Фильтр для проверки типа файла
-const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png'];
     
     if (allowedMimeTypes.includes(file.mimetype)) {
@@ -66,7 +67,7 @@ const bulkAvatarStorage = multer.diskStorage({
     }
 });
 
-const bulkFileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+const bulkFileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
     
     if (allowedMimeTypes.includes(file.mimetype)) {

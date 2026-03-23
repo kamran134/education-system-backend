@@ -1,7 +1,7 @@
 import { ValidationResult } from "../types/common.types";
 
 export class ValidationUtils {
-    static validateRequired(value: any, fieldName: string): string | null {
+    static validateRequired(value: unknown, fieldName: string): string | null {
         if (value === undefined || value === null || value === '') {
             return `${fieldName} is required`;
         }
@@ -32,7 +32,7 @@ export class ValidationUtils {
         return null;
     }
 
-    static validateNumber(value: any, fieldName: string, min?: number, max?: number): string | null {
+    static validateNumber(value: unknown, fieldName: string, min?: number, max?: number): string | null {
         const num = Number(value);
         if (isNaN(num)) {
             return `${fieldName} must be a valid number`;
@@ -46,7 +46,7 @@ export class ValidationUtils {
         return null;
     }
 
-    static validateArray(value: any, fieldName: string, minLength = 0): ValidationResult {
+    static validateArray(value: unknown, fieldName: string, minLength = 0): ValidationResult {
         const errors: string[] = [];
         
         if (!Array.isArray(value)) {

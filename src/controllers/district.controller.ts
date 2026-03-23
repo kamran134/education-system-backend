@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { Types } from "mongoose";
 import { DistrictUseCase } from "../usecases/district.usecase";
 import { DistrictService } from "../services/district.service";
 import { RequestParser } from "../utils/request-parser.util";
@@ -28,7 +29,7 @@ export class DistrictController {
 
             // Role-based filtering: district representer sees only their district
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             }
 
             const result = await this.districtUseCase.getFilteredDistricts(pagination, filters, sort);

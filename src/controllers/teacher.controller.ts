@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { Types } from "mongoose";
 import { TeacherUseCase } from "../usecases/teacher.usecase";
 import { TeacherService } from "../services/teacher.service";
 import { RequestParser } from "../utils/request-parser.util";
@@ -29,13 +30,13 @@ export class TeacherController {
             // Role-based filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
                 // District representer sees teachers from their district schools
-                filters.districtIds = [req.user.districtId as any];
+                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 // School director sees only teachers from their school
-                filters.schoolIds = [req.user.schoolId as any];
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
                 // Teacher sees only themselves
-                filters.teacherIds = [req.user.teacherId as any];
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
             }
 
             const result = await this.teacherUseCase.getTeachers(pagination, filters, sort);

@@ -1,4 +1,4 @@
-import { Model } from "mongoose";
+import { Model, Types } from "mongoose";
 import { getCurrentAcademicYear } from "./academic-year.util";
 
 /**
@@ -78,16 +78,21 @@ export function buildScorePlaceMap(scores: Array<{ score?: number }>): Map<numbe
 export async function updateEntityPlaces(
     EntityModel: Model<any>,
     entityLabel: string,
-    activeFilter: Record<string, any> = {}
+    activeFilter: Record<string, unknown> = {}
 ): Promise<void> {
     try {
+        interface IRatingEntity {
+            _id: Types.ObjectId;
+            ratings?: { year: number; averageScore?: number }[];
+            code?: number;
+        }
         const currentYear = getCurrentAcademicYear();
-        const entities = await EntityModel.find(activeFilter).select('_id ratings code').lean();
+        const entities = await EntityModel.find(activeFilter).select('_id ratings code').lean() as IRatingEntity[];
 
-        const entitiesWithAvg = (entities as any[]).map(e => ({
+        const entitiesWithAvg = entities.map(e => ({
             _id: e._id,
-            averageScore: ((e.ratings || []).find((r: any) => r.year === currentYear) as any)?.averageScore ?? 0,
-            code: (e.code as number) ?? 0
+            averageScore: (e.ratings || []).find(r => r.year === currentYear)?.averageScore ?? 0,
+            code: e.code ?? 0
         })).filter(e => e.averageScore > 0);
 
         if (entitiesWithAvg.length === 0) {

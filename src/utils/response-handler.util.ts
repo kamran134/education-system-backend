@@ -9,7 +9,7 @@ export class ResponseHandler {
         };
     }
 
-    static error(message: string, error?: any): ApiResponse {
+    static error(message: string, error?: unknown): ApiResponse {
         return {
             success: false,
             message,
@@ -47,7 +47,7 @@ export class ResponseHandler {
         };
     }
 
-    static badRequest(message = 'Bad request', error?: any): ApiResponse {
+    static badRequest(message = 'Bad request', error?: unknown): ApiResponse {
         return {
             success: false,
             message,
@@ -55,7 +55,7 @@ export class ResponseHandler {
         };
     }
 
-    static internalError(message = 'Internal server error', error?: any): ApiResponse {
+    static internalError(message = 'Internal server error', error?: unknown): ApiResponse {
         return {
             success: false,
             message,

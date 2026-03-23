@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { Request, Response, CookieOptions } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { validationResult } from "express-validator";
@@ -8,8 +8,17 @@ import { JWT_SECRET, JWT_REFRESH_SECRET } from "../config/env";
 
 // Refresh токены теперь хранятся в MongoDB в коллекции пользователей
 
+interface JwtPayload {
+    userId: string;
+    role: string;
+    districtId?: string;
+    schoolId?: string;
+    teacherId?: string;
+    studentId?: string;
+}
+
 const generateTokens = (userId: string, role: string, districtId?: string, schoolId?: string, teacherId?: string, studentId?: string) => {
-    const payload: any = { userId, role };
+    const payload: JwtPayload = { userId, role };
     
     // Add entity IDs based on role
     if (districtId) payload.districtId = districtId;
@@ -76,7 +85,7 @@ export const login = async (req: Request, res: Response) => {
         await TokenService.limitUserTokens(String(user._id), 5);
 
         // Устанавливаем refresh token в httpOnly cookie
-        const cookieOptions: any = {
+        const cookieOptions: CookieOptions = {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
@@ -193,7 +202,7 @@ export const refreshToken = async (req: Request, res: Response) => {
 
         console.log('[REFRESH TOKEN] Setting new refresh token cookie...');
         // Обновляем refresh token cookie
-        const cookieOptions: any = {
+        const cookieOptions: CookieOptions = {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",

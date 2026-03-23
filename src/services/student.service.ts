@@ -1,4 +1,4 @@
-import { DeleteResult, Types } from "mongoose";
+import { DeleteResult, Types, PipelineStage, FilterQuery } from "mongoose";
 import { IStudent, IStudentInput } from "../models/student.model";
 import Teacher, { ITeacher } from "../models/teacher.model";
 import School from "../models/school.model";
@@ -62,7 +62,7 @@ export class StudentService {
 
     async search(searchString: string): Promise<IStudent[]> {
         const searchTerms = searchString.trim().split(/\s+/);
-        let matchCondition: any;
+        let matchCondition: FilterQuery<IStudent>;
         
         if (searchTerms.length === 1) {
             // Single word search
@@ -170,7 +170,7 @@ export class StudentService {
         // Only loads one page of data — no more loading all N thousand records.
         const sortDir = sort.sortDirection === 'asc' ? 1 : -1;
 
-        const pipeline: any[] = [
+        const pipeline: PipelineStage[] = [
             { $match: filter },
 
             // Lookup student results to count participations
@@ -226,11 +226,11 @@ export class StudentService {
             { $limit: pagination.size }
         ];
 
-        const pageData = await Student.aggregate(pipeline).collation({ locale: 'az', strength: 2 });
+        const pageData = await Student.aggregate<IStudent>(pipeline).collation({ locale: 'az', strength: 2 });
 
         // Apply pre-computed places to this page
-        pageData.forEach((student: any) => {
-            student.place = scorePlaceMap.get(student.score || 0) || null;
+        pageData.forEach((student) => {
+            student.place = scorePlaceMap.get(student.score || 0) ?? undefined;
         });
 
         return { data: pageData as unknown as IStudent[], totalCount };
@@ -377,8 +377,8 @@ export class StudentService {
         }
     }
 
-    private buildFilter(filters: FilterOptions): any {
-        const filter: any = {};
+    private buildFilter(filters: FilterOptions): FilterQuery<IStudent> {
+        const filter: FilterQuery<IStudent> = {};
 
         // Приоритет фильтров: teacherIds > schoolIds > districtIds
         // Используем самый специфичный фильтр из доступных
@@ -437,8 +437,8 @@ export class StudentService {
         return filter;
     }
 
-    buildExamFilter(filters: FilterOptions, studentIds: Types.ObjectId[]): any {
-        const filter: any = {
+    buildExamFilter(filters: FilterOptions, studentIds: Types.ObjectId[]): FilterQuery<IStudent> {
+        const filter: FilterQuery<IStudent> = {
             _id: { $in: studentIds }
         };
 
