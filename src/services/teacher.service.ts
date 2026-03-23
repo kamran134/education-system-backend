@@ -32,7 +32,8 @@ export class TeacherService {
 
     async create(teacherData: ITeacherCreate): Promise<ITeacher> {
         const teacher = new Teacher(teacherData);
-        return await teacher.save();
+        const saved = await teacher.save();
+        return await saved.populate('district school');
     }
 
     async update(id: string, updateData: Partial<ITeacherCreate>): Promise<ITeacher> {
