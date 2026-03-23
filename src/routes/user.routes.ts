@@ -1,5 +1,5 @@
 import express from 'express';
-import { createUser, deleteUser, getUsers, updateUser } from '../controllers/user.controller';
+import { createUser, deleteUser, getUsers, updateUser, changePassword } from '../controllers/user.controller';
 import { authMiddleware, checkAdminRole, canDelete } from '../middleware/auth.middleware';
 
 const router = express.Router();
@@ -10,5 +10,7 @@ router.route("/")
     .put(checkAdminRole, updateUser);
 router.route("/:id")
     .delete(canDelete, deleteUser);
+router.route("/:id/password")
+    .put(checkAdminRole, changePassword);
 
 export default router;

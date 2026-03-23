@@ -184,8 +184,9 @@ const schoolController = new SchoolController();
 export const createAllSchools = schoolController.processSchoolsFromExcel;
 export const repairSchools = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        // This would need to be implemented based on business logic
-        res.json(ResponseHandler.success({}, 'School repair functionality not yet implemented'));
+        const schoolService = new SchoolService();
+        const result = await schoolService.repairSchoolAssignments();
+        res.json(ResponseHandler.success(result, `Repaired ${result.repairedSchools.length} schools`));
     } catch (error) {
         next(error);
     }

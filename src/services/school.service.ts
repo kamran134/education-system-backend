@@ -12,7 +12,7 @@ import { deleteFile } from "./file.service";
 import { buildCommonFilter } from "../utils/filter.util";
 import { updateEntityStats } from "../utils/stats.utils";
 import { updateEntityPlaces } from "../utils/ranking.util";
-import { CODE_RANGES, CODE_LENGTHS } from "../utils/entity-codes.const";
+import { CODE_RANGES, CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
 
 export class SchoolService {
     /**
@@ -223,6 +223,56 @@ export class SchoolService {
     async checkExistingSchoolCodes(codes: number[]): Promise<number[]> {
         const existingCodes = await School.distinct("code", { code: { $in: codes } });
         return existingCodes;
+    }
+
+    async repairSchoolAssignments(): Promise<{
+        repairedSchools: number[];
+        failedSchools: Array<{ code: number; reason: string }>;
+        missedDistricts: number[];
+    }> {
+        const schools = await School.find({
+            $or: [
+                { district: { $exists: false } },
+                { district: null }
+            ]
+        });
+
+        console.log(`Found ${schools.length} schools with missing district assignment`);
+
+        const repairedSchools: number[] = [];
+        const failedSchools: Array<{ code: number; reason: string }> = [];
+        const missedDistricts: number[] = [];
+
+        const allDistricts = await District.find({});
+        const districtMap = new Map(allDistricts.map(d => [d.code, d]));
+
+        for (const school of schools) {
+            try {
+                const schoolCode = school.code;
+                const districtCode = Math.floor(schoolCode / CODE_DIVISORS.SCHOOL_TO_DISTRICT);
+
+                const district = districtMap.get(districtCode);
+                if (!district) {
+                    console.log(`  ✗ District ${districtCode} not found for school ${schoolCode}`);
+                    missedDistricts.push(districtCode);
+                    failedSchools.push({ code: schoolCode, reason: `District ${districtCode} not found` });
+                    continue;
+                }
+
+                (school as unknown as Record<string, unknown>).district = district._id;
+                school.districtCode = districtCode;
+                await school.save();
+
+                repairedSchools.push(schoolCode);
+                console.log(`  ✓ Repaired school ${schoolCode} → district ${districtCode}`);
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                failedSchools.push({ code: school.code, reason: msg });
+                console.error(`  ✗ Failed to repair school ${school.code}: ${msg}`);
+            }
+        }
+
+        return { repairedSchools, failedSchools, missedDistricts };
     }
 
     private buildFilter(filters: FilterOptions): any {

@@ -139,6 +139,30 @@ export const updateUser = async (req: Request, res: Response) => {
     }
 }
 
+export const changePassword = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const { newPassword } = req.body;
+
+        if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
+            res.status(400).json({ message: "Yeni şifrə ən az 6 simvol olmalıdır" });
+            return;
+        }
+
+        const existingUser = await userService.findById(id);
+        if (!existingUser) {
+            res.status(404).json({ message: "İstifadəçi tapılmadı" });
+            return;
+        }
+
+        await userService.changePassword(id, newPassword);
+        res.status(200).json({ message: "Şifrə uğurla yeniləndi" });
+    } catch (error) {
+        console.error("Password change error:", error);
+        res.status(500).json({ message: "Server xətası" });
+    }
+}
+
 export const deleteUser = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;

@@ -1,4 +1,5 @@
-import { DeleteResult, Types } from "mongoose";
+import { DeleteResult, FilterQuery, Types } from "mongoose";
+import bcrypt from "bcrypt";
 import User, { IUser, IUserCreate, UserRole } from "../models/user.model";
 
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } from "../types/common.types";
@@ -57,7 +58,7 @@ export class UserService {
     ): Promise<{ data: IUser[], totalCount: number }> {
         const filter = this.buildFilter(filters);
         
-        const sortOptions: any = {};
+        const sortOptions: Record<string, 1 | -1> = {};
         sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
 
         const [data, totalCount] = await Promise.all([
@@ -86,10 +87,12 @@ export class UserService {
     }
 
     async changePassword(id: string, newPassword: string): Promise<void> {
-        // TODO: Implement password hashing
-        // const hashedPassword = await bcrypt.hash(newPassword, 10);
-        // await User.findByIdAndUpdate(id, { passwordHash: hashedPassword });
-        throw new Error('Password change not implemented yet');
+        const user = await User.findById(id);
+        if (!user) {
+            throw new Error('User not found');
+        }
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await User.findByIdAndUpdate(id, { passwordHash: hashedPassword });
     }
 
     async changeRole(id: string, role: UserRole): Promise<IUser> {
@@ -106,8 +109,8 @@ export class UserService {
         return user;
     }
 
-    private buildFilter(filters: FilterOptions): any {
-        const filter: any = {};
+    private buildFilter(filters: FilterOptions): FilterQuery<IUser> {
+        const filter: FilterQuery<IUser> = {};
 
         if (filters.active !== undefined) {
             filter.isApproved = filters.active;
