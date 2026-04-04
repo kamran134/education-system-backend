@@ -171,6 +171,34 @@ export class StatsService {
             console.log(`📅 Учебный год: ${academicYearStart}/${academicYearEnd}`);
 
             // ============================================================
+            // ШАГ 0: ИСПРАВЛЕНИЕ month/year ПО ДАТЕ ЭКЗАМЕНА
+            // ============================================================
+            console.log("\n🔧 Исправляем month/year в результатах по дате экзамена...");
+            const allExams = await Exam.find({}, { date: 1 }).lean();
+            const fixOps: any[] = [];
+            for (const exam of allExams) {
+                const examDate = new Date(exam.date);
+                const correctMonth = examDate.getUTCMonth() + 1;
+                const correctYear = examDate.getUTCFullYear();
+                fixOps.push({
+                    updateMany: {
+                        filter: {
+                            exam: exam._id,
+                            $or: [
+                                { month: { $ne: correctMonth } },
+                                { year: { $ne: correctYear } }
+                            ]
+                        },
+                        update: { $set: { month: correctMonth, year: correctYear } }
+                    }
+                });
+            }
+            if (fixOps.length > 0) {
+                const fixResult = await StudentResult.bulkWrite(fixOps);
+                console.log(`✅ Исправлено month/year для ${fixResult.modifiedCount} результатов`);
+            }
+
+            // ============================================================
             // ШАГ 1: ОБНУЛЕНИЕ ВСЕХ БАЛЛОВ И СТАТИСТИКИ
             // ============================================================
             console.log("\n🔄 Обнуляем все баллы и статистику...");
