@@ -44,6 +44,7 @@ export class RequestParser {
         const year = req.query.year as string;
         const search = req.query.search as string;
         const active = req.query.active !== undefined ? req.query.active === 'true' : undefined;
+        const role = req.query.role as string | undefined;
 
         return {
             districtIds,
@@ -55,7 +56,8 @@ export class RequestParser {
             month,
             year,
             search,
-            active
+            active,
+            role
         };
     }
 

@@ -116,6 +116,10 @@ export class UserService {
             filter.isApproved = filters.active;
         }
 
+        if (filters.role) {
+            filter.role = filters.role;
+        }
+
         return filter;
     }
 }

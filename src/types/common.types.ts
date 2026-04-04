@@ -27,6 +27,7 @@ export interface FilterOptions {
     active?: boolean;
     dateFrom?: string;
     dateTo?: string;
+    role?: string;
 }
 
 export interface SortOptions {
