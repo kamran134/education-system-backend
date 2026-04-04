@@ -190,15 +190,19 @@ export const refreshToken = async (req: Request, res: Response) => {
         );
         
         console.log('[REFRESH TOKEN] Updating tokens in database...');
-        // Сначала удаляем старый refresh token
-        await User.findByIdAndUpdate(userWithToken._id, {
-            $pull: { refreshTokens: refreshToken }
-        });
+        // Атомарная замена старого токена на новый (предотвращает race condition)
+        const updateResult = await User.findOneAndUpdate(
+            { _id: userWithToken._id, refreshTokens: refreshToken },
+            { $set: { 'refreshTokens.$': newRefreshToken } },
+            { new: true }
+        );
         
-        // Затем добавляем новый refresh token
-        await User.findByIdAndUpdate(userWithToken._id, {
-            $push: { refreshTokens: newRefreshToken }
-        });
+        // Если старый токен уже был удалён (параллельный запрос), просто добавляем новый
+        if (!updateResult) {
+            await User.findByIdAndUpdate(userWithToken._id, {
+                $push: { refreshTokens: newRefreshToken }
+            });
+        }
 
         console.log('[REFRESH TOKEN] Setting new refresh token cookie...');
         // Обновляем refresh token cookie

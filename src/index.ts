@@ -31,7 +31,14 @@ startTokenCleanupScheduler();
 
 // Отключаем логи на проде
 if (process.env.NODE_ENV === 'production') {
-  console.log = function() {};
+  // Сохраняем оригинальный console.log для auth-логов
+  const originalLog = console.log.bind(console);
+  console.log = function(...args: any[]) {
+    // Пропускаем auth-логи в проде для диагностики
+    if (typeof args[0] === 'string' && (args[0].startsWith('[LOGIN]') || args[0].startsWith('[REFRESH TOKEN]'))) {
+      originalLog(...args);
+    }
+  };
   console.debug = function() {};
   console.info = function() {};
   console.warn = function() {};
@@ -69,13 +76,18 @@ const generalLimiter = rateLimit({
     legacyHeaders: false,
 });
 
-// Строгий лимит для auth endpoints
+// Строгий лимит только для login/register (защита от брутфорса)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 минут
-    max: 20, // 20 попыток входа за 15 минут
+    max: 20, // 20 попыток за 15 минут
     message: { success: false, message: 'Çox sayda giriş cəhdi. Zəhmət olmasa bir az gözləyin.' },
     standardHeaders: true,
     legacyHeaders: false,
+    // Не считаем refresh, me, logout — только login/register
+    skip: (req) => {
+        const path = req.path;
+        return path === '/refresh' || path === '/me' || path === '/logout' || path === '/logout-all' || path === '/sessions';
+    },
 });
 
 app.use(generalLimiter);

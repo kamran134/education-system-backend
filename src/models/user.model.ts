@@ -53,4 +53,7 @@ const UserSchema = new mongoose.Schema({
     timestamps: true  // Автоматически добавит createdAt и updatedAt
 });
 
+// Индекс для быстрого поиска по refresh токенам (используется при каждом /refresh)
+UserSchema.index({ refreshTokens: 1 });
+
 export default mongoose.model<IUser>("User", UserSchema);
