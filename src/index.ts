@@ -68,12 +68,19 @@ app.use(cookieParser());
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Общий лимит для всех запросов (более мягкий)
+// Аутентифицированные пользователи (Bearer token) не подпадают под лимит —
+// брутфорс-угроза актуальна только для анонимных запросов.
 const generalLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 минут
-    max: 300, // 300 запросов за 15 минут (~20 запросов в минуту)
+    windowMs: 1 * 60 * 1000, // 1 dəqiqə
+    max: 100, // 100 sorğu dəqiqədə anonim IP-dən
     message: { success: false, message: 'Çox sayda sorğu göndərdiniz. Zəhmət olmasa bir az gözləyin.' },
     standardHeaders: true,
     legacyHeaders: false,
+    skip: (req) => {
+        // Autentifikasiya olunmuş requestləri say — onlar artıq loginə görə yoxlanılıb
+        const authHeader = req.headers.authorization;
+        return !!(authHeader && authHeader.startsWith('Bearer '));
+    },
 });
 
 // Строгий лимит только для login/register (защита от брутфорса)

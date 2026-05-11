@@ -9,7 +9,7 @@ const router = express.Router();
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 минут
     max: 10, // Максимум 10 попыток логина за 15 минут
-    message: { success: false, message: 'Çox sayda giriş cəhdi. Zəhmət olmasa 15 dəqiqə gözləyin.' },
+    message: { success: false, message: 'Çox sayda giriş cəhdi. Zəhmət olmasa bir az gözləyin.' },
     skipSuccessfulRequests: true, // Не считаем успешные попытки
     standardHeaders: true,
     legacyHeaders: false,
