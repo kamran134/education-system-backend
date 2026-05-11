@@ -1169,7 +1169,11 @@ export class StatsService {
         if (filters.grades && filters.grades.length > 0) {
             matchConditions['studentData.grade'] = { $in: filters.grades };
         }
-        
+
+        if (filters.levels && filters.levels.length > 0) {
+            matchConditions['level'] = { $in: filters.levels };
+        }
+
         if (filters.code) {
             matchConditions['studentData.code'] = { 
                 $gte: parseInt(codeString), 

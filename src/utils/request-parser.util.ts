@@ -39,6 +39,10 @@ export class RequestParser {
             ? (req.query.grades as string).split(',').map(grade => parseInt(grade, 10))
             : undefined;
 
+        const levels = req.query.levels && (req.query.levels as string).trim()
+            ? (req.query.levels as string).split(',').map(l => l.trim()).filter(l => l.length > 0)
+            : undefined;
+
         const code = req.query.code ? parseInt(req.query.code as string) : undefined;
         const month = req.query.month as string;
         const year = req.query.year as string;
@@ -53,6 +57,7 @@ export class RequestParser {
             teacherIds,
             examIds,
             grades,
+            levels,
             code,
             month,
             year,
