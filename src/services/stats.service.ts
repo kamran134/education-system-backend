@@ -514,8 +514,11 @@ export class StatsService {
             });
 
             if (studentResults.length === 0) {
-                console.log("❌ Нет результатов за текущий месяц");
-                return 404;
+                console.log("⚠️ Нет результатов за текущий месяц, пересчитываем общий score и рейтинг...");
+                await this.updateStudentScores();
+                await this.updateStudentPlaces();
+                console.log("✅ Score и рейтинг пересчитаны.");
+                return 200;
             }
 
             console.log(`📊 Найдено ${studentResults.length} результатов за ${currentMonth}/${currentYear}`);
