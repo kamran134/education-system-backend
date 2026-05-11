@@ -23,6 +23,7 @@ export interface FilterOptions {
     examIds?: Types.ObjectId[];
     month?: string;
     year?: string;
+    academicYear?: number;
     search?: string;
     active?: boolean;
     dateFrom?: string;

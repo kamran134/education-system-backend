@@ -42,6 +42,7 @@ export class RequestParser {
         const code = req.query.code ? parseInt(req.query.code as string) : undefined;
         const month = req.query.month as string;
         const year = req.query.year as string;
+        const academicYear = req.query.academicYear ? parseInt(req.query.academicYear as string) : undefined;
         const search = req.query.search as string;
         const active = req.query.active !== undefined ? req.query.active === 'true' : undefined;
         const role = req.query.role as string | undefined;
@@ -55,6 +56,7 @@ export class RequestParser {
             code,
             month,
             year,
+            academicYear,
             search,
             active,
             role

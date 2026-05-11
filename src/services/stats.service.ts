@@ -954,7 +954,7 @@ export class StatsService {
         const skip = (page - 1) * size;
 
         // Получаем ВСЕ данные для расчета мест
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const allData: any[] = await Teacher
             .find(filter)
             .collation({ locale: 'az', strength: 2 })
@@ -963,7 +963,7 @@ export class StatsService {
             .populate({ path: "school", populate: { path: "district", model: "District" } })
             .lean();
 
-        // Проецируем баллы текущего учебного года в корень объекта
+        // Проецируем баллы выбранного учебного года в корень объекта
         this.flattenCurrentYearRating(allData, currentYear);
 
         // Расчитываем места по тому же полю, по которому сортируем
@@ -1009,14 +1009,14 @@ export class StatsService {
         const skip = (page - 1) * size;
 
         // Получаем ВСЕ данные для расчета мест
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const allData: any[] = await School
             .find(filter)
             .collation({ locale: 'az', strength: 2 })
             .populate("district")
             .lean();
 
-        // Проецируем баллы текущего учебного года в корень объекта
+        // Проецируем баллы выбранного учебного года в корень объекта
         this.flattenCurrentYearRating(allData, currentYear);
 
         // Расчитываем места по тому же полю, по которому сортируем
@@ -1063,13 +1063,13 @@ export class StatsService {
         const skip = (page - 1) * size;
 
         // Получаем ВСЕ данные для расчета мест
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const allData: any[] = await District
             .find(filter)
             .collation({ locale: 'az', strength: 2 })
             .lean();
 
-        // Проецируем баллы текущего учебного года в корень объекта
+        // Проецируем баллы выбранного учебного года в корень объекта
         this.flattenCurrentYearRating(allData, currentYear);
 
         // Расчитываем места по тому же полю, по которому сортируем
@@ -1215,6 +1215,7 @@ export class StatsService {
                 {
                     $group: {
                         _id: '$student',
+                        participationCount: { $sum: 1 },
                         totalParticipationScore: { 
                             $sum: { $ifNull: ['$participationScore', 0] }
                         },
@@ -1257,6 +1258,9 @@ export class StatsService {
                     update: { 
                         $set: { 
                             score: scoreData.totalScore,
+                            averageScore: scoreData.participationCount > 0
+                                ? scoreData.totalScore / scoreData.participationCount
+                                : 0,
                             participationScore: scoreData.totalParticipationScore,
                             developmentScore: scoreData.totalDevelopmentScore,
                             studentOfTheMonthScore: scoreData.totalStudentOfTheMonthScore,

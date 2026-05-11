@@ -12,6 +12,7 @@ import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } fr
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_DIVISORS } from "../utils/entity-codes.const";
+import { getCurrentAcademicYear } from "../utils/academic-year.util";
 
 export class StudentService {
 
@@ -169,16 +170,27 @@ export class StudentService {
         // Step 2: Full pipeline with all $lookups, but sort + paginate in MongoDB.
         // Only loads one page of data — no more loading all N thousand records.
         const sortDir = sort.sortDirection === 'asc' ? 1 : -1;
+        const academicYear = filters.academicYear ?? getCurrentAcademicYear();
 
         const pipeline: PipelineStage[] = [
             { $match: filter },
 
-            // Lookup student results to count participations
+            // Lookup student results to count participations (filtered by academic year)
             {
                 $lookup: {
                     from: 'studentresults',
-                    localField: '_id',
-                    foreignField: 'student',
+                    let: { studentId: '$_id' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: { $eq: ['$student', '$$studentId'] },
+                                $or: [
+                                    { month: { $in: [9, 10, 11, 12] }, year: academicYear },
+                                    { month: { $in: [1, 2, 3, 4, 5, 6] }, year: academicYear + 1 }
+                                ]
+                            }
+                        }
+                    ],
                     as: 'results'
                 }
             },
