@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { StatisticsService } from '../services/statistics.service';
-import { StatisticsFilter } from '../types/statistics.types';
+import { StatisticsFilter, InkishafFilter } from '../types/statistics.types';
 import { ResponseHandler } from '../utils/response-handler.util';
 
 export class StatisticsController {
@@ -91,6 +91,36 @@ export class StatisticsController {
         } catch (error: any) {
             console.error('Error in getStatistics:', error);
             res.status(500).json(ResponseHandler.internalError('Error fetching statistics', error));
+        }
+    }
+
+    /**
+     * Получить статистику inkişaf edən şagirdlər по минимуму участий
+     * GET /api/statistics/inkishaf
+     */
+    async getInkishafStatistics(req: Request, res: Response): Promise<void> {
+        try {
+            const filters: InkishafFilter = {
+                districtIds: req.query.districtIds
+                    ? (req.query.districtIds as string).split(',').filter(id => id.trim() !== '')
+                    : undefined,
+                schoolIds: req.query.schoolIds
+                    ? (req.query.schoolIds as string).split(',').filter(id => id.trim() !== '')
+                    : undefined,
+                grades: req.query.grades
+                    ? (req.query.grades as string).split(',').map(Number).filter(g => !isNaN(g))
+                    : undefined,
+                year: req.query.year ? parseInt(req.query.year as string) : undefined,
+                minParticipations: req.query.minParticipations
+                    ? parseInt(req.query.minParticipations as string)
+                    : 2
+            };
+
+            const statistics = await this.statisticsService.getInkishafStatistics(filters);
+            res.status(200).json(ResponseHandler.success(statistics));
+        } catch (error: any) {
+            console.error('Error in getInkishafStatistics:', error);
+            res.status(500).json(ResponseHandler.internalError('Error fetching inkishaf statistics', error));
         }
     }
 }

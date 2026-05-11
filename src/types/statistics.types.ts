@@ -48,3 +48,15 @@ export interface StatisticsResponse {
     yearly: YearlyStatistics;
     monthly: MonthlyStatistics[];
 }
+
+export interface InkishafStatistics {
+    minParticipations: number; // Фильтр — минимум участий
+    maxParticipations: number; // Максимум участий в данных (для UI)
+    baseCount: number;         // Студентов с >= minParticipations участий
+    developingCount: number;   // Из них — inkişaf edən
+    percentage: number;        // developingCount / baseCount * 100
+}
+
+export interface InkishafFilter extends StatisticsFilter {
+    minParticipations?: number;
+}

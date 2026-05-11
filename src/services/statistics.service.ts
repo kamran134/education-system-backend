@@ -7,7 +7,9 @@ import {
     MonthlyStatistics, 
     StatisticsResponse,
     StatusStatistics,
-    LevelStatistics
+    LevelStatistics,
+    InkishafStatistics,
+    InkishafFilter
 } from "../types/statistics.types";
 
 export class StatisticsService {
@@ -335,5 +337,85 @@ export class StatisticsService {
         ]);
 
         return { yearly, monthly };
+    }
+
+    /**
+     * Получить статистику İnkişaf edən şagirdlər среди студентов
+     * с минимальным количеством участий в экзаменах за учебный год.
+     */
+    async getInkishafStatistics(filters: InkishafFilter = {}): Promise<InkishafStatistics> {
+        const year = filters.year || this.getCurrentAcademicYear();
+        const { startDate, endDate } = this.getAcademicYearDates(year);
+        const minParticipations = filters.minParticipations && filters.minParticipations >= 2
+            ? filters.minParticipations
+            : 2;
+
+        // Фильтр экзаменов за учебный год
+        const examDateFilter: any = { date: { $gte: startDate, $lt: endDate } };
+        const exams = await Exam.find(examDateFilter).select('_id');
+        const examIds = exams.map(e => e._id);
+
+        // Фильтр студентов
+        const studentFilter: any = {};
+        if (filters.districtIds && filters.districtIds.length > 0) {
+            studentFilter.district = { $in: filters.districtIds };
+        }
+        if (filters.schoolIds && filters.schoolIds.length > 0) {
+            studentFilter.school = { $in: filters.schoolIds };
+        }
+        if (filters.grades && filters.grades.length > 0) {
+            studentFilter.grade = { $in: filters.grades };
+        }
+
+        const students = await Student.find(studentFilter).select('_id');
+        const studentIds = students.map(s => s._id);
+
+        // Все результаты за учебный год для этих студентов
+        const results = await StudentResult.find({
+            exam: { $in: examIds },
+            student: { $in: studentIds }
+        }).select('student developmentScore');
+
+        // Считаем участия и inkişaf по каждому студенту
+        const participationMap = new Map<string, { count: number; hasDevelopment: boolean }>();
+        results.forEach(r => {
+            const sid = r.student.toString();
+            if (!participationMap.has(sid)) {
+                participationMap.set(sid, { count: 0, hasDevelopment: false });
+            }
+            const entry = participationMap.get(sid)!;
+            entry.count++;
+            if (r.developmentScore && r.developmentScore > 0) {
+                entry.hasDevelopment = true;
+            }
+        });
+
+        // Максимум участий в данных
+        let maxParticipations = 0;
+        participationMap.forEach(entry => {
+            if (entry.count > maxParticipations) maxParticipations = entry.count;
+        });
+
+        // Студенты с >= minParticipations участий
+        let baseCount = 0;
+        let developingCount = 0;
+        participationMap.forEach(entry => {
+            if (entry.count >= minParticipations) {
+                baseCount++;
+                if (entry.hasDevelopment) developingCount++;
+            }
+        });
+
+        const percentage = baseCount > 0
+            ? Math.round((developingCount / baseCount) * 100 * 100) / 100
+            : 0;
+
+        return {
+            minParticipations,
+            maxParticipations: Math.max(maxParticipations, minParticipations),
+            baseCount,
+            developingCount,
+            percentage
+        };
     }
 }
