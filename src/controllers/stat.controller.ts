@@ -195,13 +195,16 @@ export class StatsController {
                 size: parseInt(req.query.size as string) || 100
             };
 
-            // Apply RBAC filtering
-            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
-            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
-            } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
+            // Apply RBAC filtering — if linked ID is missing, return empty (fail-safe)
+            if (req.user?.role === 'districtRepresenter') {
+                if (!req.user.districtId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
+                filters.districtIds = [new Types.ObjectId(req.user.districtId)];
+            } else if (req.user?.role === 'schoolDirector') {
+                if (!req.user.schoolId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId)];
+            } else if (req.user?.role === 'teacher') {
+                if (!req.user.teacherId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
             }
 
             const statistics = await this.statsUseCase.getTeacherStatistics(filters);
@@ -222,11 +225,16 @@ export class StatsController {
                 size: parseInt(req.query.size as string) || 100
             };
 
-            // Apply RBAC filtering
-            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
-            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
+            // Apply RBAC filtering — if linked ID is missing, return empty (fail-safe)
+            if (req.user?.role === 'districtRepresenter') {
+                if (!req.user.districtId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
+                filters.districtIds = [new Types.ObjectId(req.user.districtId)];
+            } else if (req.user?.role === 'schoolDirector') {
+                if (!req.user.schoolId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
+                filters.schoolIds = [new Types.ObjectId(req.user.schoolId)];
+            } else if (req.user?.role === 'teacher') {
+                // Teacher should not access school stats at all
+                res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return;
             }
 
             const statistics = await this.statsUseCase.getSchoolStatistics(filters);
@@ -247,9 +255,13 @@ export class StatsController {
                 size: parseInt(req.query.size as string) || 100
             };
 
-            // Apply RBAC filtering
-            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
+            // Apply RBAC filtering — if linked ID is missing, return empty (fail-safe)
+            if (req.user?.role === 'districtRepresenter') {
+                if (!req.user.districtId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
+                filters.districtIds = [new Types.ObjectId(req.user.districtId)];
+            } else if (req.user?.role === 'schoolDirector' || req.user?.role === 'teacher') {
+                // School directors and teachers should not access district stats
+                res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return;
             }
 
             const statistics = await this.statsUseCase.getDistrictStatistics(filters);
