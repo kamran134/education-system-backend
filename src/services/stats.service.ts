@@ -949,6 +949,10 @@ export class StatsService {
             filter.school = { $in: filters.schoolIds };
         }
 
+        if (filters.teacherIds && filters.teacherIds.length > 0) {
+            filter._id = { $in: filters.teacherIds };
+        }
+
         const sortOptions: any = {};
         sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
         
@@ -1004,6 +1008,10 @@ export class StatsService {
             filter.district = { $in: filters.districtIds };
         }
 
+        if (filters.schoolIds && filters.schoolIds.length > 0) {
+            filter._id = { $in: filters.schoolIds };
+        }
+
         const sortOptions: any = {};
         sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
 
@@ -1052,6 +1060,10 @@ export class StatsService {
         if (cached) return cached;
 
         const filter: any = {};
+
+        if (filters.districtIds && filters.districtIds.length > 0) {
+            filter._id = { $in: filters.districtIds };
+        }
 
         if (filters.code) {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
