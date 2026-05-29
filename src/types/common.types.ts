@@ -18,6 +18,7 @@ export interface FilterOptions {
     districtIds?: Types.ObjectId[];
     schoolIds?: Types.ObjectId[];
     teacherIds?: Types.ObjectId[];
+    studentIds?: Types.ObjectId[];
     grades?: number[];
     levels?: string[];
     code?: number;

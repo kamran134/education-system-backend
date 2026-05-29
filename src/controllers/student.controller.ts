@@ -6,6 +6,7 @@ import { StudentResultService } from "../services/studentResult.service";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import Student from "../models/student.model";
+import Teacher from "../models/teacher.model";
 import fs from 'fs';
 import path from 'path';
 import { smartCrop } from '../utils/smart-crop.util';
@@ -33,8 +34,13 @@ export class StudentController {
                 // School director sees students from their school
                 filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                // Teacher sees only their students
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
+                // Teacher sees students from their school
+                const teacher = await Teacher.findById(req.user.teacherId).select('school').lean();
+                if (!teacher?.school) {
+                    res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0, page: 1, size: pagination.size, totalPages: 0 }));
+                    return;
+                }
+                filters.schoolIds = [new Types.ObjectId((teacher.school as any).toString())];
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 // Student sees only themselves - filter by student ID
                 // We'll need to add this filter type

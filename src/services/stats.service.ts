@@ -1177,6 +1177,10 @@ export class StatsService {
         if (filters.teacherIds && filters.teacherIds.length > 0) {
             matchConditions['studentData.teacher._id'] = { $in: filters.teacherIds };
         }
+
+        if (filters.studentIds && filters.studentIds.length > 0) {
+            matchConditions['studentData._id'] = { $in: filters.studentIds };
+        }
         
         if (filters.grades && filters.grades.length > 0) {
             matchConditions['studentData.grade'] = { $in: filters.grades };

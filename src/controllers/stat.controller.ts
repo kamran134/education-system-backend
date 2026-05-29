@@ -5,6 +5,7 @@ import { StatsService } from "../services/stats.service";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { migrateRatingsFromFlatFields } from "../utils/migrate-ratings";
+import Teacher from "../models/teacher.model";
 
 export class StatsController {
     private statsUseCase: StatsUseCase;
@@ -57,7 +58,12 @@ export class StatsController {
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
+                const teacher = await Teacher.findById(req.user.teacherId).select('school').lean();
+                if (!teacher?.school) { res.status(200).json(ResponseHandler.success({ studentsOfMonth: [], studentsOfMonthByRepublic: [], developingStudents: [] })); return; }
+                filters.schoolIds = [new Types.ObjectId((teacher.school as any).toString())];
+                delete filters.teacherIds;
+            } else if (req.user?.role === 'student' && req.user.studentId) {
+                filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
             }
 
             const statistics = await this.statsUseCase.getStudentStatistics(filters);
@@ -89,7 +95,12 @@ export class StatsController {
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
+                const teacher = await Teacher.findById(req.user.teacherId).select('school').lean();
+                if (!teacher?.school) { res.status(200).json(ResponseHandler.success([])); return; }
+                filters.schoolIds = [new Types.ObjectId((teacher.school as any).toString())];
+                delete filters.teacherIds;
+            } else if (req.user?.role === 'student' && req.user.studentId) {
+                filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
             }
 
             const students = await this.statsUseCase.getDevelopingStudents(filters);
@@ -121,7 +132,12 @@ export class StatsController {
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
+                const teacher = await Teacher.findById(req.user.teacherId).select('school').lean();
+                if (!teacher?.school) { res.status(200).json(ResponseHandler.success([])); return; }
+                filters.schoolIds = [new Types.ObjectId((teacher.school as any).toString())];
+                delete filters.teacherIds;
+            } else if (req.user?.role === 'student' && req.user.studentId) {
+                filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
             }
 
             const students = await this.statsUseCase.getStudentsOfMonth(filters);
@@ -153,7 +169,12 @@ export class StatsController {
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
+                const teacher = await Teacher.findById(req.user.teacherId).select('school').lean();
+                if (!teacher?.school) { res.status(200).json(ResponseHandler.success([])); return; }
+                filters.schoolIds = [new Types.ObjectId((teacher.school as any).toString())];
+                delete filters.teacherIds;
+            } else if (req.user?.role === 'student' && req.user.studentId) {
+                filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
             }
 
             const students = await this.statsUseCase.getStudentsOfMonthByRepublic(filters);
