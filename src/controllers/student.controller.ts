@@ -41,6 +41,7 @@ export class StudentController {
                     return;
                 }
                 filters.schoolIds = [new Types.ObjectId((teacher.school as any).toString())];
+                delete filters.teacherIds; // don't filter by teacher — show all school students
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 // Student sees only themselves - filter by student ID
                 // We'll need to add this filter type
