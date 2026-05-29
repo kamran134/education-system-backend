@@ -58,10 +58,9 @@ export class StatsController {
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                const teacher = await Teacher.findById(req.user.teacherId).select('school').lean();
-                if (!teacher?.school) { res.status(200).json(ResponseHandler.success({ studentsOfMonth: [], studentsOfMonthByRepublic: [], developingStudents: [] })); return; }
-                filters.schoolIds = [new Types.ObjectId((teacher.school as any).toString())];
-                delete filters.teacherIds;
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
+                delete filters.schoolIds;
+                delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
             }
@@ -95,10 +94,9 @@ export class StatsController {
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                const teacher = await Teacher.findById(req.user.teacherId).select('school').lean();
-                if (!teacher?.school) { res.status(200).json(ResponseHandler.success([])); return; }
-                filters.schoolIds = [new Types.ObjectId((teacher.school as any).toString())];
-                delete filters.teacherIds;
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
+                delete filters.schoolIds;
+                delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
             }
@@ -132,10 +130,9 @@ export class StatsController {
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                const teacher = await Teacher.findById(req.user.teacherId).select('school').lean();
-                if (!teacher?.school) { res.status(200).json(ResponseHandler.success([])); return; }
-                filters.schoolIds = [new Types.ObjectId((teacher.school as any).toString())];
-                delete filters.teacherIds;
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
+                delete filters.schoolIds;
+                delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
             }
@@ -169,10 +166,9 @@ export class StatsController {
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                const teacher = await Teacher.findById(req.user.teacherId).select('school').lean();
-                if (!teacher?.school) { res.status(200).json(ResponseHandler.success([])); return; }
-                filters.schoolIds = [new Types.ObjectId((teacher.school as any).toString())];
-                delete filters.teacherIds;
+                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
+                delete filters.schoolIds;
+                delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
             }
