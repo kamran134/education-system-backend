@@ -939,56 +939,67 @@ export class StatsService {
         const cached = this.cache.get<{ data: ITeacher[], totalCount: number }>(cacheKey);
         if (cached) return cached;
 
-        const filter: any = { active: true };
-
+        // Build filter for the full ranking set (all active teachers, narrowed by district/school)
+        const rankingFilter: any = { active: true };
         if (filters.districtIds && filters.districtIds.length > 0) {
-            filter.district = { $in: filters.districtIds };
+            rankingFilter.district = { $in: filters.districtIds };
         }
-        
         if (filters.schoolIds && filters.schoolIds.length > 0) {
-            filter.school = { $in: filters.schoolIds };
-        }
-
-        if (filters.teacherIds && filters.teacherIds.length > 0) {
-            filter._id = { $in: filters.teacherIds };
+            rankingFilter.school = { $in: filters.schoolIds };
         }
 
         const sortOptions: any = {};
         sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
-        
+
         const page = filters.page || 1;
         const size = filters.size || 100;
         const skip = (page - 1) * size;
 
-        // Получаем ВСЕ данные для расчета мест
+        // Load ALL teachers in scope to calculate places correctly
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const allData: any[] = await Teacher
-            .find(filter)
+            .find(rankingFilter)
             .collation({ locale: 'az', strength: 2 })
             .populate("district")
             .populate("school")
             .populate({ path: "school", populate: { path: "district", model: "District" } })
             .lean();
 
-        // Проецируем баллы выбранного учебного года в корень объекта
         this.flattenCurrentYearRating(allData, currentYear);
-
-        // Расчитываем места по тому же полю, по которому сортируем
         assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
-        // Применяем пагинацию
-        const paginatedData = allData.slice(skip, skip + size);
+        // If filtering by specific teacherIds (teacher viewing own record), return only those
+        let resultData: any[];
+        let totalCount: number;
+        if (filters.teacherIds && filters.teacherIds.length > 0) {
+            const idSet = new Set(filters.teacherIds.map(id => id.toString()));
+            resultData = allData.filter(t => idSet.has(t._id.toString()));
+            // If the teacher is inactive they won't be in allData; fetch directly without active filter
+            if (resultData.length === 0) {
+                const directData: any[] = await Teacher
+                    .find({ _id: { $in: filters.teacherIds } })
+                    .populate("district")
+                    .populate("school")
+                    .populate({ path: "school", populate: { path: "district", model: "District" } })
+                    .lean();
+                this.flattenCurrentYearRating(directData, currentYear);
+                // Place is unknown for inactive teachers — set null
+                directData.forEach(t => { t.place = null; });
+                resultData = directData;
+            }
+            totalCount = resultData.length;
+        } else {
+            resultData = allData.slice(skip, skip + size);
+            totalCount = allData.length;
+        }
 
-        // Добавляем значения по умолчанию для отсутствующих полей
-        paginatedData.forEach((teacher: any) => {
+        resultData.forEach((teacher: any) => {
             if (teacher.studentCount === undefined || teacher.studentCount === null) {
                 teacher.studentCount = 0;
             }
         });
 
-        const totalCount = await Teacher.countDocuments(filter);
-
-        const result = { data: paginatedData as unknown as ITeacher[], totalCount };
+        const result = { data: resultData as unknown as ITeacher[], totalCount };
         this.cache.set(cacheKey, result);
         return result;
     }
@@ -1002,50 +1013,46 @@ export class StatsService {
         const cached = this.cache.get<{ data: ISchool[], totalCount: number }>(cacheKey);
         if (cached) return cached;
 
-        const filter: any = { active: true };
-
+        // Ranking filter: all active schools, optionally scoped to a district
+        const rankingFilter: any = { active: true };
         if (filters.districtIds && filters.districtIds.length > 0) {
-            filter.district = { $in: filters.districtIds };
+            rankingFilter.district = { $in: filters.districtIds };
         }
-
-        if (filters.schoolIds && filters.schoolIds.length > 0) {
-            filter._id = { $in: filters.schoolIds };
-        }
-
-        const sortOptions: any = {};
-        sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
 
         const page = filters.page || 1;
         const size = filters.size || 100;
         const skip = (page - 1) * size;
 
-        // Получаем ВСЕ данные для расчета мест
+        // Load ALL schools in scope to calculate places correctly
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const allData: any[] = await School
-            .find(filter)
+            .find(rankingFilter)
             .collation({ locale: 'az', strength: 2 })
             .populate("district")
             .lean();
 
-        // Проецируем баллы выбранного учебного года в корень объекта
         this.flattenCurrentYearRating(allData, currentYear);
-
-        // Расчитываем места по тому же полю, по которому сортируем
         assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
-        // Применяем пагинацию
-        const paginatedData = allData.slice(skip, skip + size);
+        // If filtering by specific schoolIds (schoolDirector viewing own school), return only those
+        let resultData: any[];
+        let totalCount: number;
+        if (filters.schoolIds && filters.schoolIds.length > 0) {
+            const idSet = new Set(filters.schoolIds.map(id => id.toString()));
+            resultData = allData.filter(s => idSet.has(s._id.toString()));
+            totalCount = resultData.length;
+        } else {
+            resultData = allData.slice(skip, skip + size);
+            totalCount = allData.length;
+        }
 
-        // Добавляем значения по умолчанию для отсутствующих полей
-        paginatedData.forEach((school: any) => {
+        resultData.forEach((school: any) => {
             if (school.studentCount === undefined || school.studentCount === null) {
                 school.studentCount = 0;
             }
         });
 
-        const totalCount = await School.countDocuments(filter);
-
-        const result = { data: paginatedData as unknown as ISchool[], totalCount };
+        const result = { data: resultData as unknown as ISchool[], totalCount };
         this.cache.set(cacheKey, result);
         return result;
     }
@@ -1059,50 +1066,46 @@ export class StatsService {
         const cached = this.cache.get<{ data: IDistrict[], totalCount: number }>(cacheKey);
         if (cached) return cached;
 
-        const filter: any = {};
-
-        if (filters.districtIds && filters.districtIds.length > 0) {
-            filter._id = { $in: filters.districtIds };
-        }
-
+        // Ranking filter: all districts (code range is admin-only scoping, not RBAC)
+        const rankingFilter: any = {};
         if (filters.code) {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
-            filter.code = { $gte: start, $lte: end };
+            rankingFilter.code = { $gte: start, $lte: end };
         }
-
-        const sortOptions: any = {};
-        sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
 
         const page = filters.page || 1;
         const size = filters.size || 100;
         const skip = (page - 1) * size;
 
-        // Получаем ВСЕ данные для расчета мест
+        // Load ALL districts in scope to calculate places correctly
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const allData: any[] = await District
-            .find(filter)
+            .find(rankingFilter)
             .collation({ locale: 'az', strength: 2 })
             .lean();
 
-        // Проецируем баллы выбранного учебного года в корень объекта
         this.flattenCurrentYearRating(allData, currentYear);
-
-        // Расчитываем места по тому же полю, по которому сортируем
         assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
-        // Применяем пагинацию
-        const paginatedData = allData.slice(skip, skip + size);
+        // If filtering by specific districtIds (districtRepresenter viewing own district), return only those
+        let resultData: any[];
+        let totalCount: number;
+        if (filters.districtIds && filters.districtIds.length > 0) {
+            const idSet = new Set(filters.districtIds.map(id => id.toString()));
+            resultData = allData.filter(d => idSet.has(d._id.toString()));
+            totalCount = resultData.length;
+        } else {
+            resultData = allData.slice(skip, skip + size);
+            totalCount = allData.length;
+        }
 
-        // Добавляем значения по умолчанию для отсутствующих полей
-        paginatedData.forEach((district: any) => {
+        resultData.forEach((district: any) => {
             if (district.studentCount === undefined || district.studentCount === null) {
                 district.studentCount = 0;
             }
         });
 
-        const totalCount = await District.countDocuments(filter);
-
-        const result = { data: paginatedData as unknown as IDistrict[], totalCount };
+        const result = { data: resultData as unknown as IDistrict[], totalCount };
         this.cache.set(cacheKey, result);
         return result;
     }
