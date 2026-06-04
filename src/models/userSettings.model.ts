@@ -11,6 +11,7 @@ export interface IUserSettingsInput {
     teacherViewCollumns?: string[];
     directorViewCollumns?: string[];
     districtViewCollumns?: string[];
+    studentViewCollumns?: string[];
 }
 
 export interface IUserSettings extends Document {
@@ -24,6 +25,7 @@ export interface IUserSettings extends Document {
     teacherViewCollumns?: string[];
     directorViewCollumns?: string[];
     districtViewCollumns?: string[];
+    studentViewCollumns?: string[];
 }
 
 const UserSettingsSchema: Schema = new Schema({
@@ -36,7 +38,8 @@ const UserSettingsSchema: Schema = new Schema({
     allDistrictCollumns: { type: [String], required: false, default: [] },
     teacherViewCollumns: { type: [String], required: false, default: [] },
     directorViewCollumns: { type: [String], required: false, default: [] },
-    districtViewCollumns: { type: [String], required: false, default: [] }
+    districtViewCollumns: { type: [String], required: false, default: [] },
+    studentViewCollumns: { type: [String], required: false, default: [] }
 }, {
     timestamps: true,
     versionKey: false
