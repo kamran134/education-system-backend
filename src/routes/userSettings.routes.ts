@@ -1,8 +1,12 @@
 import express from 'express';
-import { allRegisteredRoles } from '../middleware/auth.middleware';
-import { getUserSettings, updateUserSettings } from '../controllers/userSettings.controller';
+import { allRegisteredRoles, authMiddleware } from '../middleware/auth.middleware';
+import { getUserSettings, updateUserSettings, getGlobalSettings, updateGlobalSettings } from '../controllers/userSettings.controller';
 
 const router = express.Router();
+
+router.route('/global')
+    .get(allRegisteredRoles, getGlobalSettings)
+    .put(authMiddleware(['admin', 'superadmin']), updateGlobalSettings);
 
 router.route('/')
     .get(allRegisteredRoles, getUserSettings)

@@ -3,6 +3,39 @@ import { StatisticsService } from '../services/statistics.service';
 import { StatisticsFilter, InkishafFilter } from '../types/statistics.types';
 import { ResponseHandler } from '../utils/response-handler.util';
 
+/** Текущий учебный год (начало, напр. 2025 для 2025/2026) */
+function getCurrentAcademicYear(): number {
+    const now = new Date();
+    return now.getMonth() + 1 >= 9 ? now.getFullYear() : now.getFullYear() - 1;
+}
+
+/** Применяет RBAC: перезаписывает фильтры на основе роли JWT-пользователя */
+function applyRbacFilters(req: Request, filters: StatisticsFilter): void {
+    const user = req.user;
+    if (!user) return;
+    const adminRoles = ['admin', 'superadmin'];
+    if (adminRoles.includes(user.role)) return; // admins see everything
+
+    // Все не-админы видят только текущий учебный год
+    if (!filters.year) {
+        filters.year = getCurrentAcademicYear();
+    }
+
+    if (user.role === 'teacher' && user.teacherId) {
+        filters.teacherIds = [user.teacherId];
+        delete filters.districtIds;
+        delete filters.schoolIds;
+    } else if (user.role === 'schoolDirector' && user.schoolId) {
+        filters.schoolIds = [user.schoolId];
+        delete filters.districtIds;
+        delete filters.teacherIds;
+    } else if (user.role === 'districtRepresenter' && user.districtId) {
+        filters.districtIds = [user.districtId];
+        delete filters.schoolIds;
+        delete filters.teacherIds;
+    }
+}
+
 export class StatisticsController {
     private statisticsService: StatisticsService;
 
@@ -29,6 +62,7 @@ export class StatisticsController {
                 year: req.query.year ? parseInt(req.query.year as string) : undefined,
                 month: req.query.month as string
             };
+            applyRbacFilters(req, filters);
 
             const statistics = await this.statisticsService.getYearlyStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));
@@ -57,6 +91,7 @@ export class StatisticsController {
                 year: req.query.year ? parseInt(req.query.year as string) : undefined,
                 month: req.query.month as string
             };
+            applyRbacFilters(req, filters);
 
             const statistics = await this.statisticsService.getMonthlyStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));
@@ -85,6 +120,7 @@ export class StatisticsController {
                 year: req.query.year ? parseInt(req.query.year as string) : undefined,
                 month: req.query.month as string
             };
+            applyRbacFilters(req, filters);
 
             const statistics = await this.statisticsService.getStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));
@@ -115,6 +151,7 @@ export class StatisticsController {
                     ? parseInt(req.query.minParticipations as string)
                     : 2
             };
+            applyRbacFilters(req, filters);
 
             const statistics = await this.statisticsService.getInkishafStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));

@@ -71,6 +71,9 @@ export class StatisticsService {
         if (filters.schoolIds && filters.schoolIds.length > 0) {
             studentFilter.school = { $in: filters.schoolIds };
         }
+        if (filters.teacherIds && filters.teacherIds.length > 0) {
+            studentFilter.teacher = { $in: filters.teacherIds };
+        }
         if (filters.grades && filters.grades.length > 0) {
             studentFilter.grade = { $in: filters.grades };
         }
@@ -189,6 +192,9 @@ export class StatisticsService {
         }
         if (filters.schoolIds && filters.schoolIds.length > 0) {
             studentFilter.school = { $in: filters.schoolIds };
+        }
+        if (filters.teacherIds && filters.teacherIds.length > 0) {
+            studentFilter.teacher = { $in: filters.teacherIds };
         }
         if (filters.grades && filters.grades.length > 0) {
             studentFilter.grade = { $in: filters.grades };
@@ -362,6 +368,9 @@ export class StatisticsService {
         }
         if (filters.schoolIds && filters.schoolIds.length > 0) {
             studentFilter.school = { $in: filters.schoolIds };
+        }
+        if (filters.teacherIds && filters.teacherIds.length > 0) {
+            studentFilter.teacher = { $in: filters.teacherIds };
         }
         if (filters.grades && filters.grades.length > 0) {
             studentFilter.grade = { $in: filters.grades };

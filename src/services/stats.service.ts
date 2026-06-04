@@ -966,6 +966,19 @@ export class StatsService {
             .lean();
 
         this.flattenCurrentYearRating(allData, currentYear);
+
+        // Compute district-level places first, save as districtPlace
+        const districtGroupsT = new Map<string, any[]>();
+        allData.forEach((t: any) => {
+            const distId = (t.district?._id || t.district)?.toString() || '__unknown__';
+            if (!districtGroupsT.has(distId)) districtGroupsT.set(distId, []);
+            districtGroupsT.get(distId)!.push(t);
+        });
+        districtGroupsT.forEach(group => {
+            assignPlaces(group, sortColumn as 'averageScore' | 'score');
+            group.forEach((t: any) => { t.districtPlace = t.place; });
+        });
+        // Compute republic-wide places (restores place field)
         assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
         // If filtering by specific teacherIds (teacher viewing own record), return only those
@@ -1032,6 +1045,19 @@ export class StatsService {
             .lean();
 
         this.flattenCurrentYearRating(allData, currentYear);
+
+        // Compute district-level places first, save as districtPlace
+        const districtGroupsS = new Map<string, any[]>();
+        allData.forEach((s: any) => {
+            const distId = (s.district?._id || s.district)?.toString() || '__unknown__';
+            if (!districtGroupsS.has(distId)) districtGroupsS.set(distId, []);
+            districtGroupsS.get(distId)!.push(s);
+        });
+        districtGroupsS.forEach(group => {
+            assignPlaces(group, sortColumn as 'averageScore' | 'score');
+            group.forEach((s: any) => { s.districtPlace = s.place; });
+        });
+        // Compute republic-wide places (restores place field)
         assignPlaces(allData, sortColumn as 'averageScore' | 'score');
 
         // If filtering by specific schoolIds (schoolDirector viewing own school), return only those
