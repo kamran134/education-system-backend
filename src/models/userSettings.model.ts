@@ -1,5 +1,23 @@
 import mongoose, { Schema, Types } from "mongoose";
 
+export interface IRoleTabSettings {
+    developingStudents?: string[];
+    monthStudents?: string[];
+    republicMonthStudents?: string[];
+    allStudents?: string[];
+    allTeachers?: string[];
+    allSchools?: string[];
+    allDistricts?: string[];
+}
+
+export interface IRoleSettings {
+    moderator?: IRoleTabSettings;
+    districtRepresenter?: IRoleTabSettings;
+    schoolDirector?: IRoleTabSettings;
+    teacher?: IRoleTabSettings;
+    student?: IRoleTabSettings;
+}
+
 export interface IUserSettingsInput {
     userId: Types.ObjectId;
     developingStudentCollumns?: string[];
@@ -12,6 +30,7 @@ export interface IUserSettingsInput {
     directorViewCollumns?: string[];
     districtViewCollumns?: string[];
     studentViewCollumns?: string[];
+    roleSettings?: IRoleSettings;
 }
 
 export interface IUserSettings extends Document {
@@ -26,6 +45,7 @@ export interface IUserSettings extends Document {
     directorViewCollumns?: string[];
     districtViewCollumns?: string[];
     studentViewCollumns?: string[];
+    roleSettings?: IRoleSettings;
 }
 
 const UserSettingsSchema: Schema = new Schema({
@@ -39,7 +59,8 @@ const UserSettingsSchema: Schema = new Schema({
     teacherViewCollumns: { type: [String], required: false, default: [] },
     directorViewCollumns: { type: [String], required: false, default: [] },
     districtViewCollumns: { type: [String], required: false, default: [] },
-    studentViewCollumns: { type: [String], required: false, default: [] }
+    studentViewCollumns: { type: [String], required: false, default: [] },
+    roleSettings: { type: Schema.Types.Mixed, required: false, default: {} }
 }, {
     timestamps: true,
     versionKey: false

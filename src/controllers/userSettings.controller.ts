@@ -56,10 +56,10 @@ export const getGlobalSettings = async (req: Request, res: Response) => {
 /** Update global role-view column settings (admin/superadmin only) */
 export const updateGlobalSettings = async (req: Request, res: Response) => {
     try {
-        const { teacherViewCollumns, directorViewCollumns, districtViewCollumns } = req.body;
+        const { teacherViewCollumns, directorViewCollumns, districtViewCollumns, roleSettings } = req.body;
         const updatedSettings = await UserSettings.findOneAndUpdate(
             { userId: GLOBAL_SETTINGS_ID },
-            { $set: { userId: GLOBAL_SETTINGS_ID, teacherViewCollumns, directorViewCollumns, districtViewCollumns } },
+            { $set: { userId: GLOBAL_SETTINGS_ID, teacherViewCollumns, directorViewCollumns, districtViewCollumns, roleSettings } },
             { new: true, upsert: true }
         );
         res.json(ResponseHandler.success(
