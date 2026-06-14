@@ -1,4 +1,4 @@
-﻿import mongoose, { Schema, Document, Types } from "mongoose";
+import mongoose, { Schema, Document, Types } from "mongoose";
 import { ISchool } from "./school.model";
 import { IDistrict } from "./district.model";
 import { YearRating } from "../types/yearRating";
@@ -21,6 +21,10 @@ export interface ITeacherCreate {
     teacherOfTheYearScore?: number;
     active?: boolean;
     ratings?: YearRating[];
+    score?: number;
+    averageScore?: number;
+    place?: number | null;
+    districtPlace?: number | null;
 }
 
 
@@ -34,13 +38,19 @@ export interface ITeacher extends Document {
     teacherOfTheYearScore: number;
     active: boolean;
     ratings: YearRating[];
+    /** Current-year denormalized fields — updated by updateTeacherScores + updateTeacherRankings */
+    score: number;
+    averageScore: number;
+    place: number | null;
+    districtPlace: number | null;
 }
 
 const YearRatingSchema = new Schema({
     year: { type: Number, required: true },
     score: { type: Number, required: false, default: 0 },
     averageScore: { type: Number, required: false, default: 0 },
-    place: { type: Number, required: false, default: null }
+    place: { type: Number, required: false, default: null },
+    districtPlace: { type: Number, required: false, default: null }
 }, { _id: false });
 
 const TeacherSchema: Schema = new Schema({
@@ -52,7 +62,11 @@ const TeacherSchema: Schema = new Schema({
     status: { type: String, required: false },
     teacherOfTheYearScore: { type: Number, required: false, default: 0 },
     active: { type: Boolean, required: false, default: true },
-    ratings: { type: [YearRatingSchema], required: false, default: [] }
+    ratings: { type: [YearRatingSchema], required: false, default: [] },
+    score: { type: Number, required: false, default: 0 },
+    averageScore: { type: Number, required: false, default: 0 },
+    place: { type: Number, required: false, default: null },
+    districtPlace: { type: Number, required: false, default: null }
 });
 
 export default mongoose.model<ITeacher>("Teacher", TeacherSchema);

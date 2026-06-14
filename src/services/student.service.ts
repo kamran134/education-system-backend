@@ -7,7 +7,6 @@ import Student from "../models/student.model";
 import StudentResult from "../models/studentResult.model";
 
 import { deleteStudentResultsByStudentId } from "./studentResult.service";
-import { buildScorePlaceMap } from "../utils/ranking.util";
 import { PaginationOptions, FilterOptions, SortOptions, BulkOperationResult } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
@@ -148,24 +147,13 @@ export class StudentService {
         const filter = this.buildFilter(filters);
         console.log('👨‍🎓 Built MongoDB filter:', JSON.stringify(filter, null, 2));
 
-        // Step 1: Lightweight pipeline — fetch only score for ALL filtered students.
-        // No expensive $lookups. Used to:
-        //   a) calculate total count
-        //   b) build score→place map (same dense-rank logic as assignPlaces)
-        const allScores: Array<{ score?: number }> = await Student.aggregate([
-            { $match: filter },
-            { $project: { score: 1 } }
-        ]);
-
-        const totalCount = allScores.length;
+        // Count matching students (place is pre-computed on each document, no need to load all scores)
+        const totalCount = await Student.countDocuments(filter);
         console.log('👨‍🎓 Found students:', totalCount);
 
         if (totalCount === 0) {
             return { data: [], totalCount: 0 };
         }
-
-        // Build score→place map from all filtered scores (dense ranking)
-        const scorePlaceMap = buildScorePlaceMap(allScores);
 
         // Step 2: Full pipeline with all $lookups, but sort + paginate in MongoDB.
         // Only loads one page of data — no more loading all N thousand records.
@@ -239,11 +227,6 @@ export class StudentService {
         ];
 
         const pageData = await Student.aggregate<IStudent>(pipeline).collation({ locale: 'az', strength: 2 });
-
-        // Apply pre-computed places to this page
-        pageData.forEach((student) => {
-            student.place = scorePlaceMap.get(student.score || 0) ?? undefined;
-        });
 
         return { data: pageData as unknown as IStudent[], totalCount };
     }

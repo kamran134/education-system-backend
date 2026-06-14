@@ -939,78 +939,47 @@ export class StatsService {
         const cached = this.cache.get<{ data: ITeacher[], totalCount: number }>(cacheKey);
         if (cached) return cached;
 
-        // Build filter for the full ranking set (all active teachers, narrowed by district/school)
-        const rankingFilter: any = { active: true };
-        if (filters.districtIds && filters.districtIds.length > 0) {
-            rankingFilter.district = { $in: filters.districtIds };
-        }
-        if (filters.schoolIds && filters.schoolIds.length > 0) {
-            rankingFilter.school = { $in: filters.schoolIds };
-        }
-
-        const sortOptions: any = {};
-        sortOptions[sortColumn] = sortDirection === 'asc' ? 1 : -1;
-
         const page = filters.page || 1;
         const size = filters.size || 100;
         const skip = (page - 1) * size;
+        const sortDir = sortDirection === 'asc' ? 1 : -1;
 
-        // Load ALL teachers in scope to calculate places correctly
-        const currentYear = filters.academicYear ?? getCurrentAcademicYear();
-        const allData: any[] = await Teacher
-            .find(rankingFilter)
-            .collation({ locale: 'az', strength: 2 })
-            .populate("district")
-            .populate("school")
-            .populate({ path: "school", populate: { path: "district", model: "District" } })
-            .lean();
-
-        this.flattenCurrentYearRating(allData, currentYear);
-
-        // Compute district-level places first, save as districtPlace
-        const districtGroupsT = new Map<string, any[]>();
-        allData.forEach((t: any) => {
-            const distId = (t.district?._id || t.district)?.toString() || '__unknown__';
-            if (!districtGroupsT.has(distId)) districtGroupsT.set(distId, []);
-            districtGroupsT.get(distId)!.push(t);
-        });
-        districtGroupsT.forEach(group => {
-            assignPlaces(group, sortColumn as 'averageScore' | 'score');
-            group.forEach((t: any) => { t.districtPlace = t.place; });
-        });
-        // Compute republic-wide places (restores place field)
-        assignPlaces(allData, sortColumn as 'averageScore' | 'score');
-
-        // If filtering by specific teacherIds (teacher viewing own record), return only those
-        let resultData: any[];
-        let totalCount: number;
+        // For teacher viewing own record: include inactive, no pagination
         if (filters.teacherIds && filters.teacherIds.length > 0) {
-            const idSet = new Set(filters.teacherIds.map(id => id.toString()));
-            resultData = allData.filter(t => idSet.has(t._id.toString()));
-            // If the teacher is inactive they won't be in allData; fetch directly without active filter
-            if (resultData.length === 0) {
-                const directData: any[] = await Teacher
-                    .find({ _id: { $in: filters.teacherIds } })
-                    .populate("district")
-                    .populate("school")
-                    .populate({ path: "school", populate: { path: "district", model: "District" } })
-                    .lean();
-                this.flattenCurrentYearRating(directData, currentYear);
-                // Place is unknown for inactive teachers — set null
-                directData.forEach(t => { t.place = null; });
-                resultData = directData;
-            }
-            totalCount = resultData.length;
-        } else {
-            resultData = allData.slice(skip, skip + size);
-            totalCount = allData.length;
+            const resultData: any[] = await Teacher
+                .find({ _id: { $in: filters.teacherIds } })
+                .populate("district")
+                .populate({ path: "school", populate: { path: "district", model: "District" } })
+                .lean();
+            resultData.forEach((t: any) => { t.studentCount = t.studentCount ?? 0; });
+            const result = { data: resultData as unknown as ITeacher[], totalCount: resultData.length };
+            this.cache.set(cacheKey, result);
+            return result;
         }
 
-        resultData.forEach((teacher: any) => {
-            if (teacher.studentCount === undefined || teacher.studentCount === null) {
-                teacher.studentCount = 0;
-            }
-        });
+        // Role-based filter on active teachers — place/districtPlace already stored at root level
+        const queryFilter: any = { active: true };
+        if (filters.districtIds && filters.districtIds.length > 0) {
+            queryFilter.district = { $in: filters.districtIds };
+        }
+        if (filters.schoolIds && filters.schoolIds.length > 0) {
+            queryFilter.school = { $in: filters.schoolIds };
+        }
+
+        const [resultData, totalCount] = await Promise.all([
+            Teacher
+                .find(queryFilter)
+                .sort({ [sortColumn]: sortDir })
+                .collation({ locale: 'az', strength: 2 })
+                .skip(skip)
+                .limit(size)
+                .populate("district")
+                .populate({ path: "school", populate: { path: "district", model: "District" } })
+                .lean(),
+            Teacher.countDocuments(queryFilter)
+        ]);
+
+        resultData.forEach((t: any) => { t.studentCount = t.studentCount ?? 0; });
 
         const result = { data: resultData as unknown as ITeacher[], totalCount };
         this.cache.set(cacheKey, result);
@@ -1026,57 +995,33 @@ export class StatsService {
         const cached = this.cache.get<{ data: ISchool[], totalCount: number }>(cacheKey);
         if (cached) return cached;
 
-        // Ranking filter: all active schools, optionally scoped to a district
-        const rankingFilter: any = { active: true };
-        if (filters.districtIds && filters.districtIds.length > 0) {
-            rankingFilter.district = { $in: filters.districtIds };
-        }
-
         const page = filters.page || 1;
         const size = filters.size || 100;
         const skip = (page - 1) * size;
+        const sortDir = sortDirection === 'asc' ? 1 : -1;
 
-        // Load ALL schools in scope to calculate places correctly
-        const currentYear = filters.academicYear ?? getCurrentAcademicYear();
-        const allData: any[] = await School
-            .find(rankingFilter)
-            .collation({ locale: 'az', strength: 2 })
-            .populate("district")
-            .lean();
-
-        this.flattenCurrentYearRating(allData, currentYear);
-
-        // Compute district-level places first, save as districtPlace
-        const districtGroupsS = new Map<string, any[]>();
-        allData.forEach((s: any) => {
-            const distId = (s.district?._id || s.district)?.toString() || '__unknown__';
-            if (!districtGroupsS.has(distId)) districtGroupsS.set(distId, []);
-            districtGroupsS.get(distId)!.push(s);
-        });
-        districtGroupsS.forEach(group => {
-            assignPlaces(group, sortColumn as 'averageScore' | 'score');
-            group.forEach((s: any) => { s.districtPlace = s.place; });
-        });
-        // Compute republic-wide places (restores place field)
-        assignPlaces(allData, sortColumn as 'averageScore' | 'score');
-
-        // If filtering by specific schoolIds (schoolDirector viewing own school), return only those
-        let resultData: any[];
-        let totalCount: number;
+        // Role-based filter — place/districtPlace already stored at root level
+        const queryFilter: any = { active: true };
+        if (filters.districtIds && filters.districtIds.length > 0) {
+            queryFilter.district = { $in: filters.districtIds };
+        }
         if (filters.schoolIds && filters.schoolIds.length > 0) {
-            const idSet = new Set(filters.schoolIds.map(id => id.toString()));
-            resultData = allData.filter(s => idSet.has(s._id.toString()));
-            totalCount = resultData.length;
-        } else {
-            resultData = allData.slice(skip, skip + size);
-            totalCount = allData.length;
+            queryFilter._id = { $in: filters.schoolIds };
         }
 
-        resultData.forEach((school: any) => {
-            if (school.studentCount === undefined || school.studentCount === null) {
-                school.studentCount = 0;
-            }
-        });
+        const [resultData, totalCount] = await Promise.all([
+            School
+                .find(queryFilter)
+                .sort({ [sortColumn]: sortDir })
+                .collation({ locale: 'az', strength: 2 })
+                .skip(skip)
+                .limit(size)
+                .populate("district")
+                .lean(),
+            School.countDocuments(queryFilter)
+        ]);
+
+        resultData.forEach((s: any) => { s.studentCount = s.studentCount ?? 0; });
 
         const result = { data: resultData as unknown as ISchool[], totalCount };
         this.cache.set(cacheKey, result);
@@ -1464,10 +1409,12 @@ export class StatsService {
                     filter: { _id: teacher._id },
                     update: [{
                         $set: {
+                            score: teacher.totalScore,
+                            averageScore: teacher.averageScore,
                             ratings: {
                                 $concatArrays: [
                                     { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                                    [{ year: currentYear, score: teacher.totalScore, averageScore: teacher.averageScore, place: null }]
+                                    [{ year: currentYear, score: teacher.totalScore, averageScore: teacher.averageScore, place: null, districtPlace: null }]
                                 ]
                             }
                         }
@@ -1488,17 +1435,15 @@ export class StatsService {
     private async updateTeacherRankings(): Promise<void> {
         try {
             const currentYear = getCurrentAcademicYear();
-            // Получаем всех учителей с рейтингами
-            const teachers = await Teacher.find().select('_id ratings code').lean();
+            const teachers = await Teacher.find().select('_id ratings code district').lean();
 
-            // Проецируем балл текущего года
             const teachersWithScore = teachers.map((t: any) => ({
                 _id: t._id,
+                districtId: t.district?.toString() ?? '__none__',
                 currentScore: ((t.ratings || []).find((r: any) => r.year === currentYear) as any)?.score ?? 0,
                 code: t.code
             }));
 
-            // Сортируем по баллу убывание, по коду возрастание
             teachersWithScore.sort((a, b) => {
                 if (b.currentScore !== a.currentScore) return b.currentScore - a.currentScore;
                 return (a.code ?? 0) - (b.code ?? 0);
@@ -1509,20 +1454,44 @@ export class StatsService {
                 return;
             }
 
-            const bulkOperations: any[] = [];
+            // Assign republic-wide place
+            const republicPlaceMap = new Map<string, number>();
             let currentPlace = 1;
             let previousScore = teachersWithScore[0].currentScore;
-
             for (let i = 0; i < teachersWithScore.length; i++) {
-                const teacher = teachersWithScore[i];
-                if (teacher.currentScore < previousScore) {
-                    currentPlace = i + 1;
+                const t = teachersWithScore[i];
+                if (t.currentScore < previousScore) currentPlace = i + 1;
+                republicPlaceMap.set(t._id.toString(), currentPlace);
+                previousScore = t.currentScore;
+            }
+
+            // Assign district-level place (array already sorted by score, so groups are in order)
+            const districtPlaceMap = new Map<string, number>();
+            const byDistrict = new Map<string, typeof teachersWithScore>();
+            for (const t of teachersWithScore) {
+                if (!byDistrict.has(t.districtId)) byDistrict.set(t.districtId, []);
+                byDistrict.get(t.districtId)!.push(t);
+            }
+            byDistrict.forEach((group) => {
+                let dPlace = 1;
+                let prevScore = group[0].currentScore;
+                for (let i = 0; i < group.length; i++) {
+                    if (group[i].currentScore < prevScore) dPlace = i + 1;
+                    districtPlaceMap.set(group[i]._id.toString(), dPlace);
+                    prevScore = group[i].currentScore;
                 }
-                bulkOperations.push({
+            });
+
+            const bulkOperations: any[] = teachersWithScore.map((t) => {
+                const place = republicPlaceMap.get(t._id.toString()) ?? null;
+                const districtPlace = districtPlaceMap.get(t._id.toString()) ?? null;
+                return {
                     updateOne: {
-                        filter: { _id: teacher._id },
+                        filter: { _id: t._id },
                         update: [{
                             $set: {
+                                place,
+                                districtPlace,
                                 ratings: {
                                     $map: {
                                         input: { $ifNull: ["$ratings", []] },
@@ -1530,7 +1499,7 @@ export class StatsService {
                                         in: {
                                             $cond: {
                                                 if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
+                                                then: { $mergeObjects: ["$$r", { place, districtPlace }] },
                                                 else: "$$r"
                                             }
                                         }
@@ -1539,9 +1508,8 @@ export class StatsService {
                             }
                         }]
                     }
-                });
-                previousScore = teacher.currentScore;
-            }
+                };
+            });
 
             if (bulkOperations.length > 0) {
                 await Teacher.bulkWrite(bulkOperations);
@@ -1615,10 +1583,12 @@ export class StatsService {
                     filter: { _id: schoolScore._id },
                     update: [{
                         $set: {
+                            score: schoolScore.totalScore,
+                            averageScore: schoolScore.averageScore,
                             ratings: {
                                 $concatArrays: [
                                     { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", currentYear] } } },
-                                    [{ year: currentYear, score: schoolScore.totalScore, averageScore: schoolScore.averageScore, place: null }]
+                                    [{ year: currentYear, score: schoolScore.totalScore, averageScore: schoolScore.averageScore, place: null, districtPlace: null }]
                                 ]
                             }
                         }
@@ -1639,10 +1609,11 @@ export class StatsService {
     private async updateSchoolRankings(): Promise<void> {
         try {
             const currentYear = getCurrentAcademicYear();
-            const schools = await School.find().select('_id ratings code').lean();
+            const schools = await School.find().select('_id ratings code district').lean();
 
             const schoolsWithScore = schools.map((s: any) => ({
                 _id: s._id,
+                districtId: s.district?.toString() ?? '__none__',
                 currentScore: ((s.ratings || []).find((r: any) => r.year === currentYear) as any)?.score ?? 0,
                 code: s.code
             }));
@@ -1657,20 +1628,44 @@ export class StatsService {
                 return;
             }
 
-            const bulkOperations: any[] = [];
+            // Assign republic-wide place
+            const republicPlaceMap = new Map<string, number>();
             let currentPlace = 1;
             let previousScore = schoolsWithScore[0].currentScore;
-
             for (let i = 0; i < schoolsWithScore.length; i++) {
-                const school = schoolsWithScore[i];
-                if (school.currentScore < previousScore) {
-                    currentPlace = i + 1;
+                const s = schoolsWithScore[i];
+                if (s.currentScore < previousScore) currentPlace = i + 1;
+                republicPlaceMap.set(s._id.toString(), currentPlace);
+                previousScore = s.currentScore;
+            }
+
+            // Assign district-level place
+            const districtPlaceMap = new Map<string, number>();
+            const byDistrict = new Map<string, typeof schoolsWithScore>();
+            for (const s of schoolsWithScore) {
+                if (!byDistrict.has(s.districtId)) byDistrict.set(s.districtId, []);
+                byDistrict.get(s.districtId)!.push(s);
+            }
+            byDistrict.forEach((group) => {
+                let dPlace = 1;
+                let prevScore = group[0].currentScore;
+                for (let i = 0; i < group.length; i++) {
+                    if (group[i].currentScore < prevScore) dPlace = i + 1;
+                    districtPlaceMap.set(group[i]._id.toString(), dPlace);
+                    prevScore = group[i].currentScore;
                 }
-                bulkOperations.push({
+            });
+
+            const bulkOperations: any[] = schoolsWithScore.map((s) => {
+                const place = republicPlaceMap.get(s._id.toString()) ?? null;
+                const districtPlace = districtPlaceMap.get(s._id.toString()) ?? null;
+                return {
                     updateOne: {
-                        filter: { _id: school._id },
+                        filter: { _id: s._id },
                         update: [{
                             $set: {
+                                place,
+                                districtPlace,
                                 ratings: {
                                     $map: {
                                         input: { $ifNull: ["$ratings", []] },
@@ -1678,7 +1673,7 @@ export class StatsService {
                                         in: {
                                             $cond: {
                                                 if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
+                                                then: { $mergeObjects: ["$$r", { place, districtPlace }] },
                                                 else: "$$r"
                                             }
                                         }
@@ -1687,9 +1682,8 @@ export class StatsService {
                             }
                         }]
                     }
-                });
-                previousScore = school.currentScore;
-            }
+                };
+            });
 
             if (bulkOperations.length > 0) {
                 await School.bulkWrite(bulkOperations);

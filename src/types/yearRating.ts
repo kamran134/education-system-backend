@@ -7,4 +7,5 @@ export interface YearRating {
     score: number;
     averageScore: number;
     place: number | null;
+    districtPlace?: number | null;
 }
