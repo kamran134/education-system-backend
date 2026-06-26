@@ -1350,7 +1350,7 @@ export class StatsService {
             }));
 
             if (bulkOperations.length > 0) {
-                await Student.bulkWrite(bulkOperations);
+                await Student.bulkWrite(bulkOperations as any);
                 console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} студентов (по классам)`);
             }
 
