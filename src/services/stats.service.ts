@@ -234,11 +234,12 @@ export class StatsService {
                     studentOfTheMonthScore: 0,
                     republicWideStudentOfTheMonthScore: 0,
                     place: null,
+                    districtPlace: null,
                     status: '',
                     ratings: {
                         $concatArrays: [
                             { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", academicYearStart] } } },
-                            [{ year: academicYearStart, score: 0, averageScore: 0, place: null }]
+                            [{ year: academicYearStart, score: 0, averageScore: 0, place: null, districtPlace: null }]
                         ]
                     }
                 }
@@ -1285,56 +1286,72 @@ export class StatsService {
     }
 
     /**
-     * Обновляет место в рейтинге (place) для всех студентов на основе их score
+     * Обновляет место в рейтинге (place) и место по региону (districtPlace) для всех студентов.
+     * Ранжирование — внутри каждого класса отдельно: первоклассник не конкурирует с пятиклассником.
      */
     private async updateStudentPlaces(): Promise<void> {
         try {
-            // Получаем всех студентов, отсортированных по score в убывающем порядке
             const students = await Student.find({ score: { $exists: true } })
-                                         .sort({ score: -1, code: 1 }) // сортируем по score убывание, при равенстве по коду
-                                         .select('_id score');
+                                         .sort({ score: -1, code: 1 })
+                                         .select('_id score district grade');
 
             if (students.length === 0) {
                 console.log("Нет студентов с score для установки места в рейтинге.");
                 return;
             }
 
-            // Подготавливаем bulk операции для обновления места
-            const bulkOperations = [];
-            let currentPlace = 1;
-            let previousScore = 0;
-
-            for (let i = 0; i < students.length; i++) {
-                const student = students[i];
-                
-                // Если это первый студент или балл изменился
-                if (student.score < previousScore) {
-                    // Место = позиция в отсортированном списке + 1
-                    currentPlace++;
-                }
-                // Если балл такой же, как у предыдущего, место остается тем же
-
-                bulkOperations.push({
-                    updateOne: {
-                        filter: { _id: student._id },
-                        update: { $set: { place: currentPlace } }
-                    }
-                });
-
-                previousScore = student.score;
+            // Группируем по классу
+            const byGrade = new Map<number, typeof students>();
+            for (const s of students) {
+                const grade = (s as any).grade ?? 0;
+                if (!byGrade.has(grade)) byGrade.set(grade, []);
+                byGrade.get(grade)!.push(s);
             }
 
-            // Выполняем массовое обновление мест
+            const republicPlaceMap = new Map<string, number>();
+            const districtPlaceMap = new Map<string, number>();
+
+            byGrade.forEach((gradeGroup) => {
+                // Республиканский ранг внутри класса
+                let rPlace = 1;
+                let prevScore = (gradeGroup[0] as any).score;
+                for (let i = 0; i < gradeGroup.length; i++) {
+                    if ((gradeGroup[i] as any).score < prevScore) rPlace = i + 1;
+                    republicPlaceMap.set(gradeGroup[i]._id.toString(), rPlace);
+                    prevScore = (gradeGroup[i] as any).score;
+                }
+
+                // Региональный ранг внутри класса + района
+                const byDistrict = new Map<string, typeof gradeGroup>();
+                for (const s of gradeGroup) {
+                    const districtId = (s as any).district?.toString() ?? '__none__';
+                    if (!byDistrict.has(districtId)) byDistrict.set(districtId, []);
+                    byDistrict.get(districtId)!.push(s);
+                }
+                byDistrict.forEach((group) => {
+                    let dPlace = 1;
+                    let dPrevScore = (group[0] as any).score;
+                    for (let i = 0; i < group.length; i++) {
+                        if ((group[i] as any).score < dPrevScore) dPlace = i + 1;
+                        districtPlaceMap.set(group[i]._id.toString(), dPlace);
+                        dPrevScore = (group[i] as any).score;
+                    }
+                });
+            });
+
+            const bulkOperations = students.map(s => ({
+                updateOne: {
+                    filter: { _id: s._id },
+                    update: { $set: {
+                        place: republicPlaceMap.get(s._id.toString()) ?? null,
+                        districtPlace: districtPlaceMap.get(s._id.toString()) ?? null
+                    }}
+                }
+            }));
+
             if (bulkOperations.length > 0) {
                 await Student.bulkWrite(bulkOperations);
-                console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} студентов`);
-                
-                // Показываем статистику рейтинга
-                const topStudent = students[0];
-                const lastStudent = students[students.length - 1];
-                console.log(`🥇 Лидер рейтинга: ${topStudent.score} баллов (место 1)`);
-                console.log(`📊 Всего в рейтинге: ${students.length} студентов`);
-                console.log(`🔢 Диапазон баллов: ${lastStudent.score} - ${topStudent.score}`);
+                console.log(`✅ Обновлено место в рейтинге для ${bulkOperations.length} студентов (по классам)`);
             }
 
         } catch (error) {
@@ -1354,7 +1371,7 @@ export class StatsService {
                     ratings: {
                         $concatArrays: [
                             { $filter: { input: { $ifNull: ["$ratings", []] }, as: "r", cond: { $ne: ["$$r.year", academicYearStart] } } },
-                            [{ year: academicYearStart, score: "$score", averageScore: "$averageScore", place: "$place" }]
+                            [{ year: academicYearStart, score: "$score", averageScore: "$averageScore", place: "$place", districtPlace: "$districtPlace" }]
                         ]
                     }
                 }

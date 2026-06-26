@@ -6,7 +6,7 @@ import { IStudentResult } from "./studentResult.model";
 import { YearRating } from "../types/yearRating";
 
 const YearRatingSchema = new Schema(
-    { year: Number, score: Number, averageScore: Number, place: { type: Number, default: null } },
+    { year: Number, score: Number, averageScore: Number, place: { type: Number, default: null }, districtPlace: { type: Number, default: null } },
     { _id: false }
 );
 
@@ -35,6 +35,7 @@ export interface IStudent extends Document {
     averageScore: number;
     maxLevel: number;
     place?: number;
+    districtPlace?: number | null;
     status: string;
     avatarUrl?: string;
     participationCount?: number; // computed field: number of exams participated
@@ -57,6 +58,7 @@ export interface IStudentMini extends Document {
     studentOfTheMonthScore: number,
     republicWideStudentOfTheMonthScore: number,
     place?: number;
+    districtPlace?: number | null;
     status: string;
     avatarUrl?: string;
     participationCount?: number; // computed field: number of exams participated
@@ -81,6 +83,7 @@ const StudentSchema: Schema = new Schema({
     studentOfTheMonthScore: { type: Number, required: false },
     republicWideStudentOfTheMonthScore: { type: Number, required: false },
     place: { type: Number, required: false },
+    districtPlace: { type: Number, required: false },
     avatarUrl: { type: String, required: false },
     ratings: { type: [YearRatingSchema], required: false, default: [] },
 });
