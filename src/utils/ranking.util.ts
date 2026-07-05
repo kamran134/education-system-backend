@@ -7,7 +7,7 @@ import { getCurrentAcademicYear } from "./academic-year.util";
  * Returns a Map<score, place> where ties get the same place.
  * Example: [10, 10, 8] → { 10→1, 8→2 }  (dense, not [10→1, 8→3])
  */
-function buildDenseRankMap(sortedScores: number[]): Map<number, number> {
+export function buildDenseRankMap(sortedScores: number[]): Map<number, number> {
     const map = new Map<number, number>();
     let currentPlace = 1;
     let previousScore: number | null = null;

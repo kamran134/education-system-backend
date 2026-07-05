@@ -36,6 +36,7 @@ export interface IStudent extends Document {
     maxLevel: number;
     place?: number;
     districtPlace?: number | null;
+    filterPlace?: number | null;
     status: string;
     avatarUrl?: string;
     participationCount?: number; // computed field: number of exams participated

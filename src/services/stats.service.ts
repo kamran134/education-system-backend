@@ -11,7 +11,7 @@ import { FilterOptions } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { Types } from "mongoose";
 import { getCurrentAcademicYear } from '../utils/academic-year.util';
-import { assignPlaces } from '../utils/ranking.util';
+import { assignPlaces, buildDenseRankMap } from '../utils/ranking.util';
 import { MemoryCache } from '../utils/memory-cache.util';
 
 export interface StatisticsFilter extends FilterOptions {
@@ -1312,14 +1312,11 @@ export class StatsService {
             const districtPlaceMap = new Map<string, number>();
 
             byGrade.forEach((gradeGroup) => {
-                // Республиканский ранг внутри класса
-                let rPlace = 1;
-                let prevScore = (gradeGroup[0] as any).score;
-                for (let i = 0; i < gradeGroup.length; i++) {
-                    if ((gradeGroup[i] as any).score < prevScore) rPlace = i + 1;
-                    republicPlaceMap.set(gradeGroup[i]._id.toString(), rPlace);
-                    prevScore = (gradeGroup[i] as any).score;
-                }
+                // Республиканский ранг внутри класса (dense rank: ties share place, no skipping)
+                const rRankMap = buildDenseRankMap(gradeGroup.map(s => (s as any).score));
+                gradeGroup.forEach((s, i) => {
+                    republicPlaceMap.set(s._id.toString(), rRankMap.get((s as any).score) ?? i + 1);
+                });
 
                 // Региональный ранг внутри класса + района
                 const byDistrict = new Map<string, typeof gradeGroup>();
@@ -1329,13 +1326,10 @@ export class StatsService {
                     byDistrict.get(districtId)!.push(s);
                 }
                 byDistrict.forEach((group) => {
-                    let dPlace = 1;
-                    let dPrevScore = (group[0] as any).score;
-                    for (let i = 0; i < group.length; i++) {
-                        if ((group[i] as any).score < dPrevScore) dPlace = i + 1;
-                        districtPlaceMap.set(group[i]._id.toString(), dPlace);
-                        dPrevScore = (group[i] as any).score;
-                    }
+                    const dRankMap = buildDenseRankMap(group.map(s => (s as any).score));
+                    group.forEach((s, i) => {
+                        districtPlaceMap.set(s._id.toString(), dRankMap.get((s as any).score) ?? i + 1);
+                    });
                 });
             });
 
@@ -1471,16 +1465,12 @@ export class StatsService {
                 return;
             }
 
-            // Assign republic-wide place
+            // Assign republic-wide place (dense rank: ties share place, no skipping)
             const republicPlaceMap = new Map<string, number>();
-            let currentPlace = 1;
-            let previousScore = teachersWithScore[0].currentScore;
-            for (let i = 0; i < teachersWithScore.length; i++) {
-                const t = teachersWithScore[i];
-                if (t.currentScore < previousScore) currentPlace = i + 1;
-                republicPlaceMap.set(t._id.toString(), currentPlace);
-                previousScore = t.currentScore;
-            }
+            const rRankMap = buildDenseRankMap(teachersWithScore.map(t => t.currentScore));
+            teachersWithScore.forEach((t, i) => {
+                republicPlaceMap.set(t._id.toString(), rRankMap.get(t.currentScore) ?? i + 1);
+            });
 
             // Assign district-level place (array already sorted by score, so groups are in order)
             const districtPlaceMap = new Map<string, number>();
@@ -1490,13 +1480,10 @@ export class StatsService {
                 byDistrict.get(t.districtId)!.push(t);
             }
             byDistrict.forEach((group) => {
-                let dPlace = 1;
-                let prevScore = group[0].currentScore;
-                for (let i = 0; i < group.length; i++) {
-                    if (group[i].currentScore < prevScore) dPlace = i + 1;
-                    districtPlaceMap.set(group[i]._id.toString(), dPlace);
-                    prevScore = group[i].currentScore;
-                }
+                const dRankMap = buildDenseRankMap(group.map(t => t.currentScore));
+                group.forEach((t, i) => {
+                    districtPlaceMap.set(t._id.toString(), dRankMap.get(t.currentScore) ?? i + 1);
+                });
             });
 
             const bulkOperations: any[] = teachersWithScore.map((t) => {
@@ -1645,16 +1632,12 @@ export class StatsService {
                 return;
             }
 
-            // Assign republic-wide place
+            // Assign republic-wide place (dense rank: ties share place, no skipping)
             const republicPlaceMap = new Map<string, number>();
-            let currentPlace = 1;
-            let previousScore = schoolsWithScore[0].currentScore;
-            for (let i = 0; i < schoolsWithScore.length; i++) {
-                const s = schoolsWithScore[i];
-                if (s.currentScore < previousScore) currentPlace = i + 1;
-                republicPlaceMap.set(s._id.toString(), currentPlace);
-                previousScore = s.currentScore;
-            }
+            const rRankMap = buildDenseRankMap(schoolsWithScore.map(s => s.currentScore));
+            schoolsWithScore.forEach((s, i) => {
+                republicPlaceMap.set(s._id.toString(), rRankMap.get(s.currentScore) ?? i + 1);
+            });
 
             // Assign district-level place
             const districtPlaceMap = new Map<string, number>();
@@ -1664,13 +1647,10 @@ export class StatsService {
                 byDistrict.get(s.districtId)!.push(s);
             }
             byDistrict.forEach((group) => {
-                let dPlace = 1;
-                let prevScore = group[0].currentScore;
-                for (let i = 0; i < group.length; i++) {
-                    if (group[i].currentScore < prevScore) dPlace = i + 1;
-                    districtPlaceMap.set(group[i]._id.toString(), dPlace);
-                    prevScore = group[i].currentScore;
-                }
+                const dRankMap = buildDenseRankMap(group.map(s => s.currentScore));
+                group.forEach((s, i) => {
+                    districtPlaceMap.set(s._id.toString(), dRankMap.get(s.currentScore) ?? i + 1);
+                });
             });
 
             const bulkOperations: any[] = schoolsWithScore.map((s) => {
@@ -1812,20 +1792,17 @@ export class StatsService {
                 return;
             }
 
-            const bulkOperations: any[] = [];
-            let currentPlace = 1;
-            let previousScore = districtsWithScore[0].currentScore;
+            // Dense rank: ties share place, no skipping
+            const rankMap = buildDenseRankMap(districtsWithScore.map(d => d.currentScore));
 
-            for (let i = 0; i < districtsWithScore.length; i++) {
-                const district = districtsWithScore[i];
-                if (district.currentScore < previousScore) {
-                    currentPlace = i + 1;
-                }
-                bulkOperations.push({
+            const bulkOperations: any[] = districtsWithScore.map((district, i) => {
+                const place = rankMap.get(district.currentScore) ?? i + 1;
+                return {
                     updateOne: {
                         filter: { _id: district._id },
                         update: [{
                             $set: {
+                                place,
                                 ratings: {
                                     $map: {
                                         input: { $ifNull: ["$ratings", []] },
@@ -1833,7 +1810,7 @@ export class StatsService {
                                         in: {
                                             $cond: {
                                                 if: { $eq: ["$$r.year", currentYear] },
-                                                then: { $mergeObjects: ["$$r", { place: currentPlace }] },
+                                                then: { $mergeObjects: ["$$r", { place }] },
                                                 else: "$$r"
                                             }
                                         }
@@ -1842,9 +1819,8 @@ export class StatsService {
                             }
                         }]
                     }
-                });
-                previousScore = district.currentScore;
-            }
+                };
+            });
 
             if (bulkOperations.length > 0) {
                 await District.bulkWrite(bulkOperations);

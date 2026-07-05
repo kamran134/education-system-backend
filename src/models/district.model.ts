@@ -23,6 +23,11 @@ export interface IDistrict extends Document {
     districtOfTheYearScore: number;
     active: boolean;
     ratings: YearRating[];
+    /** Current-year values projected from ratings[] at read time (no root schema fields) */
+    score?: number;
+    averageScore?: number;
+    place?: number | null;
+    filterPlace?: number | null;
 }
 
 const YearRatingSchema = new Schema({

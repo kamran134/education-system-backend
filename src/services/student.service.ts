@@ -12,6 +12,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_DIVISORS } from "../utils/entity-codes.const";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { buildScorePlaceMap } from "../utils/ranking.util";
 
 export class StudentService {
 
@@ -228,7 +229,17 @@ export class StudentService {
 
         const pageData = await Student.aggregate<IStudent>(pipeline).collation({ locale: 'az', strength: 2 });
 
-        return { data: pageData as unknown as IStudent[], totalCount };
+        // Filter-scoped place: rank within the currently applied district/school/teacher/grade
+        // filters (code/search intentionally excluded — a text search shouldn't change ranking).
+        const rankFilter = this.buildFilter({ ...filters, code: undefined, search: undefined });
+        const scoredStudents = await Student.find(rankFilter).select('_id score').lean();
+        const filterPlaceMap = buildScorePlaceMap(scoredStudents);
+        const data = (pageData as unknown as IStudent[]).map(student => ({
+            ...student,
+            filterPlace: filterPlaceMap.get((student as any).score ?? 0) ?? null
+        })) as unknown as IStudent[];
+
+        return { data, totalCount };
     }
 
     async repairStudentAssignments(): Promise<{ 

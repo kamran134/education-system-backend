@@ -44,6 +44,7 @@ export interface ISchool extends Document {
     averageScore: number;
     place: number | null;
     districtPlace: number | null;
+    filterPlace?: number | null;
 }
 
 const YearRatingSchema = new Schema({
