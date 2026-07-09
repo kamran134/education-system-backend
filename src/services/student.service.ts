@@ -231,12 +231,29 @@ export class StudentService {
 
         // Filter-scoped place: rank within the currently applied district/school/teacher/grade
         // filters (code/search intentionally excluded — a text search shouldn't change ranking).
+        // Ranking is always additionally partitioned by grade, same as place/districtPlace —
+        // a student never competes outside their own class.
         const rankFilter = this.buildFilter({ ...filters, code: undefined, search: undefined });
-        const scoredStudents = await Student.find(rankFilter).select('_id score').lean();
-        const filterPlaceMap = buildScorePlaceMap(scoredStudents);
+        const scoredStudents = await Student.find(rankFilter).select('_id score grade').lean();
+
+        const byGrade = new Map<number, typeof scoredStudents>();
+        for (const s of scoredStudents) {
+            const grade = (s as any).grade ?? 0;
+            if (!byGrade.has(grade)) byGrade.set(grade, []);
+            byGrade.get(grade)!.push(s);
+        }
+
+        const filterPlaceMap = new Map<string, number>();
+        byGrade.forEach(group => {
+            const rankMap = buildScorePlaceMap(group);
+            group.forEach(s => {
+                filterPlaceMap.set(s._id.toString(), rankMap.get((s as any).score ?? 0) ?? 1);
+            });
+        });
+
         const data = (pageData as unknown as IStudent[]).map(student => ({
             ...student,
-            filterPlace: filterPlaceMap.get((student as any).score ?? 0) ?? null
+            filterPlace: filterPlaceMap.get((student as any)._id.toString()) ?? null
         })) as unknown as IStudent[];
 
         return { data, totalCount };
