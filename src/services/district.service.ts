@@ -11,8 +11,7 @@ import { deleteFile } from "./file.service";
 import { buildCommonFilter } from "../utils/filter.util";
 import { CODE_LENGTHS } from "../utils/entity-codes.const";
 import { updateEntityStats } from "../utils/stats.utils";
-import { updateEntityPlaces, buildScorePlaceMap } from "../utils/ranking.util";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { updateEntityPlaces } from "../utils/ranking.util";
 
 export class DistrictService {
     /**
@@ -101,36 +100,14 @@ export class DistrictService {
         const sortOptions: any = {};
         sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
 
-        const [pageData, totalCount] = await Promise.all([
+        const [data, totalCount] = await Promise.all([
             District.find(filter)
                 .collation({ locale: 'az', strength: 2 })
                 .sort(sortOptions)
                 .skip(pagination.skip)
-                .limit(pagination.size)
-                .lean(),
+                .limit(pagination.size),
             District.countDocuments(filter)
         ]);
-
-        // Districts only store score/averageScore/place inside ratings[] (no root fields),
-        // so project the current academic year's rating onto each row here.
-        const academicYear = filters.academicYear ?? getCurrentAcademicYear();
-        const currentYearScore = (d: any): number => (d.ratings || []).find((r: any) => r.year === academicYear)?.score ?? 0;
-
-        // Filter-scoped place: districts have no district/school/grade scoping of their own
-        // (only code/search, which are excluded from ranking), so this covers the whole set.
-        const rankFilter = this.buildFilter({ ...filters, code: undefined, search: undefined });
-        const scoredDistricts = await District.find(rankFilter).select('_id ratings').lean();
-        const filterPlaceMap = buildScorePlaceMap(scoredDistricts.map(d => ({ score: currentYearScore(d) })));
-        const data = pageData.map(district => {
-            const yr = ((district as any).ratings || []).find((r: any) => r.year === academicYear);
-            return {
-                ...district,
-                score: yr?.score ?? 0,
-                averageScore: yr?.averageScore ?? 0,
-                place: yr?.place ?? null,
-                filterPlace: filterPlaceMap.get(currentYearScore(district)) ?? null
-            };
-        }) as unknown as IDistrict[];
 
         return { data, totalCount };
     }

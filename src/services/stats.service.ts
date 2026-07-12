@@ -11,7 +11,7 @@ import { FilterOptions } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { Types } from "mongoose";
 import { getCurrentAcademicYear } from '../utils/academic-year.util';
-import { assignPlaces, buildDenseRankMap } from '../utils/ranking.util';
+import { assignPlaces, buildDenseRankMap, buildScorePlaceMap } from '../utils/ranking.util';
 import { MemoryCache } from '../utils/memory-cache.util';
 
 export interface StatisticsFilter extends FilterOptions {
@@ -953,6 +953,8 @@ export class StatsService {
                 .populate({ path: "school", populate: { path: "district", model: "District" } })
                 .lean();
             resultData.forEach((t: any) => { t.studentCount = t.studentCount ?? 0; });
+            const filterPlaceMap = buildScorePlaceMap(resultData);
+            resultData.forEach((t: any) => { t.filterPlace = filterPlaceMap.get(t.score ?? 0) ?? null; });
             const result = { data: resultData as unknown as ITeacher[], totalCount: resultData.length };
             this.cache.set(cacheKey, result);
             return result;
@@ -967,7 +969,7 @@ export class StatsService {
             queryFilter.school = { $in: filters.schoolIds };
         }
 
-        const [resultData, totalCount] = await Promise.all([
+        const [resultData, totalCount, scoredTeachers] = await Promise.all([
             Teacher
                 .find(queryFilter)
                 .sort({ [sortColumn]: sortDir })
@@ -977,10 +979,16 @@ export class StatsService {
                 .populate("district")
                 .populate({ path: "school", populate: { path: "district", model: "District" } })
                 .lean(),
-            Teacher.countDocuments(queryFilter)
+            Teacher.countDocuments(queryFilter),
+            // Filter-scoped place: rank within the currently applied district/school filters,
+            // over the whole matching set (not just the current page).
+            Teacher.find(queryFilter).select('score').lean()
         ]);
 
         resultData.forEach((t: any) => { t.studentCount = t.studentCount ?? 0; });
+
+        const filterPlaceMap = buildScorePlaceMap(scoredTeachers);
+        resultData.forEach((t: any) => { t.filterPlace = filterPlaceMap.get(t.score ?? 0) ?? null; });
 
         const result = { data: resultData as unknown as ITeacher[], totalCount };
         this.cache.set(cacheKey, result);
@@ -1010,7 +1018,7 @@ export class StatsService {
             queryFilter._id = { $in: filters.schoolIds };
         }
 
-        const [resultData, totalCount] = await Promise.all([
+        const [resultData, totalCount, scoredSchools] = await Promise.all([
             School
                 .find(queryFilter)
                 .sort({ [sortColumn]: sortDir })
@@ -1019,10 +1027,16 @@ export class StatsService {
                 .limit(size)
                 .populate("district")
                 .lean(),
-            School.countDocuments(queryFilter)
+            School.countDocuments(queryFilter),
+            // Filter-scoped place: rank within the currently applied district/school filters,
+            // over the whole matching set (not just the current page).
+            School.find(queryFilter).select('score').lean()
         ]);
 
         resultData.forEach((s: any) => { s.studentCount = s.studentCount ?? 0; });
+
+        const filterPlaceMap = buildScorePlaceMap(scoredSchools);
+        resultData.forEach((s: any) => { s.filterPlace = filterPlaceMap.get(s.score ?? 0) ?? null; });
 
         const result = { data: resultData as unknown as ISchool[], totalCount };
         this.cache.set(cacheKey, result);
@@ -1058,6 +1072,12 @@ export class StatsService {
 
         this.flattenCurrentYearRating(allData, currentYear);
         assignPlaces(allData, sortColumn as 'averageScore' | 'score');
+
+        // Filter-scoped place: districts have no district/school/grade scoping of their own
+        // (only code, which is excluded from ranking), so this always covers the whole set —
+        // computed separately from `place` above since that one ranks by whatever column is sorted.
+        const filterPlaceMap = buildScorePlaceMap(allData);
+        allData.forEach((d: any) => { d.filterPlace = filterPlaceMap.get(d.score ?? 0) ?? null; });
 
         // If filtering by specific districtIds (districtRepresenter viewing own district), return only those
         let resultData: any[];

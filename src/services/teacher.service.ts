@@ -11,7 +11,7 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { buildCommonFilter } from "../utils/filter.util";
 import { updateEntityStats } from "../utils/stats.utils";
-import { updateEntityPlaces, buildScorePlaceMap } from "../utils/ranking.util";
+import { updateEntityPlaces } from "../utils/ranking.util";
 import { CODE_DIVISORS, CODE_LENGTHS } from "../utils/entity-codes.const";
 
 export class TeacherService {
@@ -180,26 +180,15 @@ export class TeacherService {
         const sortOptions: any = {};
         sortOptions[sort.sortColumn] = sort.sortDirection === 'asc' ? 1 : -1;
 
-        const [pageData, totalCount] = await Promise.all([
+        const [data, totalCount] = await Promise.all([
             Teacher.find(filter)
                 .collation({ locale: 'az', strength: 2 })
                 .populate('district school')
                 .sort(sortOptions)
                 .skip(pagination.skip)
-                .limit(pagination.size)
-                .lean(),
+                .limit(pagination.size),
             Teacher.countDocuments(filter)
         ]);
-
-        // Filter-scoped place: rank within the currently applied district/school filters
-        // (code/search intentionally excluded — a text search shouldn't change ranking).
-        const rankFilter = this.buildFilter({ ...filters, code: undefined, search: undefined });
-        const scoredTeachers = await Teacher.find(rankFilter).select('_id score').lean();
-        const filterPlaceMap = buildScorePlaceMap(scoredTeachers);
-        const data = pageData.map(teacher => ({
-            ...teacher,
-            filterPlace: filterPlaceMap.get((teacher as any).score ?? 0) ?? null
-        })) as unknown as ITeacher[];
 
         return { data, totalCount };
     }
