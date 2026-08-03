@@ -5,6 +5,7 @@ import { validationResult } from "express-validator";
 import User from "../models/user.model";
 import TokenService from "../services/token.service";
 import { JWT_SECRET, JWT_REFRESH_SECRET } from "../config/env";
+import { buildProfileSummary } from "../utils/profile-summary.util";
 
 // Refresh токены теперь хранятся в MongoDB в коллекции пользователей
 
@@ -263,19 +264,22 @@ export const me = async (req: Request, res: Response) => {
             return;
         }
 
-        res.json({ 
+        const profile = await buildProfileSummary(user);
+
+        res.json({
             success: true,
             data: {
                 id: user._id,
                 email: user.email,
                 role: user.role,
-                isApproved: user.isApproved
+                isApproved: user.isApproved,
+                profile
             }
         });
     } catch (error) {
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: "Serverdə xəta!" 
+            message: "Serverdə xəta!"
         });
     }
 };

@@ -1,6 +1,7 @@
 import express from "express";
-import { createAllDistricts, createDistrict, deleteDistrict, getDistrictById, getDistricts, getDistrictsForFilter, updateDistrict, updateDistrictsStats } from "../controllers/district.controller";
+import { createAllDistricts, createDistrict, deleteDistrict, getDistrictById, getDistricts, getDistrictsForFilter, updateDistrict, updateDistrictsStats, uploadDistrictAvatar, deleteDistrictAvatar } from "../controllers/district.controller";
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
+import { districtAvatarUpload } from "../config/multer";
 
 const router = express.Router();
 
@@ -19,5 +20,8 @@ router.route("/:id")
     .get(authMiddleware([]), getDistrictById) // Allow all authenticated users
     .put(authMiddleware(["superadmin", "admin", "moderator"]), updateDistrict)
     .delete(canDelete, deleteDistrict);
+router.route("/:id/avatar")
+    .post(authMiddleware([]), districtAvatarUpload.single('avatar'), uploadDistrictAvatar) // owner or admin, checked in controller
+    .delete(authMiddleware([]), deleteDistrictAvatar);
 
 export default router;

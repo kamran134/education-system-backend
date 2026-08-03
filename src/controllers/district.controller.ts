@@ -1,9 +1,12 @@
 import { Request, Response, NextFunction } from "express";
 import { Types } from "mongoose";
+import fs from "fs";
 import { DistrictUseCase } from "../usecases/district.usecase";
 import { DistrictService } from "../services/district.service";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
+import { saveEntityAvatar, removeEntityAvatar, canManageAvatar } from "../utils/avatar.util";
+import District from "../models/district.model";
 
 export class DistrictController {
     private districtUseCase: DistrictUseCase;
@@ -146,6 +149,56 @@ export class DistrictController {
             next(error);
         }
     }
+
+    uploadAvatar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+
+            if (!canManageAvatar(req.user?.role, req.user?.districtId, id)) {
+                if (req.file) fs.unlinkSync(req.file.path);
+                res.status(403).json(ResponseHandler.error('Yalnız öz rayonunuzun fotosunu dəyişə bilərsiniz'));
+                return;
+            }
+
+            if (!req.file) {
+                res.status(400).json(ResponseHandler.badRequest('Fayl yüklənməyib'));
+                return;
+            }
+
+            const avatarUrl = await saveEntityAvatar(District, id, req.file, '/uploads/districts/avatars');
+
+            if (!avatarUrl) {
+                res.status(404).json(ResponseHandler.notFound('Rayon tapılmadı'));
+                return;
+            }
+
+            res.json(ResponseHandler.success({ avatarUrl }, 'Avatar uğurla yükləndi'));
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    deleteAvatar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+
+            if (!canManageAvatar(req.user?.role, req.user?.districtId, id)) {
+                res.status(403).json(ResponseHandler.error('Yalnız öz rayonunuzun fotosunu dəyişə bilərsiniz'));
+                return;
+            }
+
+            const found = await removeEntityAvatar(District, id);
+
+            if (!found) {
+                res.status(404).json(ResponseHandler.notFound('Rayon tapılmadı'));
+                return;
+            }
+
+            res.json(ResponseHandler.deleted('Avatar uğurla silindi'));
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 // Legacy exports for backward compatibility
@@ -163,3 +216,5 @@ export const deleteDistricts = districtController.deleteDistricts;
 export const processDistrictsFromExcel = districtController.processDistrictsFromExcel;
 export const countDistrictsRates = districtController.countDistrictsRates;
 export const checkExistingDistrictCodes = districtController.checkExistingDistrictCodes;
+export const uploadDistrictAvatar = districtController.uploadAvatar;
+export const deleteDistrictAvatar = districtController.deleteAvatar;

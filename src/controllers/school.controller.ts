@@ -1,9 +1,12 @@
 import { Request, Response, NextFunction } from "express";
 import { Types } from "mongoose";
+import fs from "fs";
 import { SchoolUseCase } from "../usecases/school.usecase";
 import { SchoolService } from "../services/school.service";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
+import { saveEntityAvatar, removeEntityAvatar, canManageAvatar } from "../utils/avatar.util";
+import School from "../models/school.model";
 
 export class SchoolController {
     private schoolUseCase: SchoolUseCase;
@@ -176,6 +179,56 @@ export class SchoolController {
             next(error);
         }
     }
+
+    uploadAvatar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+
+            if (!canManageAvatar(req.user?.role, req.user?.schoolId, id)) {
+                if (req.file) fs.unlinkSync(req.file.path);
+                res.status(403).json(ResponseHandler.error('Yalnız öz məktəbinizin fotosunu dəyişə bilərsiniz'));
+                return;
+            }
+
+            if (!req.file) {
+                res.status(400).json(ResponseHandler.badRequest('Fayl yüklənməyib'));
+                return;
+            }
+
+            const avatarUrl = await saveEntityAvatar(School, id, req.file, '/uploads/schools/avatars');
+
+            if (!avatarUrl) {
+                res.status(404).json(ResponseHandler.notFound('Məktəb tapılmadı'));
+                return;
+            }
+
+            res.json(ResponseHandler.success({ avatarUrl }, 'Avatar uğurla yükləndi'));
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    deleteAvatar = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+
+            if (!canManageAvatar(req.user?.role, req.user?.schoolId, id)) {
+                res.status(403).json(ResponseHandler.error('Yalnız öz məktəbinizin fotosunu dəyişə bilərsiniz'));
+                return;
+            }
+
+            const found = await removeEntityAvatar(School, id);
+
+            if (!found) {
+                res.status(404).json(ResponseHandler.notFound('Məktəb tapılmadı'));
+                return;
+            }
+
+            res.json(ResponseHandler.deleted('Avatar uğurla silindi'));
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 // Legacy exports for backward compatibility
@@ -204,3 +257,5 @@ export const processSchoolsFromExcel = schoolController.processSchoolsFromExcel;
 export const checkExistingSchoolCodes = schoolController.checkExistingSchoolCodes;
 export const updateSchoolsStats = schoolController.updateSchoolsStats;
 export const importLegacySchools = schoolController.importLegacySchools;
+export const uploadSchoolAvatar = schoolController.uploadAvatar;
+export const deleteSchoolAvatar = schoolController.deleteAvatar;

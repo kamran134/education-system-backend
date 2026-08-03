@@ -28,6 +28,7 @@ export interface IDistrict extends Document {
     averageScore?: number;
     place?: number | null;
     filterPlace?: number | null;
+    avatarUrl?: string;
 }
 
 const YearRatingSchema = new Schema({
@@ -45,7 +46,8 @@ const DistrictSchema: Schema = new Schema({
     rate: { type: Number, required: false },
     districtOfTheYearScore: { type: Number, required: false, default: 0 },
     active: { type: Boolean, required: false, default: true },
-    ratings: { type: [YearRatingSchema], required: false, default: [] }
+    ratings: { type: [YearRatingSchema], required: false, default: [] },
+    avatarUrl: { type: String, required: false }
 });
 
 export default mongoose.model<IDistrict>("District", DistrictSchema);

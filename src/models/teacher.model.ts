@@ -44,6 +44,7 @@ export interface ITeacher extends Document {
     place: number | null;
     districtPlace: number | null;
     filterPlace?: number | null;
+    avatarUrl?: string;
 }
 
 const YearRatingSchema = new Schema({
@@ -67,7 +68,8 @@ const TeacherSchema: Schema = new Schema({
     score: { type: Number, required: false, default: 0 },
     averageScore: { type: Number, required: false, default: 0 },
     place: { type: Number, required: false, default: null },
-    districtPlace: { type: Number, required: false, default: null }
+    districtPlace: { type: Number, required: false, default: null },
+    avatarUrl: { type: String, required: false }
 });
 
 export default mongoose.model<ITeacher>("Teacher", TeacherSchema);
