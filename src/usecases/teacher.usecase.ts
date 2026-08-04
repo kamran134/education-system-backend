@@ -1,13 +1,11 @@
 import * as fs from "fs";
-import { ITeacher, ITeacherCreate } from "../models/teacher.model";
-import { TeacherService } from "../services/teacher.service";
-import { PaginationOptions, FilterOptions, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
+import { TeacherServicePg, Teacher, TeacherCreate } from "../services/teacher.service.pg";
+import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS } from "../utils/entity-codes.const";
-import { Types } from "mongoose";
 
 export class TeacherUseCase {
-    constructor(private teacherService: TeacherService) {}
+    constructor(private teacherService: TeacherServicePg) {}
 
     async updateTeachersStats(): Promise<void> {
         await this.teacherService.updateTeachersStats();
@@ -15,14 +13,10 @@ export class TeacherUseCase {
 
     async getTeachers(
         pagination: PaginationOptions,
-        filters: FilterOptions,
+        filters: FilterOptionsPg,
         sort: SortOptions
-    ): Promise<PaginatedResponse<ITeacher>> {
-        const { data, totalCount } = await this.teacherService.getFilteredTeachers(
-            pagination,
-            filters,
-            sort
-        );
+    ): Promise<PaginatedResponse<Teacher>> {
+        const { data, totalCount } = await this.teacherService.getFilteredTeachers(pagination, filters, sort);
 
         return {
             data,
@@ -33,17 +27,17 @@ export class TeacherUseCase {
         };
     }
 
-    async getTeacherById(id: string): Promise<ITeacher> {
+    async getTeacherById(id: string): Promise<Teacher> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Teacher ID'),
-            ValidationUtils.validateObjectId(id, 'Teacher ID')
+            ValidationUtils.validateId(id, 'Teacher ID')
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        const teacher = await this.teacherService.findById(id);
+        const teacher = await this.teacherService.findById(parseInt(id, 10));
         if (!teacher) {
             throw new Error('Teacher not found');
         }
@@ -51,7 +45,7 @@ export class TeacherUseCase {
         return teacher;
     }
 
-    async createTeacher(teacherData: ITeacherCreate): Promise<ITeacher> {
+    async createTeacher(teacherData: TeacherCreate): Promise<Teacher> {
         const validation = this.validateTeacherData(teacherData);
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
@@ -65,17 +59,17 @@ export class TeacherUseCase {
         return await this.teacherService.create(teacherData);
     }
 
-    async updateTeacher(id: string, updateData: Partial<ITeacherCreate>): Promise<ITeacher> {
+    async updateTeacher(id: string, updateData: Partial<TeacherCreate>): Promise<Teacher> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Teacher ID'),
-            ValidationUtils.validateObjectId(id, 'Teacher ID')
+            ValidationUtils.validateId(id, 'Teacher ID')
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        const existingTeacher = await this.teacherService.findById(id);
+        const existingTeacher = await this.teacherService.findById(parseInt(id, 10));
         if (!existingTeacher) {
             throw new Error('Teacher not found');
         }
@@ -87,25 +81,25 @@ export class TeacherUseCase {
             }
         }
 
-        return await this.teacherService.update(id, updateData);
+        return await this.teacherService.update(parseInt(id, 10), updateData);
     }
 
     async deleteTeacher(id: string): Promise<void> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Teacher ID'),
-            ValidationUtils.validateObjectId(id, 'Teacher ID')
+            ValidationUtils.validateId(id, 'Teacher ID')
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        const teacher = await this.teacherService.findById(id);
+        const teacher = await this.teacherService.findById(parseInt(id, 10));
         if (!teacher) {
             throw new Error('Teacher not found');
         }
 
-        await this.teacherService.delete(id);
+        await this.teacherService.delete(parseInt(id, 10));
     }
 
     async deleteTeachers(ids: string[]): Promise<BulkOperationResult> {
@@ -114,11 +108,10 @@ export class TeacherUseCase {
             throw new Error(arrayValidation.errors.join(', '));
         }
 
-        const objectIds = ids.map(id => new Types.ObjectId(id));
-        return await this.teacherService.deleteBulk(objectIds);
+        return await this.teacherService.deleteBulk(ids.map((id) => parseInt(id, 10)));
     }
 
-    async processTeachersFromFile(filePath: string): Promise<FileProcessingResult<ITeacher>> {
+    async processTeachersFromFile(filePath: string): Promise<FileProcessingResult<Teacher>> {
         if (!filePath) {
             throw new Error('File path is required');
         }
@@ -126,8 +119,8 @@ export class TeacherUseCase {
         return await this.teacherService.processTeachersFromExcel(filePath);
     }
 
-    async repairTeachers(): Promise<{ 
-        repairedTeachers: number[], 
+    async repairTeachers(): Promise<{
+        repairedTeachers: number[],
         failedTeachers: Array<{ code: number, reason: string }>,
         missedDistricts: number[],
         missedSchools: number[]
@@ -135,7 +128,7 @@ export class TeacherUseCase {
         return await this.teacherService.repairTeacherAssignments();
     }
 
-    async getTeachersForFilter(filters: FilterOptions): Promise<ITeacher[]> {
+    async getTeachersForFilter(filters: FilterOptionsPg): Promise<Teacher[]> {
         return await this.teacherService.getTeachersForFilter(filters);
     }
 
@@ -177,7 +170,7 @@ export class TeacherUseCase {
         return await this.teacherService.importLegacyTeachers(records);
     }
 
-    private validateTeacherData(data: ITeacherCreate): ValidationResult {
+    private validateTeacherData(data: TeacherCreate): ValidationResult {
         return ValidationUtils.combine([
             ValidationUtils.validateRequired(data.fullname, 'Full name'),
             ValidationUtils.validateRequired(data.code, 'Teacher code'),

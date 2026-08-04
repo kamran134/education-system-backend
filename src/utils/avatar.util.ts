@@ -1,6 +1,53 @@
 import fs from 'fs';
 import path from 'path';
 import { Model, Document } from 'mongoose';
+import { pg } from '../config/pg';
+
+/** Таблицы с колонкой avatar_url — те же 4 сущности, что и в Mongo-версии ниже. */
+type AvatarTable = 'districts' | 'schools' | 'teachers' | 'students';
+
+/** Postgres-версия saveEntityAvatar/removeEntityAvatar — см. Mongo-версии ниже, поведение то же. */
+export async function saveEntityAvatarPg(
+    table: AvatarTable,
+    entityId: number,
+    file: Express.Multer.File,
+    urlPrefix: string
+): Promise<string | null> {
+    const avatarUrl = `${urlPrefix}/${file.filename}`;
+
+    const updated = await pg
+        .updateTable(table)
+        .set({ avatar_url: avatarUrl })
+        .where('id', '=', entityId)
+        .returning('avatar_url')
+        .executeTakeFirst();
+
+    if (!updated) {
+        fs.unlinkSync(file.path);
+        return null;
+    }
+
+    return updated.avatar_url!;
+}
+
+export async function removeEntityAvatarPg(table: AvatarTable, entityId: number): Promise<boolean> {
+    const entity = await pg.selectFrom(table).select('avatar_url').where('id', '=', entityId).executeTakeFirst();
+
+    if (!entity) {
+        return false;
+    }
+
+    if (entity.avatar_url) {
+        const avatarPath = path.join(process.cwd(), entity.avatar_url);
+        if (fs.existsSync(avatarPath)) {
+            fs.unlinkSync(avatarPath);
+        }
+
+        await pg.updateTable(table).set({ avatar_url: null }).where('id', '=', entityId).execute();
+    }
+
+    return true;
+}
 
 interface HasAvatar extends Document {
     avatarUrl?: string;

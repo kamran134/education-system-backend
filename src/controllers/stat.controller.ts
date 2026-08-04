@@ -1,17 +1,14 @@
 import { Request, Response } from "express";
-import { Types } from "mongoose";
 import { StatsUseCase } from "../usecases/stats.usecase";
-import { StatsService } from "../services/stats.service";
+import { StatsServicePg } from "../services/stats.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { migrateRatingsFromFlatFields } from "../utils/migrate-ratings";
-import Teacher from "../models/teacher.model";
 
 export class StatsController {
     private statsUseCase: StatsUseCase;
 
     constructor() {
-        const statsService = new StatsService();
+        const statsService = new StatsServicePg();
         this.statsUseCase = new StatsUseCase(statsService);
     }
 
@@ -46,23 +43,22 @@ export class StatsController {
     async getStudentsStatistics(req: Request, res: Response): Promise<void> {
         try {
             const filters = {
-                ...RequestParser.parseFilterOptions(req),
+                ...RequestParser.parseFilterOptionsPg(req),
                 month: req.query.month as string,
                 sortColumn: req.query.sortColumn as string,
                 sortDirection: req.query.sortDirection as string
             };
 
-            // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
+                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
                 delete filters.schoolIds;
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
-                filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
+                filters.studentIds = [parseInt(req.user.studentId, 10)];
             }
 
             const statistics = await this.statsUseCase.getStudentStatistics(filters);
@@ -82,23 +78,22 @@ export class StatsController {
     async getDevelopingStudents(req: Request, res: Response): Promise<void> {
         try {
             const filters = {
-                ...RequestParser.parseFilterOptions(req),
+                ...RequestParser.parseFilterOptionsPg(req),
                 month: req.query.month as string,
                 sortColumn: req.query.sortColumn as string,
                 sortDirection: req.query.sortDirection as string
             };
 
-            // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
+                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
                 delete filters.schoolIds;
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
-                filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
+                filters.studentIds = [parseInt(req.user.studentId, 10)];
             }
 
             const students = await this.statsUseCase.getDevelopingStudents(filters);
@@ -118,23 +113,22 @@ export class StatsController {
     async getStudentsOfMonth(req: Request, res: Response): Promise<void> {
         try {
             const filters = {
-                ...RequestParser.parseFilterOptions(req),
+                ...RequestParser.parseFilterOptionsPg(req),
                 month: req.query.month as string,
                 sortColumn: req.query.sortColumn as string,
                 sortDirection: req.query.sortDirection as string
             };
 
-            // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
+                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
                 delete filters.schoolIds;
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
-                filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
+                filters.studentIds = [parseInt(req.user.studentId, 10)];
             }
 
             const students = await this.statsUseCase.getStudentsOfMonth(filters);
@@ -154,23 +148,22 @@ export class StatsController {
     async getStudentsOfMonthByRepublic(req: Request, res: Response): Promise<void> {
         try {
             const filters = {
-                ...RequestParser.parseFilterOptions(req),
+                ...RequestParser.parseFilterOptionsPg(req),
                 month: req.query.month as string,
                 sortColumn: req.query.sortColumn as string,
                 sortDirection: req.query.sortDirection as string
             };
 
-            // Apply RBAC filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
+                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
                 delete filters.schoolIds;
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
-                filters.studentIds = [new Types.ObjectId(req.user.studentId!)];
+                filters.studentIds = [parseInt(req.user.studentId, 10)];
             }
 
             const students = await this.statsUseCase.getStudentsOfMonthByRepublic(filters);
@@ -194,7 +187,7 @@ export class StatsController {
             res.status(200).json(ResponseHandler.success(statistics));
         } catch (error: any) {
             console.error('Error in getStatisticsByExam:', error);
-            if (error.message.includes('ObjectId') || error.message.includes('required')) {
+            if (error.message.includes('valid id') || error.message.includes('required')) {
                 res.status(400).json(ResponseHandler.badRequest(error.message));
             } else {
                 res.status(500).json(ResponseHandler.internalError('Error fetching exam statistics', error));
@@ -205,23 +198,22 @@ export class StatsController {
     async getTeacherStatistics(req: Request, res: Response): Promise<void> {
         try {
             const filters = {
-                ...RequestParser.parseFilterOptions(req),
+                ...RequestParser.parseFilterOptionsPg(req),
                 sortColumn: req.query.sortColumn as string || 'averageScore',
                 sortDirection: req.query.sortDirection as string || 'desc',
                 page: parseInt(req.query.page as string) || 1,
                 size: parseInt(req.query.size as string) || 100
             };
 
-            // Apply RBAC filtering — if linked ID is missing, return empty (fail-safe)
             if (req.user?.role === 'districtRepresenter') {
                 if (!req.user.districtId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.districtIds = [new Types.ObjectId(req.user.districtId)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector') {
                 if (!req.user.schoolId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId)];
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             } else if (req.user?.role === 'teacher') {
                 if (!req.user.teacherId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
+                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
             }
 
             const statistics = await this.statsUseCase.getTeacherStatistics(filters);
@@ -235,22 +227,20 @@ export class StatsController {
     async getSchoolStatistics(req: Request, res: Response): Promise<void> {
         try {
             const filters = {
-                ...RequestParser.parseFilterOptions(req),
+                ...RequestParser.parseFilterOptionsPg(req),
                 sortColumn: req.query.sortColumn as string || 'averageScore',
                 sortDirection: req.query.sortDirection as string || 'desc',
                 page: parseInt(req.query.page as string) || 1,
                 size: parseInt(req.query.size as string) || 100
             };
 
-            // Apply RBAC filtering — if linked ID is missing, return empty (fail-safe)
             if (req.user?.role === 'districtRepresenter') {
                 if (!req.user.districtId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.districtIds = [new Types.ObjectId(req.user.districtId)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector') {
                 if (!req.user.schoolId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId)];
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             } else if (req.user?.role === 'teacher') {
-                // Teacher should not access school stats at all
                 res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return;
             }
 
@@ -265,19 +255,17 @@ export class StatsController {
     async getDistrictStatistics(req: Request, res: Response): Promise<void> {
         try {
             const filters = {
-                ...RequestParser.parseFilterOptions(req),
+                ...RequestParser.parseFilterOptionsPg(req),
                 sortColumn: req.query.sortColumn as string || 'averageScore',
                 sortDirection: req.query.sortDirection as string || 'desc',
                 page: parseInt(req.query.page as string) || 1,
                 size: parseInt(req.query.size as string) || 100
             };
 
-            // Apply RBAC filtering — if linked ID is missing, return empty (fail-safe)
             if (req.user?.role === 'districtRepresenter') {
                 if (!req.user.districtId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.districtIds = [new Types.ObjectId(req.user.districtId)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector' || req.user?.role === 'teacher') {
-                // School directors and teachers should not access district stats
                 res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return;
             }
 
@@ -289,15 +277,8 @@ export class StatsController {
         }
     }
 
-    async migrateRatings(req: Request, res: Response): Promise<void> {
-        try {
-            const result = await migrateRatingsFromFlatFields();
-            res.status(200).json(ResponseHandler.success(result, 'Reytinq miqrasiyası uğurla tamamlandı'));
-        } catch (error: any) {
-            console.error('Error in migrateRatings:', error);
-            res.status(500).json(ResponseHandler.internalError('Reytinq miqrasiyasında xəta baş verdi', error));
-        }
-    }
+    // migrateRatings (Mongo flat-fields → ratings[] one-off housekeeping) не перенесён —
+    // бессмысленен в Postgres, где такого расхождения структурно не существует.
 }
 
 // Create instance and export methods for backward compatibility
@@ -305,7 +286,6 @@ const statsController = new StatsController();
 
 export const updateStatistics = (req: Request, res: Response) => statsController.updateStatistics(req, res);
 export const updateAllStatistics = (req: Request, res: Response) => statsController.updateAllStatistics(req, res);
-export const migrateRatings = (req: Request, res: Response) => statsController.migrateRatings(req, res);
 export const getStudentsStatistics = (req: Request, res: Response) => statsController.getStudentsStatistics(req, res);
 export const getDevelopingStudents = (req: Request, res: Response) => statsController.getDevelopingStudents(req, res);
 export const getStudentsOfMonth = (req: Request, res: Response) => statsController.getStudentsOfMonth(req, res);

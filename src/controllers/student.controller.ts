@@ -1,11 +1,10 @@
 import { Request, Response } from "express";
-import { Types } from "mongoose";
 import { StudentUseCase } from "../usecases/student.usecase";
-import { StudentService } from "../services/student.service";
-import { StudentResultService } from "../services/studentResult.service";
+import { StudentServicePg } from "../services/student.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import Student from "../models/student.model";
+import { pg } from "../config/pg";
+import { saveEntityAvatarPg, removeEntityAvatarPg } from "../utils/avatar.util";
 import fs from 'fs';
 import path from 'path';
 import { smartCrop } from '../utils/smart-crop.util';
@@ -14,32 +13,25 @@ export class StudentController {
     private studentUseCase: StudentUseCase;
 
     constructor() {
-        const studentService = new StudentService();
-        const studentResultService = new StudentResultService();
-        this.studentUseCase = new StudentUseCase(studentService, studentResultService);
+        this.studentUseCase = new StudentUseCase(new StudentServicePg());
     }
 
     async getStudents(req: Request, res: Response): Promise<void> {
         try {
             const pagination = RequestParser.parsePagination(req);
-            const filters = RequestParser.parseFilterOptions(req);
+            const filters = RequestParser.parseFilterOptionsPg(req);
             const sort = RequestParser.parseSorting(req, 'averageScore', 'desc');
 
             // Role-based filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                // District representer sees students from their district schools
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                // School director sees students from their school
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                // Teacher sees only their own students
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId)];
+                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
                 delete filters.schoolIds;
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
-                // Student sees only themselves - filter by student ID
-                // We'll need to add this filter type
                 const studentResult = await this.studentUseCase.getStudentById(req.user.studentId);
                 res.status(200).json(ResponseHandler.success({
                     data: [studentResult],
@@ -68,7 +60,7 @@ export class StudentController {
             console.error('Error in getStudent:', error);
             if (error.message === 'Student not found') {
                 res.status(404).json(ResponseHandler.notFound(error.message));
-            } else if (error.message.includes('ObjectId') || error.message.includes('required')) {
+            } else if (error.message.includes('valid id') || error.message.includes('required')) {
                 res.status(400).json(ResponseHandler.badRequest(error.message));
             } else {
                 res.status(500).json(ResponseHandler.internalError('Error fetching student', error));
@@ -101,7 +93,7 @@ export class StudentController {
             console.error('Error in updateStudent:', error);
             if (error.message === 'Student not found') {
                 res.status(404).json(ResponseHandler.notFound(error.message));
-            } else if (error.message.includes('already exists') || error.message.includes('ObjectId') || error.message.includes('required')) {
+            } else if (error.message.includes('already exists') || error.message.includes('valid id') || error.message.includes('required')) {
                 res.status(400).json(ResponseHandler.badRequest(error.message));
             } else {
                 res.status(500).json(ResponseHandler.internalError('Error updating student', error));
@@ -118,7 +110,7 @@ export class StudentController {
             console.error('Error in deleteStudent:', error);
             if (error.message === 'Student not found') {
                 res.status(404).json(ResponseHandler.notFound(error.message));
-            } else if (error.message.includes('ObjectId') || error.message.includes('required')) {
+            } else if (error.message.includes('valid id') || error.message.includes('required')) {
                 res.status(400).json(ResponseHandler.badRequest(error.message));
             } else {
                 res.status(500).json(ResponseHandler.internalError('Error deleting student', error));
@@ -180,39 +172,27 @@ export class StudentController {
 
     async uploadStudentAvatar(req: Request, res: Response): Promise<void> {
         try {
-            const studentId = req.params.id;
-            
-            // Проверка что файл загружен
+            const studentId = parseInt(req.params.id, 10);
+
             if (!req.file) {
                 res.status(400).json(ResponseHandler.badRequest('Fayl yüklənməyib'));
                 return;
             }
 
-            // Формируем URL аватара
-            const avatarUrl = `/uploads/students/avatars/${req.file.filename}`;
+            const avatarUrl = await saveEntityAvatarPg('students', studentId, req.file, '/uploads/students/avatars');
 
-            // Обновляем студента
-            const student = await Student.findByIdAndUpdate(
-                studentId,
-                { avatarUrl },
-                { new: true }
-            );
-
-            if (!student) {
-                // Удаляем загруженный файл если студент не найден
-                fs.unlinkSync(req.file.path);
+            if (!avatarUrl) {
                 res.status(404).json(ResponseHandler.notFound('Şagird tapılmadı'));
                 return;
             }
 
             res.status(200).json(ResponseHandler.success({
                 message: 'Avatar uğurla yükləndi',
-                avatarUrl: student.avatarUrl
+                avatarUrl
             }));
         } catch (error: any) {
             console.error('Error uploading student avatar:', error);
-            
-            // Удаляем файл в случае ошибки
+
             if (req.file) {
                 try {
                     fs.unlinkSync(req.file.path);
@@ -220,34 +200,20 @@ export class StudentController {
                     console.error('Error deleting file:', unlinkError);
                 }
             }
-            
+
             res.status(500).json(ResponseHandler.internalError('Avatar yüklənərkən xəta baş verdi', error));
         }
     }
 
     async deleteStudentAvatar(req: Request, res: Response): Promise<void> {
         try {
-            const studentId = req.params.id;
+            const studentId = parseInt(req.params.id, 10);
 
-            // Получаем студента
-            const student = await Student.findById(studentId);
+            const found = await removeEntityAvatarPg('students', studentId);
 
-            if (!student) {
+            if (!found) {
                 res.status(404).json(ResponseHandler.notFound('Şagird tapılmadı'));
                 return;
-            }
-
-            // Если есть аватар, удаляем файл
-            if (student.avatarUrl) {
-                const avatarPath = path.join(process.cwd(), student.avatarUrl);
-                
-                if (fs.existsSync(avatarPath)) {
-                    fs.unlinkSync(avatarPath);
-                }
-
-                // Обновляем студента
-                student.avatarUrl = undefined;
-                await student.save();
             }
 
             res.status(200).json(ResponseHandler.success({
@@ -266,7 +232,7 @@ export class StudentController {
     async bulkUploadAvatars(req: Request, res: Response): Promise<void> {
         try {
             const files = req.files as Express.Multer.File[];
-            
+
             if (!files || files.length === 0) {
                 res.status(400).json(ResponseHandler.badRequest('Heç bir fayl yüklənməyib'));
                 return;
@@ -279,68 +245,53 @@ export class StudentController {
 
             const results = {
                 successful: [] as string[],
-                notFound: [] as string[], // Студенты не найдены
-                corrupted: [] as string[], // Поврежденные файлы
+                notFound: [] as string[],
+                corrupted: [] as string[],
                 total: files.length
             };
 
-            // Обрабатываем каждый файл
             for (const file of files) {
                 try {
-                    // Извлекаем код студента из имени файла (без расширения)
                     const rawName = path.parse(file.originalname).name;
 
-                    // Санитизация: код студента — строго 10 цифр
                     if (!/^\d{10}$/.test(rawName)) {
-                        results.notFound.push(rawName.slice(0, 20)); // ограничиваем длину в ответе
+                        results.notFound.push(rawName.slice(0, 20));
                         fs.unlinkSync(file.path);
                         continue;
                     }
                     const studentCode = parseInt(rawName, 10);
-                    
-                    // Находим студента по коду
-                    const student = await Student.findOne({ code: studentCode });
-                    
+
+                    const student = await pg.selectFrom('students').select('id').where('code', '=', studentCode).executeTakeFirst();
+
                     if (!student) {
                         results.notFound.push(rawName);
-                        // Удаляем временный файл
                         fs.unlinkSync(file.path);
                         continue;
                     }
 
-                    // Читаем файл
                     const fileBuffer = fs.readFileSync(file.path);
-                    
-                    // Применяем умный кроп с face detection
                     const croppedBuffer = await smartCrop(fileBuffer, 600, 800);
-                    
-                    // Сохраняем с именем по id студента
-                    const filename = `${student._id}.jpg`;
+
+                    const filename = `${student.id}.jpg`;
                     const finalPath = path.join(uploadPath, filename);
-                    
-                    // Удаляем старый файл если существует
+
                     if (fs.existsSync(finalPath)) {
                         fs.unlinkSync(finalPath);
                     }
-                    
-                    // Сохраняем обработанный файл
+
                     fs.writeFileSync(finalPath, croppedBuffer);
-                    
-                    // Обновляем студента
-                    student.avatarUrl = `/uploads/students/avatars/${filename}`;
-                    await student.save();
-                    
+
+                    await pg.updateTable('students').set({ avatar_url: `/uploads/students/avatars/${filename}` }).where('id', '=', student.id).execute();
+
                     results.successful.push(String(studentCode));
-                    
-                    // Удаляем временный файл
+
                     fs.unlinkSync(file.path);
-                    
+
                 } catch (fileError: any) {
                     console.error(`Error processing file ${file.originalname}:`, fileError);
                     const rawErrName = path.parse(file.originalname).name;
                     results.corrupted.push(rawErrName.slice(0, 20));
-                    
-                    // Удаляем временный файл
+
                     try {
                         fs.unlinkSync(file.path);
                     } catch (unlinkError) {
@@ -353,11 +304,10 @@ export class StudentController {
                 message: 'Kütləvi yükləmə tamamlandı',
                 results
             }));
-            
+
         } catch (error: any) {
             console.error('Error in bulk upload avatars:', error);
-            
-            // Очищаем временные файлы в случае ошибки
+
             if (req.files) {
                 const files = req.files as Express.Multer.File[];
                 files.forEach(file => {
@@ -370,7 +320,7 @@ export class StudentController {
                     }
                 });
             }
-            
+
             res.status(500).json(ResponseHandler.internalError('Kütləvi yükləmə zamanı xəta baş verdi', error));
         }
     }

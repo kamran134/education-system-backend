@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ExamUseCase } from "../usecases/exam.usecase";
-import { ExamService } from "../services/exam.service";
+import { ExamServicePg } from "../services/exam.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 
@@ -8,15 +8,15 @@ export class ExamController {
     private examUseCase: ExamUseCase;
 
     constructor() {
-        this.examUseCase = new ExamUseCase(new ExamService());
+        this.examUseCase = new ExamUseCase(new ExamServicePg());
     }
 
     getExams = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             console.log('Exam Controller - Query params:', req.query);
-            
+
             const pagination = RequestParser.parsePagination(req);
-            const filters = RequestParser.parseFilterOptions(req);
+            const filters = RequestParser.parseFilterOptionsPg(req);
             const sort = RequestParser.parseSorting(req, 'date', 'desc');
 
             console.log('Exam Controller - Parsed filters:', filters);
@@ -35,7 +35,7 @@ export class ExamController {
 
     getExamsForFilter = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const filters = RequestParser.parseFilterOptions(req);
+            const filters = RequestParser.parseFilterOptionsPg(req);
             const exams = await this.examUseCase.getExamsForFilter(filters);
 
             res.json(ResponseHandler.success(exams, 'Exams for filter retrieved successfully'));

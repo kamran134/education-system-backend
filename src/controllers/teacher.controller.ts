@@ -1,18 +1,16 @@
 import { Request, Response, NextFunction } from "express";
-import { Types } from "mongoose";
 import fs from "fs";
 import { TeacherUseCase } from "../usecases/teacher.usecase";
-import { TeacherService } from "../services/teacher.service";
+import { TeacherServicePg } from "../services/teacher.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatar, removeEntityAvatar, canManageAvatar } from "../utils/avatar.util";
-import Teacher from "../models/teacher.model";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageAvatar } from "../utils/avatar.util";
 
 export class TeacherController {
     private teacherUseCase: TeacherUseCase;
 
     constructor() {
-        this.teacherUseCase = new TeacherUseCase(new TeacherService());
+        this.teacherUseCase = new TeacherUseCase(new TeacherServicePg());
     }
 
     updateTeachersStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -27,19 +25,15 @@ export class TeacherController {
     getTeachers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const pagination = RequestParser.parsePagination(req);
-            const filters = RequestParser.parseFilterOptions(req);
+            const filters = RequestParser.parseFilterOptionsPg(req);
             const sort = RequestParser.parseSorting(req, 'name', 'asc');
 
-            // Role-based filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                // District representer sees teachers from their district schools
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                // School director sees only teachers from their school
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                // Teacher sees only themselves
-                filters.teacherIds = [new Types.ObjectId(req.user.teacherId!)];
+                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
             }
 
             const result = await this.teacherUseCase.getTeachers(pagination, filters, sort);
@@ -55,7 +49,7 @@ export class TeacherController {
 
     getTeachersForFilter = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const filters = RequestParser.parseFilterOptions(req);
+            const filters = RequestParser.parseFilterOptionsPg(req);
             const teachers = await this.teacherUseCase.getTeachersForFilter(filters);
 
             res.json(ResponseHandler.success(teachers, 'Teachers for filter retrieved successfully'));
@@ -90,7 +84,7 @@ export class TeacherController {
         try {
             const { id } = req.params;
             const updateData = req.body;
-            
+
             const teacher = await this.teacherUseCase.updateTeacher(id, updateData);
 
             res.json(ResponseHandler.updated(teacher, 'Teacher updated successfully'));
@@ -140,8 +134,7 @@ export class TeacherController {
     checkExistingTeacherCodes = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { codes } = req.body;
-            // Use service directly since this is not in use case
-            const teacherService = new TeacherService();
+            const teacherService = new TeacherServicePg();
             const existingCodes = await teacherService.checkExistingTeacherCodes(codes);
 
             res.json(ResponseHandler.success(existingCodes, 'Teacher codes checked successfully'));
@@ -194,7 +187,7 @@ export class TeacherController {
                 return;
             }
 
-            const avatarUrl = await saveEntityAvatar(Teacher, id, req.file, '/uploads/teachers/avatars');
+            const avatarUrl = await saveEntityAvatarPg('teachers', parseInt(id, 10), req.file, '/uploads/teachers/avatars');
 
             if (!avatarUrl) {
                 res.status(404).json(ResponseHandler.notFound('Müəllim tapılmadı'));
@@ -216,7 +209,7 @@ export class TeacherController {
                 return;
             }
 
-            const found = await removeEntityAvatar(Teacher, id);
+            const found = await removeEntityAvatarPg('teachers', parseInt(id, 10));
 
             if (!found) {
                 res.status(404).json(ResponseHandler.notFound('Müəllim tapılmadı'));

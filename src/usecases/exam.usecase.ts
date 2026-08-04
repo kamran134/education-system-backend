@@ -1,24 +1,17 @@
-import { ExamService } from "../services/exam.service";
-import { StudentResultService } from "../services/studentResult.service";
-import { IExam, IExamCreate } from "../models/exam.model";
-import { PaginationOptions, FilterOptions, SortOptions, FileProcessingResult, BulkOperationResult } from "../types/common.types";
+import { ExamServicePg, Exam, ExamCreate } from "../services/exam.service.pg";
+import { PaginationOptions, FilterOptionsPg, SortOptions, FileProcessingResult, BulkOperationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
-import { Types } from "mongoose";
 
 export class ExamUseCase {
-    private studentResultService: StudentResultService;
+    constructor(private examService: ExamServicePg) {}
 
-    constructor(private examService: ExamService) {
-        this.studentResultService = new StudentResultService();
-    }
-
-    async getExamById(id: string): Promise<IExam> {
-        const validationError = ValidationUtils.validateObjectId(id, 'Exam ID');
+    async getExamById(id: string): Promise<Exam> {
+        const validationError = ValidationUtils.validateId(id, 'Exam ID');
         if (validationError) {
             throw new Error(validationError);
         }
 
-        const exam = await this.examService.findById(id);
+        const exam = await this.examService.findById(parseInt(id, 10));
         if (!exam) {
             throw new Error('Exam not found');
         }
@@ -26,9 +19,9 @@ export class ExamUseCase {
         return exam;
     }
 
-    async getExamByCode(code: number): Promise<IExam> {
+    async getExamByCode(code: number): Promise<Exam> {
         ValidationUtils.validateRequired(code, 'Exam code');
-        
+
         const exam = await this.examService.findByCode(code);
         if (!exam) {
             throw new Error('Exam not found');
@@ -37,7 +30,7 @@ export class ExamUseCase {
         return exam;
     }
 
-    async createExam(examData: IExamCreate): Promise<IExam> {
+    async createExam(examData: ExamCreate): Promise<Exam> {
         ValidationUtils.validateRequired(examData.name, 'Exam name');
         ValidationUtils.validateRequired(examData.code, 'Exam code');
         ValidationUtils.validateRequired(examData.date, 'Exam date');
@@ -48,7 +41,6 @@ export class ExamUseCase {
             examData.date = new Date((examData.date as any) + 'T00:00:00.000Z') as any;
         }
 
-        // Check if exam with same code already exists
         const existingExam = await this.examService.findByCode(examData.code);
         if (existingExam) {
             throw new Error('Exam with this code already exists');
@@ -57,46 +49,39 @@ export class ExamUseCase {
         return await this.examService.create(examData);
     }
 
-    async updateExam(id: string, updateData: Partial<IExamCreate>): Promise<IExam> {
-        const validationError = ValidationUtils.validateObjectId(id, 'Exam ID');
+    async updateExam(id: string, updateData: Partial<ExamCreate>): Promise<Exam> {
+        const validationError = ValidationUtils.validateId(id, 'Exam ID');
         if (validationError) {
             throw new Error(validationError);
         }
 
-        // Парсим дату как UTC midnight чтобы избежать смещения timezone.
-        // Фронт присылает строку "YYYY-MM-DD".
         if (updateData.date && typeof updateData.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(updateData.date as any)) {
             updateData.date = new Date((updateData.date as any) + 'T00:00:00.000Z') as any;
         }
 
-        // If updating code, check for conflicts
         if (updateData.code) {
             const existingExam = await this.examService.findByCode(updateData.code);
-            if (existingExam && existingExam._id && existingExam._id.toString() !== id) {
+            if (existingExam && existingExam.id !== parseInt(id, 10)) {
                 throw new Error('Exam with this code already exists');
             }
         }
 
-        return await this.examService.update(id, updateData);
+        return await this.examService.update(parseInt(id, 10), updateData);
     }
 
     async deleteExam(id: string): Promise<void> {
-        const validationError = ValidationUtils.validateObjectId(id, 'Exam ID');
+        const validationError = ValidationUtils.validateId(id, 'Exam ID');
         if (validationError) {
             throw new Error(validationError);
         }
 
-        const exam = await this.examService.findById(id);
+        const exam = await this.examService.findById(parseInt(id, 10));
         if (!exam) {
             throw new Error('Exam not found');
         }
 
-        // Delete all student results for this exam first
-        const examObjectId = new Types.ObjectId(id);
-        await this.studentResultService.deleteByExamId(examObjectId);
-
-        // Then delete the exam itself
-        await this.examService.delete(id);
+        // delete() уже удаляет связанные student_results одной транзакцией — см. exam.service.pg.ts
+        await this.examService.delete(parseInt(id, 10));
     }
 
     async deleteExams(ids: string[]): Promise<BulkOperationResult> {
@@ -105,35 +90,28 @@ export class ExamUseCase {
         }
 
         for (const id of ids) {
-            const validationError = ValidationUtils.validateObjectId(id, 'Exam ID');
+            const validationError = ValidationUtils.validateId(id, 'Exam ID');
             if (validationError) {
                 throw new Error(validationError);
             }
         }
 
-        // Delete all student results for these exams first
-        const objectIds = ids.map(id => new Types.ObjectId(id));
-        for (const examObjectId of objectIds) {
-            await this.studentResultService.deleteByExamId(examObjectId);
-        }
-
-        // Then delete the exams
-        return await this.examService.deleteBulk(objectIds);
+        return await this.examService.deleteBulk(ids.map((id) => parseInt(id, 10)));
     }
 
     async getFilteredExams(
         pagination: PaginationOptions,
-        filters: FilterOptions,
+        filters: FilterOptionsPg,
         sort: SortOptions
-    ): Promise<{ data: IExam[], totalCount: number }> {
+    ): Promise<{ data: Exam[], totalCount: number }> {
         return await this.examService.getFilteredExams(pagination, filters, sort);
     }
 
-    async getExamsForFilter(filters: FilterOptions): Promise<IExam[]> {
+    async getExamsForFilter(filters: FilterOptionsPg): Promise<Exam[]> {
         return await this.examService.getExamsForFilter(filters);
     }
 
-    async getExamsByMonthYear(month: number, year: number): Promise<IExam[]> {
+    async getExamsByMonthYear(month: number, year: number): Promise<Exam[]> {
         ValidationUtils.validateRequired(month, 'Month');
         ValidationUtils.validateRequired(year, 'Year');
 
@@ -150,9 +128,9 @@ export class ExamUseCase {
         return await this.examService.getExamsByMonthYear(month, year);
     }
 
-    async processExamsFromExcel(filePath: string): Promise<FileProcessingResult<IExam>> {
+    async processExamsFromExcel(filePath: string): Promise<FileProcessingResult<Exam>> {
         ValidationUtils.validateRequired(filePath, 'File path');
-        
+
         try {
             return await this.examService.processExamsFromExcel(filePath);
         } catch (error) {

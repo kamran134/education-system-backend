@@ -2,12 +2,13 @@ import { Request, Response, CookieOptions } from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { validationResult } from "express-validator";
-import User from "../models/user.model";
-import TokenService from "../services/token.service";
+import { userServicePg } from "../services/user.service.pg";
+import TokenServicePg from "../services/token.service.pg";
 import { JWT_SECRET, JWT_REFRESH_SECRET } from "../config/env";
-import { buildProfileSummary } from "../utils/profile-summary.util";
+import { buildProfileSummaryPg } from "../utils/profile-summary.util.pg";
+import { pg } from "../config/pg";
 
-// Refresh токены теперь хранятся в MongoDB в коллекции пользователей
+// Refresh токены хранятся в Postgres, таблица user_refresh_tokens (см. token.service.pg.ts)
 
 interface JwtPayload {
     userId: string;
@@ -20,25 +21,25 @@ interface JwtPayload {
 
 const generateTokens = (userId: string, role: string, districtId?: string, schoolId?: string, teacherId?: string, studentId?: string) => {
     const payload: JwtPayload = { userId, role };
-    
+
     // Add entity IDs based on role
     if (districtId) payload.districtId = districtId;
     if (schoolId) payload.schoolId = schoolId;
     if (teacherId) payload.teacherId = teacherId;
     if (studentId) payload.studentId = studentId;
-    
+
     const accessToken = jwt.sign(
         payload,
         JWT_SECRET,
         { expiresIn: "15m" } // Короткий срок для access token
     );
-    
+
     const refreshToken = jwt.sign(
         payload,
         JWT_REFRESH_SECRET,
         { expiresIn: "7d" } // Долгий срок для refresh token
     );
-    
+
     return { accessToken, refreshToken };
 };
 
@@ -46,44 +47,42 @@ export const login = async (req: Request, res: Response) => {
     const { email, password } = req.body;
 
     try {
-        const user = await User.findOne({ email });
+        const user = await userServicePg.findByEmail(email);
         if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-            res.status(400).json({ 
+            res.status(400).json({
                 success: false,
-                message: "Yanlış məlumatlar!" 
+                message: "Yanlış məlumatlar!"
             });
             return;
         }
 
         if (!user?.isApproved) {
-            res.status(403).json({ 
+            res.status(403).json({
                 success: false,
-                message: "Adminin təsdiqi mütləqdir!" 
+                message: "Adminin təsdiqi mütləqdir!"
             });
             return;
         }
 
         const { accessToken, refreshToken } = generateTokens(
-            String(user._id), 
+            String(user.id),
             user.role,
             user.districtId ? String(user.districtId) : undefined,
             user.schoolId ? String(user.schoolId) : undefined,
             user.teacherId ? String(user.teacherId) : undefined,
             user.studentId ? String(user.studentId) : undefined
         );
-        
+
         console.log('[LOGIN] Generated tokens for user:', user.email);
-        
+
         // Сохраняем refresh token в базе данных и обновляем время последнего входа
-        await User.findByIdAndUpdate(user._id, {
-            $push: { refreshTokens: refreshToken },
-            lastLoginAt: new Date()
-        });
-        
+        await TokenServicePg.addToken(user.id, refreshToken);
+        await pg.updateTable("users").set({ last_login_at: new Date() }).where("id", "=", user.id).execute();
+
         console.log('[LOGIN] Saved refresh token to database');
 
         // Ограничиваем количество активных сессий (максимум 5 устройств)
-        await TokenService.limitUserTokens(String(user._id), 5);
+        await TokenServicePg.limitUserTokens(user.id, 5);
 
         // Устанавливаем refresh token в httpOnly cookie
         const cookieOptions: CookieOptions = {
@@ -93,23 +92,23 @@ export const login = async (req: Request, res: Response) => {
             maxAge: 7 * 24 * 60 * 60 * 1000, // 7 дней
             path: "/"
         };
-        
+
         // В production указываем domain для работы с поддоменами
         if (process.env.NODE_ENV === "production") {
             cookieOptions.domain = ".kpm.az";
         }
         // В development НЕ указываем domain - так cookie будет работать для всех портов localhost
-        
+
         res.cookie("refreshToken", refreshToken, cookieOptions);
-        
+
         console.log('[LOGIN] Set refresh token cookie with sameSite:', process.env.NODE_ENV === "production" ? "none" : "lax");
 
-        res.json({ 
+        res.json({
             success: true,
-            message: "Uğurlu avtorizasiya", 
+            message: "Uğurlu avtorizasiya",
             data: {
                 user: {
-                    id: user._id,
+                    id: user.id,
                     email: user.email,
                     role: user.role,
                     isApproved: user.isApproved
@@ -118,9 +117,9 @@ export const login = async (req: Request, res: Response) => {
             }
         });
     } catch (error) {
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: "Serverdə xəta!" 
+            message: "Serverdə xəta!"
         });
         console.error(error);
     }
@@ -129,28 +128,29 @@ export const login = async (req: Request, res: Response) => {
 // Новый эндпоинт для обновления токена
 export const refreshToken = async (req: Request, res: Response) => {
     const { refreshToken } = req.cookies;
-    
+
     console.log('[REFRESH TOKEN] Request received, token exists:', !!refreshToken);
 
     if (!refreshToken) {
         console.log('[REFRESH TOKEN] No refresh token found in cookies');
-        res.status(401).json({ 
+        res.status(401).json({
             success: false,
-            message: "Refresh token yoxdur və ya düzgün deyil!" 
+            message: "Refresh token yoxdur və ya düzgün deyil!"
         });
         return;
     }
 
     // Проверяем токен в базе данных
-    const userWithToken = await User.findOne({ refreshTokens: refreshToken });
-    
+    const userId = await TokenServicePg.findUserIdByToken(refreshToken);
+    const userWithToken = userId ? await userServicePg.findById(userId) : null;
+
     console.log('[REFRESH TOKEN] User found with token:', !!userWithToken);
-    
+
     if (!userWithToken) {
         console.log('[REFRESH TOKEN] No user found with this refresh token');
-        res.status(401).json({ 
+        res.status(401).json({
             success: false,
-            message: "Refresh token yoxdur və ya düzgün deyil!" 
+            message: "Refresh token yoxdur və ya düzgün deyil!"
         });
         return;
     }
@@ -159,51 +159,38 @@ export const refreshToken = async (req: Request, res: Response) => {
         console.log('[REFRESH TOKEN] Verifying token...');
         const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as { userId: string; role: string };
         console.log('[REFRESH TOKEN] Token verified, user ID:', decoded.userId);
-        
+
         // Проверяем, что пользователь все еще существует и активен (дополнительная проверка)
         if (!userWithToken.isApproved) {
             // Удаляем токен из базы данных
-            await User.findByIdAndUpdate(userWithToken._id, {
-                $pull: { refreshTokens: refreshToken }
-            });
-            
+            await TokenServicePg.removeToken(refreshToken);
+
             const clearOptions: any = { path: "/" };
             if (process.env.NODE_ENV === "production") {
                 clearOptions.domain = ".kpm.az";
             }
             res.clearCookie("refreshToken", clearOptions);
-            
-            res.status(401).json({ 
+
+            res.status(401).json({
                 success: false,
-                message: "İstifadəçi aktiv deyil!" 
+                message: "İstifadəçi aktiv deyil!"
             });
             return;
         }
 
         console.log('[REFRESH TOKEN] Generating new tokens...');
         const { accessToken, refreshToken: newRefreshToken } = generateTokens(
-            String(userWithToken._id), 
+            String(userWithToken.id),
             userWithToken.role,
             userWithToken.districtId ? String(userWithToken.districtId) : undefined,
             userWithToken.schoolId ? String(userWithToken.schoolId) : undefined,
             userWithToken.teacherId ? String(userWithToken.teacherId) : undefined,
             userWithToken.studentId ? String(userWithToken.studentId) : undefined
         );
-        
+
         console.log('[REFRESH TOKEN] Updating tokens in database...');
         // Атомарная замена старого токена на новый (предотвращает race condition)
-        const updateResult = await User.findOneAndUpdate(
-            { _id: userWithToken._id, refreshTokens: refreshToken },
-            { $set: { 'refreshTokens.$': newRefreshToken } },
-            { new: true }
-        );
-        
-        // Если старый токен уже был удалён (параллельный запрос), просто добавляем новый
-        if (!updateResult) {
-            await User.findByIdAndUpdate(userWithToken._id, {
-                $push: { refreshTokens: newRefreshToken }
-            });
-        }
+        await TokenServicePg.replaceToken(userWithToken.id, refreshToken, newRefreshToken);
 
         console.log('[REFRESH TOKEN] Setting new refresh token cookie...');
         // Обновляем refresh token cookie
@@ -214,15 +201,15 @@ export const refreshToken = async (req: Request, res: Response) => {
             maxAge: 7 * 24 * 60 * 60 * 1000,
             path: "/"
         };
-        
+
         if (process.env.NODE_ENV === "production") {
             cookieOptions.domain = ".kpm.az";
         }
-        
+
         res.cookie("refreshToken", newRefreshToken, cookieOptions);
 
         console.log('[REFRESH TOKEN] Sending successful response...');
-        res.json({ 
+        res.json({
             success: true,
             data: {
                 token: accessToken
@@ -234,20 +221,18 @@ export const refreshToken = async (req: Request, res: Response) => {
         console.log('[REFRESH TOKEN] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
         // Удаляем некорректный токен из базы данных
         if (userWithToken) {
-            await User.findByIdAndUpdate(userWithToken._id, {
-                $pull: { refreshTokens: refreshToken }
-            });
+            await TokenServicePg.removeToken(refreshToken);
         }
-        
+
         const clearOptions: any = { path: "/" };
         if (process.env.NODE_ENV === "production") {
             clearOptions.domain = ".kpm.az";
         }
         res.clearCookie("refreshToken", clearOptions);
-        
-        res.status(401).json({ 
+
+        res.status(401).json({
             success: false,
-            message: "Düzgün olmayan refresh token!" 
+            message: "Düzgün olmayan refresh token!"
         });
     }
 };
@@ -255,21 +240,22 @@ export const refreshToken = async (req: Request, res: Response) => {
 // Эндпоинт для проверки текущего пользователя
 export const me = async (req: Request, res: Response) => {
     try {
-        const user = await User.findById(req.user?.userId).select("-passwordHash");
+        const userId = req.user?.userId ? parseInt(req.user.userId, 10) : NaN;
+        const user = await userServicePg.findById(userId);
         if (!user) {
-            res.status(404).json({ 
+            res.status(404).json({
                 success: false,
-                message: "İstifadəçi tapılmadı!" 
+                message: "İstifadəçi tapılmadı!"
             });
             return;
         }
 
-        const profile = await buildProfileSummary(user);
+        const profile = await buildProfileSummaryPg(user);
 
         res.json({
             success: true,
             data: {
-                id: user._id,
+                id: user.id,
                 email: user.email,
                 role: user.role,
                 isApproved: user.isApproved,
@@ -294,7 +280,7 @@ export const register = async (req: Request, res: Response) => {
     }
 
     try {
-        const existingUser = await User.findOne({ email });
+        const existingUser = await userServicePg.findByEmail(email);
         if (existingUser) {
             res.status(400).json({ message: "İstifadəçi artıq mövcuddur!" });
             return;
@@ -312,11 +298,15 @@ export const register = async (req: Request, res: Response) => {
         }
 
         const passwordHash = await bcrypt.hash(password.toString(), 10);
-        const newUser = new User({
-            email, passwordHash, role: role || 'user', isApproved: role === "superadmin"
+        // Mongo-версия дефолтила role на 'user' — значение, которого никогда не было в её же
+        // enum (см. находки шага 3, PG_MIGRATION_TASKS.md: единственная реальная запись с role='user'
+        // перенесена в Postgres как 'admin'). Postgres CHECK на users.role его тоже не пропустит.
+        // Дефолт исправлен на 'student', как в самой схеме (db/schema.sql) — сознательное отличие,
+        // не молчаливое: без роли в форме регистрации 'student' и был подразумеваемым намерением.
+        await userServicePg.create({
+            email, passwordHash, role: role || 'student', isApproved: role === "superadmin"
         });
 
-        await newUser.save();
         res.status(201).json({ message: "İstifadəçi qeydiyyatdan keçdi. Təsdiq gözlənilir." })
     } catch (error) {
         res.status(500).json({ message: "Serverdə xəta!" });
@@ -327,12 +317,13 @@ export const register = async (req: Request, res: Response) => {
 export const approveUser = async (req: Request, res: Response) => {
     const { id } = req.params;
     try {
-        const user = await User.findByIdAndUpdate(id, { isApproved: true }, { new: true });
-        if (!user) {
+        const existing = await userServicePg.findById(parseInt(id, 10));
+        if (!existing) {
             res.status(404).json({ message: "İstifadəçi tapılmadı!" });
             return;
         }
 
+        const user = await userServicePg.approveUser(parseInt(id, 10));
         res.json({ message: "İstifadəçi təsdiq edildi!", user });
     } catch (error) {
         res.status(500).json({ message: "Serverdə xəta!" });
@@ -350,41 +341,38 @@ export const checkRole = async (req: Request, res: Response) => {
         return;
     }
 
-    const role = await User.findById(userId).select("role");
-    if (!role) {
+    const user = await userServicePg.findById(parseInt(userId, 10));
+    if (!user) {
         res.status(404).json({ message: "İstifadəçi rolu tapılmadı!" });
         return;
     }
 
-    res.json({ role: role.role });
+    res.json({ role: user.role });
 }
 
 export const logout = async (req: Request, res: Response) => {
     try {
         const { refreshToken } = req.cookies;
-        
+
         if (refreshToken) {
             // Удаляем токен из базы данных
-            await User.updateOne(
-                { refreshTokens: refreshToken },
-                { $pull: { refreshTokens: refreshToken } }
-            );
+            await TokenServicePg.removeToken(refreshToken);
         }
-        
+
         const clearOptions: any = { path: "/" };
         if (process.env.NODE_ENV === "production") {
             clearOptions.domain = ".kpm.az";
         }
-        
+
         res.clearCookie("refreshToken", clearOptions);
-        res.json({ 
+        res.json({
             success: true,
-            message: "Çıxış edildi!" 
+            message: "Çıxış edildi!"
         });
     } catch (error) {
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: "Çıxış zamanı xəta!" 
+            message: "Çıxış zamanı xəta!"
         });
         console.error(error);
     }
@@ -394,34 +382,32 @@ export const logout = async (req: Request, res: Response) => {
 export const logoutFromAllDevices = async (req: Request, res: Response) => {
     try {
         const userId = req.user?.userId;  // Из middleware авторизации
-        
+
         if (!userId) {
-            res.status(401).json({ 
+            res.status(401).json({
                 success: false,
-                message: "Avtorizasiya tələb olunur!" 
+                message: "Avtorizasiya tələb olunur!"
             });
             return;
         }
 
         // Удаляем все refresh токены пользователя
-        await User.findByIdAndUpdate(userId, {
-            $set: { refreshTokens: [] }
-        });
-        
+        await TokenServicePg.clearAllTokensForUser(parseInt(userId, 10));
+
         const clearOptions: any = { path: "/" };
         if (process.env.NODE_ENV === "production") {
             clearOptions.domain = ".kpm.az";
         }
         res.clearCookie("refreshToken", clearOptions);
-        
-        res.json({ 
+
+        res.json({
             success: true,
-            message: "Bütün cihazlardan çıxış edildi!" 
+            message: "Bütün cihazlardan çıxış edildi!"
         });
     } catch (error) {
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: "Çıxış zamanı xəta!" 
+            message: "Çıxış zamanı xəta!"
         });
         console.error(error);
     }
@@ -431,37 +417,40 @@ export const logoutFromAllDevices = async (req: Request, res: Response) => {
 export const getActiveSessions = async (req: Request, res: Response) => {
     try {
         const userId = req.user?.userId;
-        
+
         if (!userId) {
-            res.status(401).json({ 
+            res.status(401).json({
                 success: false,
-                message: "Avtorizasiya tələb olunur!" 
+                message: "Avtorizasiya tələb olunur!"
             });
             return;
         }
 
-        const user = await User.findById(userId).select('refreshTokens lastLoginAt');
-        
+        const id = parseInt(userId, 10);
+        const user = await userServicePg.findById(id);
+
         if (!user) {
-            res.status(404).json({ 
+            res.status(404).json({
                 success: false,
-                message: "İstifadəçi tapılmadı!" 
+                message: "İstifadəçi tapılmadı!"
             });
             return;
         }
 
-        res.json({ 
+        const activeSessionsCount = await TokenServicePg.countTokensForUser(id);
+
+        res.json({
             success: true,
             data: {
-                activeSessionsCount: user.refreshTokens?.length || 0,
+                activeSessionsCount,
                 lastLoginAt: user.lastLoginAt,
                 currentSession: !!req.cookies.refreshToken
             }
         });
     } catch (error) {
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: "Sessiya məlumatları alınarkən xəta!" 
+            message: "Sessiya məlumatları alınarkən xəta!"
         });
         console.error(error);
     }
@@ -470,16 +459,16 @@ export const getActiveSessions = async (req: Request, res: Response) => {
 // Админский эндпоинт для статистики токенов
 export const getTokenStatistics = async (req: Request, res: Response) => {
     try {
-        const stats = await TokenService.getTokenStatistics();
-        
-        res.json({ 
+        const stats = await TokenServicePg.getTokenStatistics();
+
+        res.json({
             success: true,
             data: stats
         });
     } catch (error) {
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: "Token statistikası alınarkən xəta!" 
+            message: "Token statistikası alınarkən xəta!"
         });
         console.error(error);
     }
@@ -488,16 +477,16 @@ export const getTokenStatistics = async (req: Request, res: Response) => {
 // Админский эндпоинт для принудительной очистки токенов
 export const forceCleanupTokens = async (req: Request, res: Response) => {
     try {
-        await TokenService.cleanupExpiredTokens();
-        
-        res.json({ 
+        await TokenServicePg.cleanupExpiredTokens();
+
+        res.json({
             success: true,
-            message: "Köhnə tokenlər təmizləndi!" 
+            message: "Köhnə tokenlər təmizləndi!"
         });
     } catch (error) {
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: "Token təmizlənməsi zamanı xəta!" 
+            message: "Token təmizlənməsi zamanı xəta!"
         });
         console.error(error);
     }

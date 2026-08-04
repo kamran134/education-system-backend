@@ -31,12 +31,16 @@ jobs:
           MONGO_URI: ${{ secrets.MONGO_URI }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          PG_URL: ${{ secrets.PG_URL }}
+          PG_PASSWORD: ${{ secrets.PG_PASSWORD }}
         run: |
           echo "MONGO_URI=${MONGO_URI}" > backend.env
           echo "JWT_SECRET=${JWT_SECRET}" >> backend.env
           echo "JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}" >> backend.env
           echo "NODE_ENV=production" >> backend.env
           echo "PORT=5000" >> backend.env
+          echo "PG_URL=${PG_URL}" >> backend.env
+          echo "PG_PASSWORD=${PG_PASSWORD}" >> backend.env
           scp -i deploy_key -o StrictHostKeyChecking=no backend.env ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/isim/.env
           rm -f backend.env
 

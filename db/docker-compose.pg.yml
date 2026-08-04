@@ -1,0 +1,22 @@
+# Образец параметров Postgres. Решением от 04.08.2026 этап 0 выполняется на прод-сервере:
+# сервис добавляется в /root/isim/docker-compose.yml БЕЗ секции ports и С mem_limit
+# (см. PG_MIGRATION_TASKS.md шаг 0). Этот файл — для локального запуска, если он понадобится.
+# Запуск:  docker compose -f db/docker-compose.pg.yml up -d
+# Схема:   docker compose -f db/docker-compose.pg.yml exec -T pg psql -U isim -d isim < db/schema.sql
+services:
+  pg:
+    image: postgres:17-alpine
+    container_name: isim-pg-dev
+    environment:
+      POSTGRES_USER: isim
+      POSTGRES_PASSWORD: isim
+      POSTGRES_DB: isim
+      # ICU нужен для коллации az_ci
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US"
+    ports:
+      - "127.0.0.1:5433:5432"   # 5433, чтобы не конфликтовать с локально установленным Postgres
+    volumes:
+      - isim-pg-data:/var/lib/postgresql/data
+
+volumes:
+  isim-pg-data:

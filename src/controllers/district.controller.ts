@@ -1,18 +1,16 @@
 import { Request, Response, NextFunction } from "express";
-import { Types } from "mongoose";
 import fs from "fs";
 import { DistrictUseCase } from "../usecases/district.usecase";
-import { DistrictService } from "../services/district.service";
+import { DistrictServicePg } from "../services/district.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatar, removeEntityAvatar, canManageAvatar } from "../utils/avatar.util";
-import District from "../models/district.model";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageAvatar } from "../utils/avatar.util";
 
 export class DistrictController {
     private districtUseCase: DistrictUseCase;
 
     constructor() {
-        this.districtUseCase = new DistrictUseCase(new DistrictService());
+        this.districtUseCase = new DistrictUseCase(new DistrictServicePg());
     }
 
     updateDistrictsStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -27,12 +25,13 @@ export class DistrictController {
     getDistricts = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const pagination = RequestParser.parsePagination(req);
-            const filters = RequestParser.parseFilterOptions(req);
+            const filters = RequestParser.parseFilterOptionsPg(req);
             const sort = RequestParser.parseSorting(req, 'name', 'asc');
 
-            // Role-based filtering: district representer sees only their district
+            // Role-based filtering: сохранено 1:1 из Mongo-версии, включая то, что buildFilter
+            // districtIds не читает (см. комментарий в district.service.pg.ts) — не менять молча.
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             }
 
             const result = await this.districtUseCase.getFilteredDistricts(pagination, filters, sort);
@@ -48,7 +47,7 @@ export class DistrictController {
 
     getDistrictsForFilter = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const filters = RequestParser.parseFilterOptions(req);
+            const filters = RequestParser.parseFilterOptionsPg(req);
             const districts = await this.districtUseCase.getDistrictsForFilter(filters);
 
             res.json(ResponseHandler.success(districts, 'Districts for filter retrieved successfully'));
@@ -83,7 +82,7 @@ export class DistrictController {
         try {
             const { id } = req.params;
             const updateData = req.body;
-            
+
             const district = await this.districtUseCase.updateDistrict(id, updateData);
 
             res.json(ResponseHandler.updated(district, 'District updated successfully'));
@@ -165,7 +164,7 @@ export class DistrictController {
                 return;
             }
 
-            const avatarUrl = await saveEntityAvatar(District, id, req.file, '/uploads/districts/avatars');
+            const avatarUrl = await saveEntityAvatarPg('districts', parseInt(id, 10), req.file, '/uploads/districts/avatars');
 
             if (!avatarUrl) {
                 res.status(404).json(ResponseHandler.notFound('Rayon tapılmadı'));
@@ -187,7 +186,7 @@ export class DistrictController {
                 return;
             }
 
-            const found = await removeEntityAvatar(District, id);
+            const found = await removeEntityAvatarPg('districts', parseInt(id, 10));
 
             if (!found) {
                 res.status(404).json(ResponseHandler.notFound('Rayon tapılmadı'));

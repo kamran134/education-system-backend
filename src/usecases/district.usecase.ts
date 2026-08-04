@@ -1,23 +1,21 @@
-import { DistrictService } from "../services/district.service";
-import { IDistrict, IDistrictCreate } from "../models/district.model";
-import { PaginationOptions, FilterOptions, SortOptions, FileProcessingResult, BulkOperationResult } from "../types/common.types";
+import { DistrictServicePg, District, DistrictCreate } from "../services/district.service.pg";
+import { PaginationOptions, FilterOptionsPg, SortOptions, FileProcessingResult, BulkOperationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
-import { Types } from "mongoose";
 
 export class DistrictUseCase {
-    constructor(private districtService: DistrictService) {}
+    constructor(private districtService: DistrictServicePg) {}
 
     async updateDistrictsStats(): Promise<void> {
         await this.districtService.updateDistrictsStats();
     }
 
-    async getDistrictById(id: string): Promise<IDistrict> {
-        const validationError = ValidationUtils.validateObjectId(id, 'District ID');
+    async getDistrictById(id: string): Promise<District> {
+        const validationError = ValidationUtils.validateId(id, 'District ID');
         if (validationError) {
             throw new Error(validationError);
         }
 
-        const district = await this.districtService.findById(id);
+        const district = await this.districtService.findById(parseInt(id, 10));
         if (!district) {
             throw new Error('District not found');
         }
@@ -25,9 +23,9 @@ export class DistrictUseCase {
         return district;
     }
 
-    async getDistrictByCode(code: number): Promise<IDistrict> {
+    async getDistrictByCode(code: number): Promise<District> {
         ValidationUtils.validateRequired(code, 'District code');
-        
+
         const district = await this.districtService.findByCode(code);
         if (!district) {
             throw new Error('District not found');
@@ -36,11 +34,10 @@ export class DistrictUseCase {
         return district;
     }
 
-    async createDistrict(districtData: IDistrictCreate): Promise<IDistrict> {
+    async createDistrict(districtData: DistrictCreate): Promise<District> {
         ValidationUtils.validateRequired(districtData.name, 'District name');
         ValidationUtils.validateRequired(districtData.code, 'District code');
 
-        // Check if district with same code already exists
         const existingDistrict = await this.districtService.findByCode(districtData.code);
         if (existingDistrict) {
             throw new Error('District with this code already exists');
@@ -49,35 +46,34 @@ export class DistrictUseCase {
         return await this.districtService.create(districtData);
     }
 
-    async updateDistrict(id: string, updateData: Partial<IDistrictCreate>): Promise<IDistrict> {
-        const validationError = ValidationUtils.validateObjectId(id, 'District ID');
+    async updateDistrict(id: string, updateData: Partial<DistrictCreate>): Promise<District> {
+        const validationError = ValidationUtils.validateId(id, 'District ID');
         if (validationError) {
             throw new Error(validationError);
         }
 
-        // If updating code, check for conflicts
         if (updateData.code) {
             const existingDistrict = await this.districtService.findByCode(updateData.code);
-            if (existingDistrict && existingDistrict._id && existingDistrict._id.toString() !== id) {
+            if (existingDistrict && existingDistrict.id !== parseInt(id, 10)) {
                 throw new Error('District with this code already exists');
             }
         }
 
-        return await this.districtService.update(id, updateData);
+        return await this.districtService.update(parseInt(id, 10), updateData);
     }
 
     async deleteDistrict(id: string): Promise<void> {
-        const validationError = ValidationUtils.validateObjectId(id, 'District ID');
+        const validationError = ValidationUtils.validateId(id, 'District ID');
         if (validationError) {
             throw new Error(validationError);
         }
 
-        const district = await this.districtService.findById(id);
+        const district = await this.districtService.findById(parseInt(id, 10));
         if (!district) {
             throw new Error('District not found');
         }
 
-        await this.districtService.delete(id);
+        await this.districtService.delete(parseInt(id, 10));
     }
 
     async deleteDistricts(ids: string[]): Promise<BulkOperationResult> {
@@ -86,31 +82,30 @@ export class DistrictUseCase {
         }
 
         for (const id of ids) {
-            const validationError = ValidationUtils.validateObjectId(id, 'District ID');
+            const validationError = ValidationUtils.validateId(id, 'District ID');
             if (validationError) {
                 throw new Error(validationError);
             }
         }
 
-        const objectIds = ids.map(id => new Types.ObjectId(id));
-        return await this.districtService.deleteBulk(objectIds);
+        return await this.districtService.deleteBulk(ids.map((id) => parseInt(id, 10)));
     }
 
     async getFilteredDistricts(
         pagination: PaginationOptions,
-        filters: FilterOptions,
+        filters: FilterOptionsPg,
         sort: SortOptions
-    ): Promise<{ data: IDistrict[], totalCount: number }> {
+    ): Promise<{ data: District[], totalCount: number }> {
         return await this.districtService.getFilteredDistricts(pagination, filters, sort);
     }
 
-    async getDistrictsForFilter(filters: FilterOptions): Promise<IDistrict[]> {
+    async getDistrictsForFilter(filters: FilterOptionsPg): Promise<District[]> {
         return await this.districtService.getDistrictsForFilter(filters);
     }
 
-    async processDistrictsFromExcel(filePath: string): Promise<FileProcessingResult<IDistrict>> {
+    async processDistrictsFromExcel(filePath: string): Promise<FileProcessingResult<District>> {
         ValidationUtils.validateRequired(filePath, 'File path');
-        
+
         try {
             return await this.districtService.processDistrictsFromExcel(filePath);
         } catch (error) {

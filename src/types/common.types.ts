@@ -33,6 +33,31 @@ export interface FilterOptions {
     role?: string;
 }
 
+/**
+ * Postgres-эпоха: те же фильтры, но id — числа (bigint id), а не Mongo ObjectId.
+ * Используется usecase-файлами, переписанными на Kysely, параллельно с FilterOptions —
+ * последний остаётся для ещё не переписанных сервисов. Удалить FilterOptions/эту дублирующую
+ * пару типов, когда переписывание всех сервисов (шаг 8 PG_MIGRATION_TASKS.md) завершится.
+ */
+export interface FilterOptionsPg {
+    districtIds?: number[];
+    schoolIds?: number[];
+    teacherIds?: number[];
+    studentIds?: number[];
+    grades?: number[];
+    levels?: string[];
+    code?: number;
+    examIds?: number[];
+    month?: string;
+    year?: string;
+    academicYear?: number;
+    search?: string;
+    active?: boolean;
+    dateFrom?: string;
+    dateTo?: string;
+    role?: string;
+}
+
 export interface SortOptions {
     sortColumn: string;
     sortDirection: 'asc' | 'desc';

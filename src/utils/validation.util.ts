@@ -32,6 +32,18 @@ export class ValidationUtils {
         return null;
     }
 
+    /**
+     * Postgres-эпоха: id — bigserial (положительное целое), а не Mongo ObjectId.
+     * Использовать в usecase-файлах, переписанных на Kysely, вместо validateObjectId.
+     * validateObjectId оставлен для usecase-файлов, ещё не переписанных с Mongo.
+     */
+    static validateId(id: string, fieldName: string): string | null {
+        if (!/^[1-9][0-9]*$/.test(id)) {
+            return `${fieldName} must be a valid id`;
+        }
+        return null;
+    }
+
     static validateNumber(value: unknown, fieldName: string, min?: number, max?: number): string | null {
         const num = Number(value);
         if (isNaN(num)) {

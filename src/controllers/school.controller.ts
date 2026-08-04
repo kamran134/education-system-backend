@@ -1,18 +1,16 @@
 import { Request, Response, NextFunction } from "express";
-import { Types } from "mongoose";
 import fs from "fs";
 import { SchoolUseCase } from "../usecases/school.usecase";
-import { SchoolService } from "../services/school.service";
+import { SchoolServicePg } from "../services/school.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatar, removeEntityAvatar, canManageAvatar } from "../utils/avatar.util";
-import School from "../models/school.model";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageAvatar } from "../utils/avatar.util";
 
 export class SchoolController {
     private schoolUseCase: SchoolUseCase;
 
     constructor() {
-        this.schoolUseCase = new SchoolUseCase(new SchoolService());
+        this.schoolUseCase = new SchoolUseCase(new SchoolServicePg());
     }
 
     updateSchoolsStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -27,16 +25,13 @@ export class SchoolController {
     getSchools = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const pagination = RequestParser.parsePagination(req);
-            const filters = RequestParser.parseFilterOptions(req);
+            const filters = RequestParser.parseFilterOptionsPg(req);
             const sort = RequestParser.parseSorting(req, 'averageScore', 'desc');
 
-            // Role-based filtering
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                // District representer sees only schools in their district
-                filters.districtIds = [new Types.ObjectId(req.user.districtId!)];
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                // School director sees only their school
-                filters.schoolIds = [new Types.ObjectId(req.user.schoolId!)];
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             }
 
             const result = await this.schoolUseCase.getSchools(pagination, filters, sort);
@@ -52,7 +47,7 @@ export class SchoolController {
 
     getSchoolsForFilter = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const filters = RequestParser.parseFilterOptions(req);
+            const filters = RequestParser.parseFilterOptionsPg(req);
             const schools = await this.schoolUseCase.getSchoolsForFilter(filters);
 
             res.json(ResponseHandler.success(schools, 'Schools for filter retrieved successfully'));
@@ -75,8 +70,7 @@ export class SchoolController {
     getSchoolByCode = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { code } = req.params;
-            // Use findByCode method from service directly since it's not in use case
-            const schoolService = new SchoolService();
+            const schoolService = new SchoolServicePg();
             const school = await schoolService.findByCode(Number(code));
 
             res.json(ResponseHandler.success(school, 'School retrieved successfully'));
@@ -100,7 +94,7 @@ export class SchoolController {
         try {
             const { id } = req.params;
             const updateData = req.body;
-            
+
             const school = await this.schoolUseCase.updateSchool(id, updateData);
 
             res.json(ResponseHandler.updated(school, 'School updated successfully'));
@@ -150,8 +144,7 @@ export class SchoolController {
     checkExistingSchoolCodes = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { codes } = req.body;
-            // Use service directly since this is not in use case
-            const schoolService = new SchoolService();
+            const schoolService = new SchoolServicePg();
             const existingCodes = await schoolService.checkExistingSchoolCodes(codes);
 
             res.json(ResponseHandler.success(existingCodes, 'School codes checked successfully'));
@@ -195,7 +188,7 @@ export class SchoolController {
                 return;
             }
 
-            const avatarUrl = await saveEntityAvatar(School, id, req.file, '/uploads/schools/avatars');
+            const avatarUrl = await saveEntityAvatarPg('schools', parseInt(id, 10), req.file, '/uploads/schools/avatars');
 
             if (!avatarUrl) {
                 res.status(404).json(ResponseHandler.notFound('Məktəb tapılmadı'));
@@ -217,7 +210,7 @@ export class SchoolController {
                 return;
             }
 
-            const found = await removeEntityAvatar(School, id);
+            const found = await removeEntityAvatarPg('schools', parseInt(id, 10));
 
             if (!found) {
                 res.status(404).json(ResponseHandler.notFound('Məktəb tapılmadı'));
@@ -237,7 +230,7 @@ const schoolController = new SchoolController();
 export const createAllSchools = schoolController.processSchoolsFromExcel;
 export const repairSchools = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-        const schoolService = new SchoolService();
+        const schoolService = new SchoolServicePg();
         const result = await schoolService.repairSchoolAssignments();
         res.json(ResponseHandler.success(result, `Repaired ${result.repairedSchools.length} schools`));
     } catch (error) {

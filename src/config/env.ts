@@ -15,3 +15,4 @@ function requireEnv(name: string): string {
 
 export const JWT_SECRET = requireEnv("JWT_SECRET");
 export const JWT_REFRESH_SECRET = requireEnv("JWT_REFRESH_SECRET");
+export const PG_URL = requireEnv("PG_URL");

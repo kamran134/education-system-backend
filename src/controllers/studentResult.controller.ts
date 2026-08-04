@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { StudentResultUseCase } from "../usecases/studentResult.usecase";
-import { StudentResultService } from "../services/studentResult.service";
+import { StudentResultServicePg } from "../services/studentResult.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 
@@ -8,13 +8,37 @@ export class StudentResultController {
     private studentResultUseCase: StudentResultUseCase;
 
     constructor() {
-        this.studentResultUseCase = new StudentResultUseCase(new StudentResultService());
+        this.studentResultUseCase = new StudentResultUseCase(new StudentResultServicePg());
+    }
+
+    /**
+     * Mongo-версия (IStudentResultInput) принимала `student`/`exam` (имена ref-полей модели)
+     * и вложенные `disciplines`/`questionCounts` — тот же паттерн несогласованности имён,
+     * что и у booklet (см. комментарий в booklet.controller.ts). Принимаем оба варианта.
+     */
+    private toStudentResultUpdate(body: any) {
+        const studentRaw = body.studentId ?? body.student;
+        const examRaw = body.examId ?? body.exam;
+        return {
+            ...(studentRaw !== undefined && { studentId: parseInt(studentRaw, 10) }),
+            ...(examRaw !== undefined && examRaw !== null && { examId: parseInt(examRaw, 10) }),
+            ...(body.grade !== undefined && { grade: parseInt(body.grade, 10) }),
+            ...(body.disciplines !== undefined && { disciplines: body.disciplines }),
+            ...(body.questionCounts !== undefined && { questionCounts: body.questionCounts }),
+            ...(body.totalScore !== undefined && { totalScore: body.totalScore }),
+            ...(body.level !== undefined && { level: body.level }),
+            ...(body.participationScore !== undefined && { participationScore: body.participationScore }),
+            ...(body.score !== undefined && { score: body.score }),
+            ...(body.status !== undefined && { status: body.status }),
+            ...(body.month !== undefined && { month: body.month }),
+            ...(body.year !== undefined && { year: body.year }),
+        };
     }
 
     getStudentResults = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const pagination = RequestParser.parsePagination(req);
-            const filters = RequestParser.parseFilterOptions(req);
+            const filters = RequestParser.parseFilterOptionsPg(req);
             const sort = RequestParser.parseSorting(req, 'createdAt', 'desc');
 
             const result = await this.studentResultUseCase.getStudentResults(pagination, filters, sort);
@@ -46,7 +70,7 @@ export class StudentResultController {
 
     createStudentResult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
-            const result = await this.studentResultUseCase.createStudentResult(req.body);
+            const result = await this.studentResultUseCase.createStudentResult(this.toStudentResultUpdate(req.body) as any);
 
             res.status(201).json(ResponseHandler.created(result, 'Student result created successfully'));
         } catch (error) {
@@ -57,7 +81,7 @@ export class StudentResultController {
     updateStudentResult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
-            const result = await this.studentResultUseCase.updateStudentResult(id, req.body);
+            const result = await this.studentResultUseCase.updateStudentResult(id, this.toStudentResultUpdate(req.body));
 
             res.json(ResponseHandler.updated(result, 'Student result updated successfully'));
         } catch (error) {

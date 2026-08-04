@@ -1,57 +1,51 @@
-import { IStudentResult, IStudentResultInput } from "../models/studentResult.model";
-import { StudentResultService } from "../services/studentResult.service";
-import { PaginationOptions, FilterOptions, SortOptions } from "../types/common.types";
-import { Types } from "mongoose";
+import { StudentResultServicePg, StudentResult, StudentResultCreate } from "../services/studentResult.service.pg";
+import { PaginationOptions, FilterOptionsPg, SortOptions } from "../types/common.types";
 
 export interface StudentResultFileProcessingResult {
-    processedData: IStudentResult[];
+    processedData: StudentResult[];
     studentsWithoutTeacher: any[];
     incorrectStudentCodes: number[];
     studentsWithIncorrectResults: any[];
 }
 
 export class StudentResultUseCase {
-    constructor(private studentResultService: StudentResultService) {}
+    constructor(private studentResultService: StudentResultServicePg) {}
 
     async getStudentResults(
         pagination: PaginationOptions,
-        filters: FilterOptions,
+        filters: FilterOptionsPg,
         sort: SortOptions
-    ): Promise<{ data: IStudentResult[], totalCount: number }> {
-        return await this.studentResultService.getFilteredResults(
-            pagination,
-            filters,
-            sort
-        );
+    ): Promise<{ data: StudentResult[], totalCount: number }> {
+        return await this.studentResultService.getFilteredResults(pagination, filters, sort);
     }
 
-    async getStudentResultById(id: string): Promise<IStudentResult | null> {
-        return await this.studentResultService.findById(id);
+    async getStudentResultById(id: string): Promise<StudentResult | null> {
+        return await this.studentResultService.findById(parseInt(id, 10));
     }
 
-    async getResultsByStudentId(studentId: Types.ObjectId): Promise<IStudentResult[]> {
+    async getResultsByStudentId(studentId: number): Promise<StudentResult[]> {
         return await this.studentResultService.getResultsByStudentId(studentId);
     }
 
-    async getResultsByExamId(examId: Types.ObjectId): Promise<IStudentResult[]> {
+    async getResultsByExamId(examId: number): Promise<StudentResult[]> {
         return await this.studentResultService.getResultsByExamId(examId);
     }
 
-    async createStudentResult(resultData: IStudentResultInput): Promise<IStudentResult> {
+    async createStudentResult(resultData: StudentResultCreate): Promise<StudentResult> {
         return await this.studentResultService.create(resultData);
     }
 
-    async updateStudentResult(id: string, resultData: Partial<IStudentResultInput>): Promise<IStudentResult> {
-        return await this.studentResultService.update(id, resultData);
+    async updateStudentResult(id: string, resultData: Partial<StudentResultCreate>): Promise<StudentResult> {
+        return await this.studentResultService.update(parseInt(id, 10), resultData);
     }
 
     async deleteStudentResult(id: string): Promise<void> {
-        return await this.studentResultService.delete(id);
+        return await this.studentResultService.delete(parseInt(id, 10));
     }
 
     async processStudentResultsFromExcel(filePath: string, examId: string): Promise<StudentResultFileProcessingResult> {
         try {
-            return await this.studentResultService.processStudentResultsFromExcel(filePath, examId);
+            return await this.studentResultService.processStudentResultsFromExcel(filePath, parseInt(examId, 10));
         } catch (error) {
             throw new Error(`Failed to process student results from Excel: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
@@ -59,7 +53,7 @@ export class StudentResultUseCase {
 
     async deleteResultsByExamId(examId: string): Promise<{ deletedCount: number }> {
         try {
-            return await this.studentResultService.deleteResultsByExamId(examId);
+            return await this.studentResultService.deleteResultsByExamId(parseInt(examId, 10));
         } catch (error) {
             throw new Error(`Failed to delete results by exam ID: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }

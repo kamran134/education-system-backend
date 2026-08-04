@@ -1,15 +1,14 @@
-import { ExamResultsService, ExamResultsFilter } from "../services/examResults.service";
-import { IStudentResult } from "../models/studentResult.model";
+import { ExamResultsServicePg, ExamResultsFilterPg, ExamResultRow } from "../services/examResults.service.pg";
 
 export interface ExamResultsParams {
     search?: string;
     code?: number;
     dateFrom?: string;
     dateTo?: string;
-    examIds?: string[];
-    districtIds?: string[];
-    schoolIds?: string[];
-    teacherIds?: string[];
+    examIds?: number[];
+    districtIds?: number[];
+    schoolIds?: number[];
+    teacherIds?: number[];
     grades?: number[];
     sortColumn?: string;
     sortDirection?: string;
@@ -18,14 +17,14 @@ export interface ExamResultsParams {
 }
 
 export class ExamResultsUseCase {
-    private examResultsService: ExamResultsService;
+    private examResultsService: ExamResultsServicePg;
 
     constructor() {
-        this.examResultsService = new ExamResultsService();
+        this.examResultsService = new ExamResultsServicePg();
     }
 
-    async getExamResults(params: ExamResultsParams): Promise<{ data: IStudentResult[], totalCount: number }> {
-        
+    async getExamResults(params: ExamResultsParams): Promise<{ data: ExamResultRow[], totalCount: number }> {
+
         const {
             search,
             code,
@@ -42,7 +41,7 @@ export class ExamResultsUseCase {
             size = 25
         } = params;
 
-        const filters: ExamResultsFilter = {
+        const filters: ExamResultsFilterPg = {
             search,
             code,
             dateFrom,
@@ -63,7 +62,7 @@ export class ExamResultsUseCase {
         );
     }
 
-    async getExamResultById(id: string): Promise<IStudentResult | null> {
-        return await this.examResultsService.getExamResultById(id);
+    async getExamResultById(id: string): Promise<ExamResultRow | null> {
+        return await this.examResultsService.getExamResultById(parseInt(id, 10));
     }
 }

@@ -1,13 +1,13 @@
 import { Request, Response, NextFunction } from "express";
 import { GradePromotionUseCase } from "../usecases/gradePromotion.usecase";
-import { GradePromotionService } from "../services/gradePromotion.service";
+import { GradePromotionServicePg } from "../services/gradePromotion.service.pg";
 import { ResponseHandler } from "../utils/response-handler.util";
 
 export class GradePromotionController {
     private gradePromotionUseCase: GradePromotionUseCase;
 
     constructor() {
-        this.gradePromotionUseCase = new GradePromotionUseCase(new GradePromotionService());
+        this.gradePromotionUseCase = new GradePromotionUseCase(new GradePromotionServicePg());
     }
 
     preview = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -26,7 +26,7 @@ export class GradePromotionController {
                 return;
             }
 
-            const result = await this.gradePromotionUseCase.execute(req.user!.userId);
+            const result = await this.gradePromotionUseCase.execute(parseInt(req.user!.userId, 10));
             res.json(ResponseHandler.success(result, `${result.promotedCount} şagird növbəti sinfə keçirildi`));
         } catch (error) {
             next(error);

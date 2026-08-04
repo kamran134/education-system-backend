@@ -1,16 +1,14 @@
 import { Request, Response } from 'express';
-import { UserService } from '../services/user.service';
+import { userServicePg } from '../services/user.service.pg';
 import { RequestParser } from '../utils/request-parser.util';
 import bcrypt from "bcrypt";
-
-const userService = new UserService();
 
 export const getUsers = async (req: Request, res: Response) => {
     try {
         const pagination = RequestParser.parsePagination(req);
-        const filters = RequestParser.parseFilterOptions(req);
+        const filters = RequestParser.parseFilterOptionsPg(req);
         const sort = RequestParser.parseSorting(req, 'email', 'asc');
-        const { data, totalCount } = await userService.getFilteredUsers(pagination, filters, sort);
+        const { data, totalCount } = await userServicePg.getFilteredUsers(pagination, filters, sort);
         res.status(200).json({ data, totalCount, message: "Users retrieved successfully" });
     }
     catch (error) {
@@ -35,7 +33,7 @@ export const createUser = async (req: Request, res: Response) => {
         }
 
         // Check if the user already exists
-        const existingUser = await userService.findByEmail(newUser.email);
+        const existingUser = await userServicePg.findByEmail(newUser.email);
 
         if (existingUser) {
             res.status(400).json({ message: "İstifadəçi artıq mövcuddur" });
@@ -63,11 +61,20 @@ export const createUser = async (req: Request, res: Response) => {
             return;
         }
 
-        newUser.passwordHash = await bcrypt.hash(newUser.password, 10); // Hash the password
+        const passwordHash = await bcrypt.hash(newUser.password, 10); // Hash the password
 
         // Create the user
-        await userService.create(newUser);
-        
+        await userServicePg.create({
+            email: newUser.email,
+            passwordHash,
+            role: newUser.role,
+            isApproved: newUser.isApproved,
+            districtId: newUser.districtId ? parseInt(newUser.districtId, 10) : undefined,
+            schoolId: newUser.schoolId ? parseInt(newUser.schoolId, 10) : undefined,
+            teacherId: newUser.teacherId ? parseInt(newUser.teacherId, 10) : undefined,
+            studentId: newUser.studentId ? parseInt(newUser.studentId, 10) : undefined,
+        });
+
         res.status(201).json({ message: "İstifadəçi uğurla yaradıldı" });
     } catch (error) {
         console.error("User creation error:", error);
@@ -78,7 +85,9 @@ export const createUser = async (req: Request, res: Response) => {
 export const updateUser = async (req: Request, res: Response) => {
     try {
         const updateData = req.body;
-        const id = updateData._id;
+        // Mongo-версия читала _id (тело формы шло 1:1 из документа); Postgres-эпоха — числовой id,
+        // фронт может присылать либо id, либо всё ещё _id (переходный период) — принимаем оба.
+        const id = updateData.id ?? updateData._id;
         const updateRole = updateData.role;
 
         if (!updateData || typeof updateData !== 'object') {
@@ -91,8 +100,10 @@ export const updateUser = async (req: Request, res: Response) => {
             return;
         }
 
+        const numericId = parseInt(id, 10);
+
         // Check if the user exists
-        const existingUser = await userService.findById(id);
+        const existingUser = await userServicePg.findById(numericId);
 
         if (!existingUser) {
             res.status(404).json({ message: "İstifadəçi tapılmadı" });
@@ -130,8 +141,16 @@ export const updateUser = async (req: Request, res: Response) => {
             return;
         }
 
-        await userService.update(id, updateData);
-        
+        await userServicePg.update(numericId, {
+            email: updateData.email,
+            role: updateData.role,
+            isApproved: updateData.isApproved,
+            districtId: updateData.districtId !== undefined ? (updateData.districtId ? parseInt(updateData.districtId, 10) : null) : undefined,
+            schoolId: updateData.schoolId !== undefined ? (updateData.schoolId ? parseInt(updateData.schoolId, 10) : null) : undefined,
+            teacherId: updateData.teacherId !== undefined ? (updateData.teacherId ? parseInt(updateData.teacherId, 10) : null) : undefined,
+            studentId: updateData.studentId !== undefined ? (updateData.studentId ? parseInt(updateData.studentId, 10) : null) : undefined,
+        });
+
         res.status(200).json({ message: "İstifadəçi məlumatları yeniləndi!" });
     } catch (error) {
         console.error("User update error:", error);
@@ -149,13 +168,14 @@ export const changePassword = async (req: Request, res: Response) => {
             return;
         }
 
-        const existingUser = await userService.findById(id);
+        const numericId = parseInt(id, 10);
+        const existingUser = await userServicePg.findById(numericId);
         if (!existingUser) {
             res.status(404).json({ message: "İstifadəçi tapılmadı" });
             return;
         }
 
-        await userService.changePassword(id, newPassword);
+        await userServicePg.changePassword(numericId, newPassword);
         res.status(200).json({ message: "Şifrə uğurla yeniləndi" });
     } catch (error) {
         console.error("Password change error:", error);
@@ -172,8 +192,10 @@ export const deleteUser = async (req: Request, res: Response) => {
             return;
         }
 
+        const numericId = parseInt(id, 10);
+
         // Check if the user exists
-        const existingUser = await userService.findById(id);
+        const existingUser = await userServicePg.findById(numericId);
 
         if (!existingUser) {
             res.status(404).json({ message: "İstifadəçi tapılmadı" });
@@ -186,8 +208,8 @@ export const deleteUser = async (req: Request, res: Response) => {
         }
 
         // Delete the user
-        await userService.delete(id);
-        
+        await userServicePg.delete(numericId);
+
         res.status(200).json({ message: "İstifadəçi uğurla silindi" });
     } catch (error) {
         console.error("User deletion error:", error);

@@ -1,5 +1,5 @@
 import { Request } from "express";
-import { PaginationOptions, FilterOptions, SortOptions } from "../types/common.types";
+import { PaginationOptions, FilterOptions, FilterOptionsPg, SortOptions } from "../types/common.types";
 import { Types } from "mongoose";
 
 export class RequestParser {
@@ -65,6 +65,35 @@ export class RequestParser {
             search,
             active,
             role
+        };
+    }
+
+    /** Как parseFilterOptions, но id — числа (Postgres). См. FilterOptionsPg. */
+    static parseFilterOptionsPg(req: Request): FilterOptionsPg {
+        const toIntArray = (raw: unknown) =>
+            raw && (raw as string).trim()
+                ? (raw as string).split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id))
+                : undefined;
+
+        return {
+            districtIds: toIntArray(req.query.districtIds),
+            schoolIds: toIntArray(req.query.schoolIds),
+            teacherIds: toIntArray(req.query.teacherIds),
+            studentIds: toIntArray(req.query.studentIds),
+            examIds: toIntArray(req.query.examIds),
+            grades: req.query.grades && (req.query.grades as string).trim()
+                ? (req.query.grades as string).split(',').map(grade => parseInt(grade, 10))
+                : undefined,
+            levels: req.query.levels && (req.query.levels as string).trim()
+                ? (req.query.levels as string).split(',').map(l => l.trim()).filter(l => l.length > 0)
+                : undefined,
+            code: req.query.code ? parseInt(req.query.code as string) : undefined,
+            month: req.query.month as string,
+            year: req.query.year as string,
+            academicYear: req.query.academicYear ? parseInt(req.query.academicYear as string) : undefined,
+            search: req.query.search as string,
+            active: req.query.active !== undefined ? req.query.active === 'true' : undefined,
+            role: req.query.role as string | undefined,
         };
     }
 

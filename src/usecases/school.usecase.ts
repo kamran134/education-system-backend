@@ -1,13 +1,12 @@
 import * as fs from "fs";
-import { ISchool, ISchoolCreate } from "../models/school.model";
-import { SchoolService } from "../services/school.service";
-import { PaginationOptions, FilterOptions, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
+import { SchoolServicePg, School, SchoolCreate } from "../services/school.service.pg";
+import { pg } from "../config/pg";
+import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS } from "../utils/entity-codes.const";
-import { Types } from "mongoose";
 
 export class SchoolUseCase {
-    constructor(private schoolService: SchoolService) {}
+    constructor(private schoolService: SchoolServicePg) {}
 
     async updateSchoolsStats(): Promise<void> {
         await this.schoolService.updateSchoolsStats();
@@ -15,14 +14,10 @@ export class SchoolUseCase {
 
     async getSchools(
         pagination: PaginationOptions,
-        filters: FilterOptions,
+        filters: FilterOptionsPg,
         sort: SortOptions
-    ): Promise<PaginatedResponse<ISchool>> {
-        const { data, totalCount } = await this.schoolService.getFilteredSchools(
-            pagination,
-            filters,
-            sort
-        );
+    ): Promise<PaginatedResponse<School>> {
+        const { data, totalCount } = await this.schoolService.getFilteredSchools(pagination, filters, sort);
 
         return {
             data,
@@ -33,17 +28,17 @@ export class SchoolUseCase {
         };
     }
 
-    async getSchoolById(id: string): Promise<ISchool> {
+    async getSchoolById(id: string): Promise<School> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'School ID'),
-            ValidationUtils.validateObjectId(id, 'School ID')
+            ValidationUtils.validateId(id, 'School ID')
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        const school = await this.schoolService.findById(id);
+        const school = await this.schoolService.findById(parseInt(id, 10));
         if (!school) {
             throw new Error('School not found');
         }
@@ -51,21 +46,18 @@ export class SchoolUseCase {
         return school;
     }
 
-    async createSchool(schoolData: any): Promise<ISchool> {
-        // If district is an object (from frontend), extract _id and code
+    async createSchool(schoolData: any): Promise<School> {
+        // If district is an object (from frontend), extract id/code
         if (schoolData.district && typeof schoolData.district === 'object') {
-            const districtObj = schoolData.district;
-            schoolData.district = districtObj._id;
-            schoolData.districtCode = districtObj.code;
+            schoolData.districtId = schoolData.district.id;
         }
-        // If districtCode is provided but not district, find district by code
-        else if (schoolData.districtCode && !schoolData.district) {
-            const District = (await import('../models/district.model')).default;
-            const district = await District.findOne({ code: schoolData.districtCode });
+        // If districtCode is provided but not districtId, resolve by code
+        else if (schoolData.districtCode && !schoolData.districtId) {
+            const district = await pg.selectFrom("districts").select("id").where("code", "=", schoolData.districtCode).executeTakeFirst();
             if (!district) {
                 throw new Error(`District with code ${schoolData.districtCode} not found`);
             }
-            schoolData.district = district._id;
+            schoolData.districtId = district.id;
         }
 
         const validation = this.validateSchoolData(schoolData);
@@ -81,35 +73,29 @@ export class SchoolUseCase {
         return await this.schoolService.create(schoolData);
     }
 
-    async updateSchool(id: string, updateData: any): Promise<ISchool> {
+    async updateSchool(id: string, updateData: any): Promise<School> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'School ID'),
-            ValidationUtils.validateObjectId(id, 'School ID')
+            ValidationUtils.validateId(id, 'School ID')
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        const existingSchool = await this.schoolService.findById(id);
+        const existingSchool = await this.schoolService.findById(parseInt(id, 10));
         if (!existingSchool) {
             throw new Error('School not found');
         }
 
-        // If district is an object (from frontend), extract _id and code
         if (updateData.district && typeof updateData.district === 'object') {
-            const districtObj = updateData.district;
-            updateData.district = districtObj._id;
-            updateData.districtCode = districtObj.code;
-        }
-        // If districtCode is provided but not district, find district by code
-        else if (updateData.districtCode && !updateData.district) {
-            const District = (await import('../models/district.model')).default;
-            const district = await District.findOne({ code: updateData.districtCode });
+            updateData.districtId = updateData.district.id;
+        } else if (updateData.districtCode && !updateData.districtId) {
+            const district = await pg.selectFrom("districts").select("id").where("code", "=", updateData.districtCode).executeTakeFirst();
             if (!district) {
                 throw new Error(`District with code ${updateData.districtCode} not found`);
             }
-            updateData.district = district._id;
+            updateData.districtId = district.id;
         }
 
         if (updateData.code && updateData.code !== existingSchool.code) {
@@ -119,25 +105,25 @@ export class SchoolUseCase {
             }
         }
 
-        return await this.schoolService.update(id, updateData);
+        return await this.schoolService.update(parseInt(id, 10), updateData);
     }
 
     async deleteSchool(id: string): Promise<void> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'School ID'),
-            ValidationUtils.validateObjectId(id, 'School ID')
+            ValidationUtils.validateId(id, 'School ID')
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        const school = await this.schoolService.findById(id);
+        const school = await this.schoolService.findById(parseInt(id, 10));
         if (!school) {
             throw new Error('School not found');
         }
 
-        await this.schoolService.delete(id);
+        await this.schoolService.delete(parseInt(id, 10));
     }
 
     async deleteSchools(ids: string[]): Promise<BulkOperationResult> {
@@ -146,11 +132,10 @@ export class SchoolUseCase {
             throw new Error(arrayValidation.errors.join(', '));
         }
 
-        const objectIds = ids.map(id => new Types.ObjectId(id));
-        return await this.schoolService.deleteBulk(objectIds);
+        return await this.schoolService.deleteBulk(ids.map((id) => parseInt(id, 10)));
     }
 
-    async processSchoolsFromFile(filePath: string): Promise<FileProcessingResult<ISchool>> {
+    async processSchoolsFromFile(filePath: string): Promise<FileProcessingResult<School>> {
         if (!filePath) {
             throw new Error('File path is required');
         }
@@ -158,7 +143,7 @@ export class SchoolUseCase {
         return await this.schoolService.processSchoolsFromExcel(filePath);
     }
 
-    async getSchoolsForFilter(filters: FilterOptions): Promise<ISchool[]> {
+    async getSchoolsForFilter(filters: FilterOptionsPg): Promise<School[]> {
         return await this.schoolService.getSchoolsForFilter(filters);
     }
 
@@ -179,11 +164,9 @@ export class SchoolUseCase {
         } catch (err: any) {
             throw new Error(`Failed to read file: ${err.message}`);
         } finally {
-            // Remove temp file regardless of parse result
             try { fs.unlinkSync(filePath); } catch {}
         }
 
-        // Support both JSON array and newline-delimited JSON (mongoexport)
         let records: any[];
         if (rawContent.startsWith('[')) {
             records = JSON.parse(rawContent);
@@ -202,7 +185,7 @@ export class SchoolUseCase {
         return await this.schoolService.importLegacySchools(records);
     }
 
-    private validateSchoolData(data: ISchoolCreate): ValidationResult {
+    private validateSchoolData(data: SchoolCreate): ValidationResult {
         return ValidationUtils.combine([
             ValidationUtils.validateRequired(data.name, 'School name'),
             ValidationUtils.validateRequired(data.code, 'School code'),

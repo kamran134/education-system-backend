@@ -1,17 +1,9 @@
-import { IStudentResult } from "../models/studentResult.model";
-import { ITeacher } from "../models/teacher.model";
-import { ISchool } from "../models/school.model";
-import { IDistrict } from "../models/district.model";
-import { StatsService } from "../services/stats.service";
-import { FilterOptions, ValidationResult } from "../types/common.types";
+import { StatsServicePg, StatisticsFilterPg, StudentResultStatRow, RankedEntity } from "../services/stats.service.pg";
+import { FilterOptionsPg, ValidationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 
-export interface StatisticsFilter extends FilterOptions {
-    month?: string;
-}
-
 export class StatsUseCase {
-    constructor(private statsService: StatsService) {}
+    constructor(private statsService: StatsServicePg) {}
 
     async updateStatistics(): Promise<void> {
         const result = await this.statsService.updateStats();
@@ -27,10 +19,10 @@ export class StatsUseCase {
         }
     }
 
-    async getStudentStatistics(filters: StatisticsFilter): Promise<{
-        studentsOfMonth: IStudentResult[];
-        studentsOfMonthByRepublic: IStudentResult[];
-        developingStudents: IStudentResult[];
+    async getStudentStatistics(filters: StatisticsFilterPg): Promise<{
+        studentsOfMonth: StudentResultStatRow[];
+        studentsOfMonthByRepublic: StudentResultStatRow[];
+        developingStudents: StudentResultStatRow[];
     }> {
         const validation = this.validateStatisticsFilter(filters);
         if (!validation.isValid) {
@@ -40,7 +32,7 @@ export class StatsUseCase {
         return await this.statsService.getStudentStatistics(filters);
     }
 
-    async getDevelopingStudents(filters: StatisticsFilter): Promise<IStudentResult[]> {
+    async getDevelopingStudents(filters: StatisticsFilterPg): Promise<StudentResultStatRow[]> {
         const validation = this.validateStatisticsFilter(filters);
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
@@ -49,7 +41,7 @@ export class StatsUseCase {
         return await this.statsService.getDevelopingStudents(filters);
     }
 
-    async getStudentsOfMonth(filters: StatisticsFilter): Promise<IStudentResult[]> {
+    async getStudentsOfMonth(filters: StatisticsFilterPg): Promise<StudentResultStatRow[]> {
         const validation = this.validateStatisticsFilter(filters);
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
@@ -58,7 +50,7 @@ export class StatsUseCase {
         return await this.statsService.getStudentsOfMonth(filters);
     }
 
-    async getStudentsOfMonthByRepublic(filters: StatisticsFilter): Promise<IStudentResult[]> {
+    async getStudentsOfMonthByRepublic(filters: StatisticsFilterPg): Promise<StudentResultStatRow[]> {
         const validation = this.validateStatisticsFilter(filters);
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
@@ -68,24 +60,24 @@ export class StatsUseCase {
     }
 
     async getStatisticsByExam(examId: string): Promise<{
-        studentsOfMonth: IStudentResult[];
-        studentsOfMonthByRepublic: IStudentResult[];
-        developingStudents: IStudentResult[];
+        studentsOfMonth: StudentResultStatRow[];
+        studentsOfMonthByRepublic: StudentResultStatRow[];
+        developingStudents: StudentResultStatRow[];
     }> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(examId, 'Exam ID'),
-            ValidationUtils.validateObjectId(examId, 'Exam ID')
+            ValidationUtils.validateId(examId, 'Exam ID')
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        return await this.statsService.getStatisticsByExam(examId);
+        return await this.statsService.getStatisticsByExam(parseInt(examId, 10));
     }
 
-    async getTeacherStatistics(filters: FilterOptions & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
-        data: ITeacher[];
+    async getTeacherStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
+        data: RankedEntity[];
         totalCount: number;
     }> {
         const sortColumn = filters.sortColumn || 'averageScore';
@@ -94,8 +86,8 @@ export class StatsUseCase {
         return await this.statsService.getTeacherStatistics(filters, sortColumn, sortDirection);
     }
 
-    async getSchoolStatistics(filters: FilterOptions & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
-        data: ISchool[];
+    async getSchoolStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
+        data: RankedEntity[];
         totalCount: number;
     }> {
         const sortColumn = filters.sortColumn || 'averageScore';
@@ -104,8 +96,8 @@ export class StatsUseCase {
         return await this.statsService.getSchoolStatistics(filters, sortColumn, sortDirection);
     }
 
-    async getDistrictStatistics(filters: FilterOptions & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
-        data: IDistrict[];
+    async getDistrictStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
+        data: RankedEntity[];
         totalCount: number;
     }> {
         const sortColumn = filters.sortColumn || 'averageScore';
@@ -114,13 +106,12 @@ export class StatsUseCase {
         return await this.statsService.getDistrictStatistics(filters, sortColumn, sortDirection);
     }
 
-    private validateStatisticsFilter(filters: StatisticsFilter): ValidationResult {
+    private validateStatisticsFilter(filters: StatisticsFilterPg): ValidationResult {
         const errors: string[] = [];
 
         if (!filters.month) {
             errors.push('Month is required for statistics');
         } else {
-            // Validate month format (YYYY-MM)
             const monthPattern = /^\d{4}-\d{2}$/;
             if (!monthPattern.test(filters.month)) {
                 errors.push('Month must be in format YYYY-MM');

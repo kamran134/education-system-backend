@@ -1,30 +1,18 @@
 import * as fs from "fs";
-import { IStudent, IStudentInput } from "../models/student.model";
-import { IStudentResult } from "../models/studentResult.model";
-import { StudentService } from "../services/student.service";
-import { StudentResultService } from "../services/studentResult.service";
-import { importLegacyStudents } from "../services/student.service";
-import { PaginationOptions, FilterOptions, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult } from "../types/common.types";
+import { StudentServicePg, Student, StudentCreate, StudentResultRow } from "../services/student.service.pg";
+import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS } from "../utils/entity-codes.const";
-import { Types } from "mongoose";
 
 export class StudentUseCase {
-    constructor(
-        private studentService: StudentService,
-        private studentResultService: StudentResultService
-    ) {}
+    constructor(private studentService: StudentServicePg) {}
 
     async getStudents(
         pagination: PaginationOptions,
-        filters: FilterOptions,
+        filters: FilterOptionsPg,
         sort: SortOptions
-    ): Promise<PaginatedResponse<IStudent>> {
-        const { data, totalCount } = await this.studentService.getFilteredStudents(
-            pagination,
-            filters,
-            sort
-        );
+    ): Promise<PaginatedResponse<Student>> {
+        const { data, totalCount } = await this.studentService.getFilteredStudents(pagination, filters, sort);
 
         return {
             data,
@@ -35,30 +23,27 @@ export class StudentUseCase {
         };
     }
 
-    async getStudentById(id: string): Promise<IStudent & { results: IStudentResult[] }> {
+    async getStudentById(id: string): Promise<Student & { results: StudentResultRow[] }> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Student ID'),
-            ValidationUtils.validateObjectId(id, 'Student ID')
+            ValidationUtils.validateId(id, 'Student ID')
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        const student = await this.studentService.findById(id);
+        const student = await this.studentService.findById(parseInt(id, 10));
         if (!student) {
             throw new Error('Student not found');
         }
 
-        const studentResults = await this.studentResultService.getResultsByStudentId(student._id as Types.ObjectId);
+        const results = await this.studentService.getResultsByStudentId(student.id);
 
-        return {
-            ...student.toObject(),
-            results: studentResults
-        };
+        return { ...student, results };
     }
 
-    async createStudent(studentData: IStudentInput): Promise<IStudent> {
+    async createStudent(studentData: StudentCreate): Promise<Student> {
         const validation = this.validateStudentData(studentData);
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
@@ -72,17 +57,17 @@ export class StudentUseCase {
         return await this.studentService.create(studentData);
     }
 
-    async updateStudent(id: string, updateData: Partial<IStudentInput>): Promise<IStudent> {
+    async updateStudent(id: string, updateData: Partial<StudentCreate>): Promise<Student> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Student ID'),
-            ValidationUtils.validateObjectId(id, 'Student ID')
+            ValidationUtils.validateId(id, 'Student ID')
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        const existingStudent = await this.studentService.findById(id);
+        const existingStudent = await this.studentService.findById(parseInt(id, 10));
         if (!existingStudent) {
             throw new Error('Student not found');
         }
@@ -94,29 +79,26 @@ export class StudentUseCase {
             }
         }
 
-        return await this.studentService.update(id, updateData);
+        return await this.studentService.update(parseInt(id, 10), updateData);
     }
 
     async deleteStudent(id: string): Promise<void> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Student ID'),
-            ValidationUtils.validateObjectId(id, 'Student ID')
+            ValidationUtils.validateId(id, 'Student ID')
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        const student = await this.studentService.findById(id);
+        const student = await this.studentService.findById(parseInt(id, 10));
         if (!student) {
             throw new Error('Student not found');
         }
 
-        // Delete associated results first
-        await this.studentResultService.deleteByStudentId(new Types.ObjectId(id));
-        
-        // Then delete the student
-        await this.studentService.delete(id);
+        // Каскад в student.service.pg.ts уже удаляет student_results одной транзакцией.
+        await this.studentService.delete(parseInt(id, 10));
     }
 
     async deleteStudents(ids: string[]): Promise<BulkOperationResult> {
@@ -125,16 +107,10 @@ export class StudentUseCase {
             throw new Error(arrayValidation.errors.join(', '));
         }
 
-        const objectIds = ids.map(id => new Types.ObjectId(id));
-        
-        // Delete associated results first
-        await this.studentResultService.deleteBulkByStudentIds(objectIds);
-        
-        // Then delete students
-        return await this.studentService.deleteBulk(objectIds);
+        return await this.studentService.deleteBulk(ids.map((id) => parseInt(id, 10)));
     }
 
-    async searchStudents(searchString: string): Promise<IStudent[]> {
+    async searchStudents(searchString: string): Promise<Student[]> {
         if (!searchString || searchString.trim().length < 2) {
             throw new Error('Search string must be at least 2 characters long');
         }
@@ -142,8 +118,8 @@ export class StudentUseCase {
         return await this.studentService.search(searchString.trim());
     }
 
-    async repairStudents(): Promise<{ 
-        repairedStudents: number[], 
+    async repairStudents(): Promise<{
+        repairedStudents: number[],
         failedStudents: Array<{ code: number, reason: string }>,
         missedDistricts: number[],
         missedSchools: number[],
@@ -187,10 +163,10 @@ export class StudentUseCase {
             throw new Error('File must contain a non-empty array or newline-delimited JSON records');
         }
 
-        return await importLegacyStudents(records);
+        return await this.studentService.importLegacyStudents(records);
     }
 
-    private validateStudentData(data: IStudentInput): ValidationResult {
+    private validateStudentData(data: StudentCreate): ValidationResult {
         return ValidationUtils.combine([
             ValidationUtils.validateRequired(data.firstName, 'First name'),
             ValidationUtils.validateRequired(data.lastName, 'Last name'),

@@ -22,7 +22,7 @@ import morgan from "morgan";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middleware/errorHandler";
-import { startTokenCleanupScheduler } from "./services/token.service";
+import { startTokenCleanupScheduler } from "./services/token.service.pg";
 
 dotenv.config();
 connectDB();
