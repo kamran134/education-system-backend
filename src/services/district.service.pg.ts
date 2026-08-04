@@ -5,6 +5,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
+import { getCurrentAcademicYear } from "../utils/academic-year.util";
 
 export interface YearRatingRow {
     year: number;
@@ -152,16 +153,32 @@ export class DistrictServicePg {
         filters: FilterOptionsPg,
         sort: SortOptions
     ): Promise<{ data: District[]; totalCount: number }> {
-        let query = pg.selectFrom("districts").selectAll();
+        const currentYear = getCurrentAcademicYear();
+
+        // score/averageScore/place не хранятся на districts — джойн с district_year_ratings
+        // за текущий год нужен только для ORDER BY (сама запись в ответе собирается заново
+        // в attachRatings). Найдено 04.08.2026 перед переключением: до этой правки сортировка
+        // по averageScore тихо проваливалась в fallback на name — differential-харнесс (шаг 9)
+        // это не поймал, потому что сравнивает множества записей, а не порядок.
+        let query = pg
+            .selectFrom("districts")
+            .leftJoin("district_year_ratings", (join) =>
+                join.onRef("district_year_ratings.district_id", "=", "districts.id").on("district_year_ratings.year", "=", currentYear)
+            )
+            .selectAll("districts")
+            .select(["district_year_ratings.score as current_score", "district_year_ratings.average_score as current_average_score", "district_year_ratings.place as current_place"]);
         query = this.applyFilter(query, filters);
 
-        const sortColumn = this.mapSortColumn(sort.sortColumn);
-        // COLLATE az_ci только для текстовых колонок — числовые/boolean сортируем как есть.
-        const orderExpr = sortColumn === "name" ? sql`name COLLATE az_ci` : sql.ref(sortColumn);
-        query = query.orderBy(orderExpr, sort.sortDirection) as typeof query;
+        const { column, needsRatingJoin } = this.mapSortColumn(sort.sortColumn);
+        const orderExpr = column === "name" ? sql`districts.name COLLATE az_ci` : sql.ref(needsRatingJoin ? column : `districts.${column}`);
+        const dirSql = sort.sortDirection === "asc" ? sql`ASC` : sql`DESC`;
+        // NULLS LAST явно — районы без строки в district_year_ratings (LEFT JOIN) иначе
+        // всплывают в начало при DESC, тот же баг, что уже был найден и исправлен
+        // в school/teacher/student.service.pg.ts на шаге 8.
+        const finalQuery = query.orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(pagination.size).offset(pagination.skip);
 
         const [rows, countRow] = await Promise.all([
-            query.limit(pagination.size).offset(pagination.skip).execute(),
+            finalQuery.execute(),
             this.applyFilter(pg.selectFrom("districts"), filters)
                 .select(({ fn }) => [fn.countAll().as("count")])
                 .executeTakeFirstOrThrow(),
@@ -267,12 +284,15 @@ export class DistrictServicePg {
         return q;
     }
 
-    private mapSortColumn(column: string): "code" | "name" | "region" | "student_count" | "rate" | "active" {
-        const map: Record<string, any> = {
+    private mapSortColumn(column: string): { column: string; needsRatingJoin: boolean } {
+        if (column === "score") return { column: "current_score", needsRatingJoin: true };
+        if (column === "averageScore") return { column: "current_average_score", needsRatingJoin: true };
+        if (column === "place") return { column: "current_place", needsRatingJoin: true };
+        const map: Record<string, string> = {
             code: "code", name: "name", region: "region",
             studentCount: "student_count", rate: "rate", active: "active",
         };
-        return map[column] ?? "name";
+        return { column: map[column] ?? "name", needsRatingJoin: false };
     }
 
     private async attachRatings(row: { id: number; code: number; name: string; region: string | null; student_count: number | null; rate: number | null; district_of_the_year_score: number | null; active: boolean; avatar_url: string | null }): Promise<District> {
