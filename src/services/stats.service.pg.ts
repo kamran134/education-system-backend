@@ -25,7 +25,7 @@ export interface StudentResultStatRow {
     year: number;
     studentData: {
         id: number; code: number; lastName: string | null; firstName: string; middleName: string | null;
-        grade: number | null; averageScore: number | null;
+        grade: number | null; averageScore: number | null; avatarUrl: string | null;
         teacher: { id: number; fullname: string } | null;
         school: { id: number; name: string } | null;
         district: { id: number; name: string } | null;
@@ -318,6 +318,7 @@ export class StatsServicePg {
                 "sr.month as month", "sr.year as year",
                 "st.id as student_id", "st.code as student_code", "st.last_name as student_last_name",
                 "st.first_name as student_first_name", "st.middle_name as student_middle_name", "st.grade as student_grade",
+                "st.avatar_url as student_avatar_url",
                 "syr.average_score as student_average_score",
                 "t.id as teacher_id", "t.fullname as teacher_fullname",
                 "sc.id as school_id", "sc.name as school_name",
@@ -372,6 +373,7 @@ export class StatsServicePg {
             studentData: {
                 id: r.student_id, code: r.student_code, lastName: r.student_last_name, firstName: r.student_first_name,
                 middleName: r.student_middle_name, grade: r.student_grade, averageScore: r.student_average_score,
+                avatarUrl: r.student_avatar_url,
                 teacher: r.teacher_id ? { id: r.teacher_id, fullname: r.teacher_fullname } : null,
                 school: r.school_id ? { id: r.school_id, name: r.school_name } : null,
                 district: r.district_id ? { id: r.district_id, name: r.district_name } : null,
