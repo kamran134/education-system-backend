@@ -17,12 +17,14 @@ import userSettingsRoutes from "./routes/userSettings.routes";
 import authRoutes from "./routes/auth.routes";
 import examResultsRoutes from "./routes/examResults.routes";
 import academicYearRoutes from "./routes/gradePromotion.routes";
+import referenceRoutes from "./routes/reference.routes";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middleware/errorHandler";
 import { startTokenCleanupScheduler } from "./services/token.service.pg";
+import { loadLevelsCache } from "./services/levels.cache";
 
 dotenv.config();
 connectDB();
@@ -118,6 +120,7 @@ app.use("/api/statistics", statisticsRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/user-settings", userSettingsRoutes);
 app.use("/api/academic-year", academicYearRoutes);
+app.use("/api/reference", referenceRoutes);
 app.use("/api/auth", authLimiter, authRoutes);
 
 app.use((req, res, next) => {
@@ -126,6 +129,13 @@ app.use((req, res, next) => {
 
 app.use(errorHandler);
 
-app.listen(PORT, () => {
-    console.log(`Server run on port http://localhost:${PORT}`);
-});
+loadLevelsCache()
+    .then(() => {
+        app.listen(PORT, () => {
+            console.log(`Server run on port http://localhost:${PORT}`);
+        });
+    })
+    .catch((err) => {
+        console.error("Failed to load levels cache on startup:", err);
+        process.exit(1);
+    });

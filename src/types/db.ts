@@ -76,6 +76,16 @@ export interface GradePromotionLogs {
   status: Generated<string>;
 }
 
+export interface Levels {
+  active: Generated<boolean>;
+  code: string;
+  max_total_score: number | null;
+  min_total_score: number;
+  name_az: string;
+  participation_score: number;
+  rank: number;
+}
+
 export interface Schools {
   active: Generated<boolean>;
   address: string | null;
@@ -151,6 +161,17 @@ export interface StudentYearRatings {
   score: number | null;
   student_id: number;
   year: number;
+}
+
+export interface Subjects {
+  active: Generated<boolean>;
+  code: string;
+  count_column: string;
+  max_grade: number | null;
+  min_grade: number | null;
+  name_az: string;
+  result_column: string;
+  sort_order: number;
 }
 
 export interface Teachers {
@@ -251,6 +272,17 @@ export interface VStudentPlaces {
   student_id: number | null;
 }
 
+export interface VStudentResultSubjectScores {
+  academic_year: number | null;
+  exam_id: number | null;
+  grade: number | null;
+  question_count: number | null;
+  result_id: number | null;
+  score: number | null;
+  student_id: number | null;
+  subject_code: string | null;
+}
+
 export interface VStudentYearScores {
   academic_year: number | null;
   average_score: number | null;
@@ -283,11 +315,13 @@ export interface DB {
   districts: Districts;
   exams: Exams;
   grade_promotion_logs: GradePromotionLogs;
+  levels: Levels;
   school_year_ratings: SchoolYearRatings;
   schools: Schools;
   student_results: StudentResults;
   student_year_ratings: StudentYearRatings;
   students: Students;
+  subjects: Subjects;
   teacher_year_ratings: TeacherYearRatings;
   teachers: Teachers;
   user_refresh_tokens: UserRefreshTokens;
@@ -298,6 +332,7 @@ export interface DB {
   v_school_places: VSchoolPlaces;
   v_school_year_scores: VSchoolYearScores;
   v_student_places: VStudentPlaces;
+  v_student_result_subject_scores: VStudentResultSubjectScores;
   v_student_year_scores: VStudentYearScores;
   v_teacher_places: VTeacherPlaces;
   v_teacher_year_scores: VTeacherYearScores;

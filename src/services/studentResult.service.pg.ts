@@ -1,7 +1,6 @@
 import fs from "fs";
 import { sql } from "kysely";
 import { pg } from "../config/pg";
-import { calculateLevelNumb } from "./common.service";
 import { studentServicePg, StudentCreate } from "./student.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions } from "../types/common.types";
 import { readExcel } from "./excel.service";

@@ -96,6 +96,22 @@ CREATE TABLE exams (
 );
 
 
+-- ============================================================ справочники
+
+-- Справочник уровней — заменяет 4 дубля хардкода (calculateLevel, calculateLevelNumb,
+-- ParticipationScoreMap, SQL CASE в stats/examResults), см. db/migrations/001_levels_lookup.sql.
+-- 6 строк, кэшируется в памяти при старте (services/levels.cache.ts).
+CREATE TABLE levels (
+    code                text PRIMARY KEY,              -- 'E','D','C','B','A','Lisey'
+    name_az             text NOT NULL,
+    rank                int  NOT NULL UNIQUE,           -- 1..6, порядок силы уровня
+    participation_score double precision NOT NULL,
+    min_total_score     int  NOT NULL,                  -- нижняя граница total_score включительно
+    max_total_score     int,                             -- верхняя граница включительно, NULL = без предела
+    active              boolean NOT NULL DEFAULT true
+);
+
+
 -- ============================================================ результаты
 
 CREATE TABLE student_results (
@@ -120,7 +136,7 @@ CREATE TABLE student_results (
 
     total_score  double precision NOT NULL,
     score        double precision NOT NULL,
-    level        text             NOT NULL,                       -- E/D/C/B/A/Lisey, см. common.service.ts calculateLevel
+    level        text             NOT NULL REFERENCES levels(code), -- E/D/C/B/A/Lisey, см. таблицу levels
     status       text,
 
     -- четыре слагаемых итогового балла ученика (см. v_student_year_scores)
@@ -154,6 +170,78 @@ CREATE TABLE booklets (
     name             text,
     legacy_mongo_id  text UNIQUE
 );
+
+-- Справочник предметов — единственный дом понятия "предмет", которое иначе размазано по
+-- колонкам student_results, ключам booklets.disciplines и позициям в Excel-парсере.
+-- Хранение колонками НЕ меняется (осознанное решение заказчика) — это только метаданные +
+-- read-only view. См. db/migrations/002_subjects_lookup.sql.
+CREATE TABLE subjects (
+    code          text PRIMARY KEY,          -- 'az','math','lifeKnowledge','logic','english'
+    name_az       text NOT NULL,
+    result_column text NOT NULL,              -- имя колонки балла в student_results
+    count_column  text NOT NULL,              -- имя колонки количества вопросов
+    min_grade     int,                        -- с какого класса применяется, NULL = без ограничения снизу
+    max_grade     int,                        -- по какой класс, NULL = без ограничения сверху
+    sort_order    int  NOT NULL,
+    active        boolean NOT NULL DEFAULT true
+);
+
+-- "Развёрнутая" в строки версия колонок student_results — read-only, хранение не меняет.
+-- lifeKnowledge/logic/english фильтруются по границе классов из subjects, а не по
+-- "колонка не NULL": в проде есть исторический артефакт (~6480 строк) с english=0 в 1-4
+-- классах вместо NULL, который иначе попал бы в любой AVG по предмету как реальная попытка.
+CREATE VIEW v_student_result_subject_scores AS
+SELECT sr.id AS result_id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
+       'az'::text AS subject_code, sr.az AS score, sr.az_count AS question_count
+FROM student_results sr
+UNION ALL
+SELECT sr.id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
+       'math', sr.math, sr.math_count
+FROM student_results sr
+UNION ALL
+SELECT sr.id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
+       'lifeKnowledge', sr.life_knowledge, sr.life_knowledge_count
+FROM student_results sr
+JOIN subjects s ON s.code = 'lifeKnowledge'
+WHERE (s.min_grade IS NULL OR sr.grade >= s.min_grade)
+  AND (s.max_grade IS NULL OR sr.grade <= s.max_grade)
+UNION ALL
+SELECT sr.id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
+       'logic', sr.logic, sr.logic_count
+FROM student_results sr
+JOIN subjects s ON s.code = 'logic'
+WHERE (s.min_grade IS NULL OR sr.grade >= s.min_grade)
+  AND (s.max_grade IS NULL OR sr.grade <= s.max_grade)
+UNION ALL
+SELECT sr.id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
+       'english', sr.english, sr.english_count
+FROM student_results sr
+JOIN subjects s ON s.code = 'english'
+WHERE (s.min_grade IS NULL OR sr.grade >= s.min_grade)
+  AND (s.max_grade IS NULL OR sr.grade <= s.max_grade);
+
+-- Защита ключей booklets.disciplines от посторонних кодов предметов (CHECK не может
+-- ссылаться на другую таблицу).
+CREATE FUNCTION validate_booklet_disciplines_keys() RETURNS trigger AS $$
+DECLARE
+    bad_key text;
+BEGIN
+    SELECT key INTO bad_key
+    FROM jsonb_object_keys(NEW.disciplines) AS key
+    WHERE key NOT IN (SELECT code FROM subjects)
+    LIMIT 1;
+
+    IF bad_key IS NOT NULL THEN
+        RAISE EXCEPTION 'booklets.disciplines: неизвестный код предмета "%"', bad_key;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER booklets_validate_disciplines_keys
+    BEFORE INSERT OR UPDATE ON booklets
+    FOR EACH ROW EXECUTE FUNCTION validate_booklet_disciplines_keys();
 
 
 -- ============================================================ исторические рейтинги (бывший ratings[])

@@ -309,6 +309,7 @@ export class StatsServicePg {
             .leftJoin("student_year_ratings as syr", (join) =>
                 join.onRef("syr.student_id", "=", "st.id").on("syr.year", "=", currentYear)
             )
+            .leftJoin("levels as lvl", "lvl.code", "sr.level")
             .where("sr.exam_id", "in", examIds)
             .select([
                 "sr.id as id", "sr.exam_id as exam_id", "sr.grade as grade", "sr.total_score as total_score",
@@ -352,7 +353,8 @@ export class StatsServicePg {
         if (filters.sortColumn && filters.sortDirection) {
             const dir = filters.sortDirection === "asc" ? "asc" : "desc";
             const columnMap: Record<string, any> = {
-                level: sql`(CASE sr.level WHEN 'E' THEN 1 WHEN 'D' THEN 2 WHEN 'C' THEN 3 WHEN 'B' THEN 4 WHEN 'A' THEN 5 WHEN 'Lisey' THEN 6 ELSE 0 END)`,
+                // Порядок силы уровня — из справочника levels (E=1..Lisey=6), а не из хардкода.
+                level: sql`lvl.rank`,
                 code: sql`st.code`, lastName: sql`st.last_name COLLATE az_ci`, firstName: sql`st.first_name COLLATE az_ci`,
                 middleName: sql`st.middle_name COLLATE az_ci`, grade: sql`st.grade`,
                 teacher: sql`t.fullname COLLATE az_ci`, school: sql`sc.name COLLATE az_ci`, district: sql`d.name COLLATE az_ci`,

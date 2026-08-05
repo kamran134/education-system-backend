@@ -50,7 +50,8 @@ export class ExamResultsServicePg {
             .leftJoin("teachers as t", "t.id", "st.teacher_id")
             .leftJoin("schools as sc", "sc.id", "st.school_id")
             .leftJoin("districts as d", "d.id", "st.district_id")
-            .leftJoin("exams as e", "e.id", "sr.exam_id");
+            .leftJoin("exams as e", "e.id", "sr.exam_id")
+            .leftJoin("levels as lvl", "lvl.code", "sr.level");
 
         query = this.applyFilter(query, filters);
 
@@ -171,9 +172,11 @@ export class ExamResultsServicePg {
             "studentData.district.name": sql`d.name COLLATE az_ci`,
             grade: sql`sr.grade`,
             totalScore: sql`sr.total_score`,
-            // Mongo-версия сортировала level через ручной levelPriority (Lisey=1..E=6) — то же
-            // соответствие через CASE, чтобы сохранить иерархию, а не алфавитный порядок E<D<C...
-            level: sql`CASE sr.level WHEN 'Lisey' THEN 1 WHEN 'A' THEN 2 WHEN 'B' THEN 3 WHEN 'C' THEN 4 WHEN 'D' THEN 5 WHEN 'E' THEN 6 ELSE 999 END`,
+            // Mongo-версия сортировала level через ручной levelPriority (Lisey=1..E=6) — лучший
+            // уровень первым, а не алфавитный порядок E<D<C... Справочник levels.rank даёт
+            // обратную величину (E=1..Lisey=6), поэтому инвертируем через (7 - rank), что даёт
+            // ровно те же числа, что были в старом CASE (Lisey=1..E=6).
+            level: sql`(7 - lvl.rank)`,
         };
         return map[column] ?? sql`e.date`;
     }
