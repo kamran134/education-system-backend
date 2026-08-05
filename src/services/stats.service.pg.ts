@@ -105,10 +105,15 @@ export class StatsServicePg {
         `.execute(pg);
 
         // Шаг 1: обнуляем баллы месяца/развития за весь учебный год (сам score студента
-        // обнулять вручную не нужно — он всегда пересчитывается заново из view в шаге 3)
+        // обнулять вручную не нужно — он всегда пересчитывается заново из view в шаге 3).
+        // status обнуляется вместе с development_score — иначе при повторном пересчёте
+        // строка, которая в прошлый раз получила "İnkişaf edən şagird", но в этот раз
+        // больше не проходит по markDevelopingStudents (база сравнения "макс. уровень
+        // среди более ранних результатов" меняется по мере добавления новых месяцев),
+        // осталась бы с development_score=0 и застрявшим текстом статуса навсегда.
         await pg
             .updateTable("student_results")
-            .set({ development_score: 0, student_of_the_month_score: 0, republic_wide_student_of_the_month_score: 0 })
+            .set({ development_score: 0, student_of_the_month_score: 0, republic_wide_student_of_the_month_score: 0, status: null })
             .where("academic_year", "=", academicYearStart)
             .execute();
 

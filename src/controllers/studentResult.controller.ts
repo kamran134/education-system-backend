@@ -29,7 +29,9 @@ export class StudentResultController {
             ...(body.level !== undefined && { level: body.level }),
             ...(body.participationScore !== undefined && { participationScore: body.participationScore }),
             ...(body.score !== undefined && { score: body.score }),
-            ...(body.status !== undefined && { status: body.status }),
+            // status НЕ принимается от клиента: единственный писатель — markDevelopingStudents
+            // (stats.service.pg.ts), иначе status и development_score снова расходятся
+            // (см. DB_REFACTOR_TASKS.md §4, гейт 2).
             ...(body.month !== undefined && { month: body.month }),
             ...(body.year !== undefined && { year: body.year }),
         };
