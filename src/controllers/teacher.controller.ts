@@ -84,10 +84,11 @@ export class TeacherController {
         try {
             const { id } = req.params;
             const updateData = req.body;
+            const changedByUserId = parseInt(req.user!.userId, 10);
 
-            const teacher = await this.teacherUseCase.updateTeacher(id, updateData);
+            const { teacher, cascadedStudentsCount } = await this.teacherUseCase.updateTeacher(id, updateData, changedByUserId);
 
-            res.json(ResponseHandler.updated(teacher, 'Teacher updated successfully'));
+            res.json(ResponseHandler.updated({ ...teacher, cascadedStudentsCount }, 'Teacher updated successfully'));
         } catch (error) {
             next(error);
         }

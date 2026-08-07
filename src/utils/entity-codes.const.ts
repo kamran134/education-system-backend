@@ -34,3 +34,13 @@ export const CODE_RANGES = {
     STUDENT_MAX: 9_999_999_999,
     SCHOOL_MIN:  10_000,
 } as const;
+
+/**
+ * Re-embeds a child code under a new parent code, preserving the child's own suffix digits.
+ * E.g. rebaseCode(1501880015, 1501881, CODE_DIVISORS.STUDENT_TO_TEACHER) → 1501881015
+ * (teacher part swapped from 1501880 to 1501881, student's own "015" suffix untouched).
+ * Used for the PHASE3 п.4 code cascade (teacher/school code edits propagate to descendants).
+ */
+export function rebaseCode(oldChildCode: number, newParentCode: number, divisor: number): number {
+    return newParentCode * divisor + (oldChildCode % divisor);
+}

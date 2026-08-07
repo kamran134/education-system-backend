@@ -2,7 +2,7 @@ import * as fs from "fs";
 import { TeacherServicePg, Teacher, TeacherCreate } from "../services/teacher.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
-import { CODE_LENGTHS } from "../utils/entity-codes.const";
+import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
 
 export class TeacherUseCase {
     constructor(private teacherService: TeacherServicePg) {}
@@ -59,7 +59,7 @@ export class TeacherUseCase {
         return await this.teacherService.create(teacherData);
     }
 
-    async updateTeacher(id: string, updateData: Partial<TeacherCreate>): Promise<Teacher> {
+    async updateTeacher(id: string, updateData: Partial<TeacherCreate>, changedByUserId: number): Promise<{ teacher: Teacher; cascadedStudentsCount: number }> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Teacher ID'),
             ValidationUtils.validateId(id, 'Teacher ID')
@@ -75,13 +75,34 @@ export class TeacherUseCase {
         }
 
         if (updateData.code && updateData.code !== existingTeacher.code) {
+            // Длина проверяется здесь (а не только при create): начиная с этого каскада, кривая
+            // по длине правка кода портит и коды всех учеников этого учителя, не только его самого.
+            const lengthError = ValidationUtils.validateCode(updateData.code, CODE_LENGTHS.TEACHER, CODE_LENGTHS.TEACHER);
+            if (lengthError) {
+                throw new Error(lengthError);
+            }
+
+            // Kod yalnız məktəb daxilində fərdi hissədən ibarət ola bilər: məktəb prefiksini
+            // (kodun ilk 5 rəqəmi) əl ilə dəyişmək olmaz — bu, müəllimi başqa məktəbə "yamamaq"
+            // demək olardı, kod vasitəsilə, FK-ni (schoolId) dəyişmədən. Məktəbi dəyişmək üçün
+            // ayrıca schoolId seçilməlidir, kodun məktəb hissəsi ondan REPAIR yolu ilə yenilənir.
+            if (existingTeacher.school) {
+                const submittedSchoolCode = Math.floor(updateData.code / CODE_DIVISORS.TEACHER_TO_SCHOOL);
+                if (submittedSchoolCode !== existingTeacher.school.code) {
+                    throw new Error(
+                        `Kodun məktəb hissəsini dəyişmək olmaz (${existingTeacher.school.code} olmalıdır). ` +
+                        `Yalnız fərdi hissəni (son 2 rəqəmi) dəyişin, ya da müəllimi başqa məktəbə keçirmək üçün Məktəb sahəsini dəyişin.`
+                    );
+                }
+            }
+
             const codeExists = await this.teacherService.findByCode(updateData.code);
             if (codeExists) {
                 throw new Error('Teacher with this code already exists');
             }
         }
 
-        return await this.teacherService.update(parseInt(id, 10), updateData);
+        return await this.teacherService.update(parseInt(id, 10), updateData, changedByUserId);
     }
 
     async deleteTeacher(id: string): Promise<void> {

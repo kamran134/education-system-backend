@@ -3,7 +3,7 @@ import { SchoolServicePg, School, SchoolCreate } from "../services/school.servic
 import { pg } from "../config/pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
-import { CODE_LENGTHS } from "../utils/entity-codes.const";
+import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
 
 export class SchoolUseCase {
     constructor(private schoolService: SchoolServicePg) {}
@@ -73,7 +73,7 @@ export class SchoolUseCase {
         return await this.schoolService.create(schoolData);
     }
 
-    async updateSchool(id: string, updateData: any): Promise<School> {
+    async updateSchool(id: string, updateData: any, changedByUserId: number): Promise<{ school: School; cascadedTeachersCount: number; cascadedStudentsCount: number }> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'School ID'),
             ValidationUtils.validateId(id, 'School ID')
@@ -99,13 +99,33 @@ export class SchoolUseCase {
         }
 
         if (updateData.code && updateData.code !== existingSchool.code) {
+            // Длина проверяется здесь (а не только при create): начиная с этого каскада, кривая
+            // по длине правка кода портит коды и её учителей, и учеников этих учителей.
+            const lengthError = ValidationUtils.validateCode(updateData.code, CODE_LENGTHS.SCHOOL, CODE_LENGTHS.SCHOOL);
+            if (lengthError) {
+                throw new Error(lengthError);
+            }
+
+            // Kod yalnız rayon daxilində fərdi hissədən ibarət ola bilər: rayon prefiksini (kodun
+            // ilk 3 rəqəmi) əl ilə dəyişmək olmaz — məktəbi başqa rayona keçirmək üçün ayrıca
+            // District sahəsi seçilməlidir, kodun rayon hissəsi ondan asılı deyil.
+            if (existingSchool.district) {
+                const submittedDistrictCode = Math.floor(updateData.code / CODE_DIVISORS.SCHOOL_TO_DISTRICT);
+                if (submittedDistrictCode !== existingSchool.district.code) {
+                    throw new Error(
+                        `Kodun rayon hissəsini dəyişmək olmaz (${existingSchool.district.code} olmalıdır). ` +
+                        `Yalnız fərdi hissəni (son 2 rəqəmi) dəyişin, ya da məktəbi başqa rayona keçirmək üçün District sahəsini dəyişin.`
+                    );
+                }
+            }
+
             const codeExists = await this.schoolService.findByCode(updateData.code);
             if (codeExists) {
                 throw new Error('School with this code already exists');
             }
         }
 
-        return await this.schoolService.update(parseInt(id, 10), updateData);
+        return await this.schoolService.update(parseInt(id, 10), updateData, changedByUserId);
     }
 
     async deleteSchool(id: string): Promise<void> {

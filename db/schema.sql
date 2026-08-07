@@ -354,6 +354,31 @@ CREATE TABLE grade_promotion_logs (
     legacy_mongo_id text UNIQUE
 );
 
+-- Журнал каскадных перекодировок (PHASE3 п.4, миграция 004): смена teacher.code/school.code
+-- перезаписывает коды потомков, а не только связи. caused_by_* = NULL — прямая правка (корень
+-- каскада); заполнено — эта строка изменилась потому, что изменился родитель.
+CREATE TABLE code_change_logs (
+    id                     bigserial    PRIMARY KEY,
+    entity_type            text         NOT NULL CHECK (entity_type IN ('teacher','school','student')),
+    entity_id              bigint       NOT NULL,
+    old_code                bigint      NOT NULL,
+    new_code                bigint      NOT NULL,
+    caused_by_entity_type   text        CHECK (caused_by_entity_type IN ('teacher','school')),
+    caused_by_entity_id     bigint,
+    changed_by              bigint      NOT NULL REFERENCES users(id),
+    changed_at              timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX code_change_logs_entity_idx ON code_change_logs (entity_type, entity_id);
+CREATE INDEX code_change_logs_changed_at_idx ON code_change_logs (changed_at);
+
+-- Трекинг для db/migrations/apply-pending.sh (автоприменение на CI/CD, см. migrations/README.md).
+-- На свежей БД, поднятой из этого файла, остаётся пустой — она уже включает миграции 001-004,
+-- бутстрап-список апскрипта сюда не относится (тот привязан к конкретному прод-серверу).
+CREATE TABLE schema_migrations (
+    filename    text        PRIMARY KEY,
+    applied_at  timestamptz NOT NULL DEFAULT now()
+);
+
 
 -- ============================================================ индексы
 

@@ -34,6 +34,20 @@ export interface Booklets {
   variant: string;
 }
 
+// Добавлено вручную вслед за миграцией 004_code_change_log.sql — перегенерировать через
+// kysely-codegen при следующей возможности подключиться к живой БД и сверить.
+export interface CodeChangeLogs {
+  caused_by_entity_id: number | null;
+  caused_by_entity_type: string | null;
+  changed_at: Generated<Timestamp>;
+  changed_by: number;
+  entity_id: number;
+  entity_type: string;
+  id: Generated<number>;
+  new_code: number;
+  old_code: number;
+}
+
 export interface Districts {
   active: Generated<boolean>;
   avatar_url: string | null;
@@ -98,6 +112,11 @@ export interface Schools {
   school_of_the_year_score: Generated<number | null>;
   status: string | null;
   student_count: number | null;
+}
+
+export interface SchemaMigrations {
+  applied_at: Generated<Timestamp>;
+  filename: string;
 }
 
 export interface SchoolYearRatings {
@@ -311,11 +330,13 @@ export interface VTeacherYearScores {
 
 export interface DB {
   booklets: Booklets;
+  code_change_logs: CodeChangeLogs;
   district_year_ratings: DistrictYearRatings;
   districts: Districts;
   exams: Exams;
   grade_promotion_logs: GradePromotionLogs;
   levels: Levels;
+  schema_migrations: SchemaMigrations;
   school_year_ratings: SchoolYearRatings;
   schools: Schools;
   student_results: StudentResults;

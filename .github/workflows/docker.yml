@@ -44,6 +44,15 @@ jobs:
           scp -i deploy_key -o StrictHostKeyChecking=no backend.env ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/isim/.env
           rm -f backend.env
 
+      - name: Copy DB migration files to server
+        run: |
+          scp -i deploy_key -o StrictHostKeyChecking=no -r db ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:~/isim/
+
+      - name: Run pending DB migrations
+        run: |
+          ssh -i deploy_key -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "bash ~/isim/db/migrations/apply-pending.sh"
+
       - name: Deploy backend on server
         run: |
           ssh -i deploy_key -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \

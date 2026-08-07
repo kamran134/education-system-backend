@@ -7,6 +7,7 @@ import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_RANGES, CODE_DIVISORS } from "../utils/entity-codes.const";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { cascadeSchoolCodeToTeachers } from "../utils/code-cascade.util";
 
 export interface YearRatingRow {
     year: number;
@@ -103,25 +104,68 @@ export class SchoolServicePg {
         return (await this.attachExtras([row]))[0];
     }
 
-    async update(id: number, data: Partial<SchoolCreate>): Promise<School> {
-        const row = await pg
-            .updateTable("schools")
-            .set({
-                ...(data.code !== undefined && { code: data.code }),
-                ...(data.name !== undefined && { name: data.name }),
-                ...(data.address !== undefined && { address: data.address }),
-                ...(data.districtId !== undefined && { district_id: data.districtId }),
-                ...(data.studentCount !== undefined && { student_count: data.studentCount }),
-                ...(data.status !== undefined && { status: data.status }),
-                ...(data.schoolOfTheYearScore !== undefined && { school_of_the_year_score: data.schoolOfTheYearScore }),
-                ...(data.active !== undefined && { active: data.active }),
-            })
-            .where("id", "=", id)
-            .returningAll()
-            .executeTakeFirst();
+    private buildSchoolSet(data: Partial<SchoolCreate>) {
+        return {
+            ...(data.code !== undefined && { code: data.code }),
+            ...(data.name !== undefined && { name: data.name }),
+            ...(data.address !== undefined && { address: data.address }),
+            ...(data.districtId !== undefined && { district_id: data.districtId }),
+            ...(data.studentCount !== undefined && { student_count: data.studentCount }),
+            ...(data.status !== undefined && { status: data.status }),
+            ...(data.schoolOfTheYearScore !== undefined && { school_of_the_year_score: data.schoolOfTheYearScore }),
+            ...(data.active !== undefined && { active: data.active }),
+        };
+    }
 
-        if (!row) throw new Error("School not found");
-        return (await this.attachExtras([row]))[0];
+    /**
+     * `changedByUserId` is only used when `data.code` actually changes: it cascades to every
+     * teacher at this school and, further, to every student of those teachers (PHASE3_PLAN.md
+     * п.4 — 2-level cascade), all logged in code_change_logs. Optional for plain field edits.
+     */
+    async update(id: number, data: Partial<SchoolCreate>, changedByUserId?: number): Promise<{ school: School; cascadedTeachersCount: number; cascadedStudentsCount: number }> {
+        const existing = await pg.selectFrom("schools").select("code").where("id", "=", id).executeTakeFirst();
+        if (!existing) throw new Error("School not found");
+
+        const codeChanging = data.code !== undefined && data.code !== existing.code;
+
+        if (!codeChanging) {
+            const row = await pg.updateTable("schools").set(this.buildSchoolSet(data)).where("id", "=", id).returningAll().executeTakeFirst();
+            if (!row) throw new Error("School not found");
+            return { school: (await this.attachExtras([row]))[0], cascadedTeachersCount: 0, cascadedStudentsCount: 0 };
+        }
+
+        if (changedByUserId === undefined) {
+            throw new Error("changedByUserId is required when changing a school's code");
+        }
+
+        try {
+            const { row, cascadedTeachersCount, cascadedStudentsCount } = await pg.transaction().execute(async (trx) => {
+                const updatedRow = await trx.updateTable("schools").set(this.buildSchoolSet(data)).where("id", "=", id).returningAll().executeTakeFirst();
+                if (!updatedRow) throw new Error("School not found");
+
+                await trx.insertInto("code_change_logs").values({
+                    entity_type: "school",
+                    entity_id: id,
+                    old_code: existing.code,
+                    new_code: data.code!,
+                    caused_by_entity_type: null,
+                    caused_by_entity_id: null,
+                    changed_by: changedByUserId,
+                }).execute();
+
+                const { teachersCount, studentsCount } = await cascadeSchoolCodeToTeachers(trx, id, data.code!, changedByUserId);
+                return { row: updatedRow, cascadedTeachersCount: teachersCount, cascadedStudentsCount: studentsCount };
+            });
+
+            return { school: (await this.attachExtras([row]))[0], cascadedTeachersCount, cascadedStudentsCount };
+        } catch (error: any) {
+            if (error?.code === "23505") {
+                const err: any = new Error("Bu kod artıq başqa məktəb, müəllim və ya şagirddə istifadə olunur");
+                err.status = 409;
+                throw err;
+            }
+            throw error;
+        }
     }
 
     /** Каскад: учителя → результаты учеников → ученики → школа. Одна транзакция. */

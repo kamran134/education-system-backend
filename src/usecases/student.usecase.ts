@@ -2,7 +2,7 @@ import * as fs from "fs";
 import { StudentServicePg, Student, StudentCreate, StudentResultRow } from "../services/student.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
-import { CODE_LENGTHS } from "../utils/entity-codes.const";
+import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
 
 export class StudentUseCase {
     constructor(private studentService: StudentServicePg) {}
@@ -73,6 +73,25 @@ export class StudentUseCase {
         }
 
         if (updateData.code && updateData.code !== existingStudent.code) {
+            // Uzunluq yalnız create-də deyil, edit-də də yoxlanılmalıdır (teacher/school ilə eyni səbəb).
+            const lengthError = ValidationUtils.validateCode(updateData.code, CODE_LENGTHS.STUDENT, CODE_LENGTHS.STUDENT);
+            if (lengthError) {
+                throw new Error(lengthError);
+            }
+
+            // Kod yalnız müəllim daxilində fərdi hissədən ibarət ola bilər: müəllim prefiksini
+            // (kodun ilk 7 rəqəmi) əl ilə dəyişmək olmaz — şagirdi başqa müəllimə keçirmək üçün
+            // ayrıca Müəllim sahəsi seçilməlidir (teacher.usecase.ts/school.usecase.ts ilə eyni qayda).
+            if (existingStudent.teacher) {
+                const submittedTeacherCode = Math.floor(updateData.code / CODE_DIVISORS.STUDENT_TO_TEACHER);
+                if (submittedTeacherCode !== existingStudent.teacher.code) {
+                    throw new Error(
+                        `Kodun müəllim hissəsini dəyişmək olmaz (${existingStudent.teacher.code} olmalıdır). ` +
+                        `Yalnız fərdi hissəni (son 3 rəqəmi) dəyişin, ya da şagirdi başqa müəllimə keçirmək üçün Müəllim sahəsini dəyişin.`
+                    );
+                }
+            }
+
             const codeExists = await this.studentService.findByCode(updateData.code);
             if (codeExists) {
                 throw new Error('Student with this code already exists');
