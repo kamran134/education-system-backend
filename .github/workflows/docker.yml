@@ -3,7 +3,7 @@ name: Build and Push Backend Docker Image
 on:
   push:
     branches:
-      - new_version
+      - main
 
 jobs:
   build-and-push:
