@@ -20,7 +20,10 @@ export interface ExamResultRow {
     totalScore: number;
     level: string;
     status: string | null;
-    student: {
+    // Имя поля studentData (не student) — обязательно: и mapSort ниже, и фронтенд
+    // (exam-results.component.html/ts) обращаются именно к studentData.*, тот же паттерн,
+    // что и в stats.service.pg.ts.
+    studentData: {
         id: number; code: number; lastName: string | null; firstName: string; middleName: string | null;
         teacher: { id: number; fullname: string } | null;
         school: { id: number; name: string } | null;
@@ -83,7 +86,7 @@ export class ExamResultsServicePg {
             totalScore: r.total_score,
             level: r.level,
             status: r.status,
-            student: {
+            studentData: {
                 id: r.student_id, code: r.student_code, lastName: r.student_last_name,
                 firstName: r.student_first_name, middleName: r.student_middle_name,
                 teacher: r.teacher_id != null ? { id: r.teacher_id, fullname: r.teacher_fullname! } : null,
@@ -123,7 +126,7 @@ export class ExamResultsServicePg {
             totalScore: row.total_score,
             level: row.level,
             status: row.status,
-            student: {
+            studentData: {
                 id: row.student_id, code: row.student_code, lastName: row.student_last_name,
                 firstName: row.student_first_name, middleName: row.student_middle_name,
                 teacher: row.teacher_id != null ? { id: row.teacher_id, fullname: row.teacher_fullname! } : null,

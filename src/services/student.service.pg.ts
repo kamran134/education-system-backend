@@ -21,6 +21,12 @@ export interface EntitySummary {
     name: string;
 }
 
+export interface TeacherSummary {
+    id: number;
+    code: number;
+    fullname: string;
+}
+
 export interface Student {
     id: number;
     code: number;
@@ -31,7 +37,7 @@ export interface Student {
     teacherId: number | null;
     schoolId: number | null;
     districtId: number | null;
-    teacher: EntitySummary | null;
+    teacher: TeacherSummary | null;
     school: EntitySummary | null;
     district: EntitySummary | null;
     maxLevel: number | null;
@@ -523,7 +529,7 @@ export class StudentServicePg {
             return {
                 id: row.id, code: row.code, lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name,
                 grade: row.grade, teacherId: row.teacher_id, schoolId: row.school_id, districtId: row.district_id,
-                teacher: teacher ? { id: teacher.id, code: teacher.code, name: teacher.fullname } : null,
+                teacher: teacher ? { id: teacher.id, code: teacher.code, fullname: teacher.fullname } : null,
                 school: school ? { id: school.id, code: school.code, name: school.name } : null,
                 district: district ? { id: district.id, code: district.code, name: district.name } : null,
                 maxLevel: row.max_level, status: row.status, avatarUrl: row.avatar_url,
