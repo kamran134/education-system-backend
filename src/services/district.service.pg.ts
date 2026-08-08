@@ -276,6 +276,11 @@ export class DistrictServicePg {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
             q = q.where("code", ">=", parseInt(start)).where("code", "<=", parseInt(end));
         }
+        // Раньше игнорировалось (унаследовано из Mongo-версии) — теперь читается, это и есть
+        // граница безопасности для districtRepresenter/regionRepresenter (см. district.controller.ts).
+        if (filters.districtIds && filters.districtIds.length > 0) {
+            q = q.where("id", "in", filters.districtIds);
+        }
         if (filters.regionIds && filters.regionIds.length > 0) {
             q = q.where("region_id", "in", filters.regionIds);
         }
