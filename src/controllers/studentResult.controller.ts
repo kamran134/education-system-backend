@@ -48,7 +48,7 @@ export class StudentResultController {
             res.json(ResponseHandler.success({
                 data: result.data,
                 totalCount: result.totalCount
-            }, 'Student results retrieved successfully'));
+            }, 'Məlumat uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -60,11 +60,11 @@ export class StudentResultController {
             const result = await this.studentResultUseCase.getStudentResultById(id);
 
             if (!result) {
-                res.status(404).json(ResponseHandler.notFound('Student result not found'));
+                res.status(404).json(ResponseHandler.notFound('Məlumat tapılmadı'));
                 return;
             }
 
-            res.json(ResponseHandler.success(result, 'Student result retrieved successfully'));
+            res.json(ResponseHandler.success(result, 'Nəticə uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -74,7 +74,7 @@ export class StudentResultController {
         try {
             const result = await this.studentResultUseCase.createStudentResult(this.toStudentResultUpdate(req.body) as any);
 
-            res.status(201).json(ResponseHandler.created(result, 'Student result created successfully'));
+            res.status(201).json(ResponseHandler.created(result, 'Nəticə uğurla yaradıldı'));
         } catch (error) {
             next(error);
         }
@@ -85,7 +85,7 @@ export class StudentResultController {
             const { id } = req.params;
             const result = await this.studentResultUseCase.updateStudentResult(id, this.toStudentResultUpdate(req.body));
 
-            res.json(ResponseHandler.updated(result, 'Student result updated successfully'));
+            res.json(ResponseHandler.updated(result, 'Nəticə uğurla yeniləndi'));
         } catch (error) {
             next(error);
         }
@@ -96,7 +96,7 @@ export class StudentResultController {
             const { id } = req.params;
             await this.studentResultUseCase.deleteStudentResult(id);
 
-            res.json(ResponseHandler.deleted('Student result deleted successfully'));
+            res.json(ResponseHandler.deleted('Nəticə uğurla silindi'));
         } catch (error) {
             next(error);
         }

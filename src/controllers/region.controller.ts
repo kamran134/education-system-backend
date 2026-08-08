@@ -24,7 +24,7 @@ export class RegionController {
             res.json(ResponseHandler.success({
                 data: result.data,
                 totalCount: result.totalCount
-            }, 'Regions retrieved successfully'));
+            }, 'Məlumat uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -35,7 +35,7 @@ export class RegionController {
             const filters = RequestParser.parseFilterOptionsPg(req);
             const regions = await this.regionUseCase.getRegionsForFilter(filters);
 
-            res.json(ResponseHandler.success(regions, 'Regions for filter retrieved successfully'));
+            res.json(ResponseHandler.success(regions, 'Filtr üçün məlumatlar uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -46,7 +46,7 @@ export class RegionController {
             const { id } = req.params;
             const region = await this.regionUseCase.getRegionById(id);
 
-            res.json(ResponseHandler.success(region, 'Region retrieved successfully'));
+            res.json(ResponseHandler.success(region, 'Məlumat uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -57,7 +57,7 @@ export class RegionController {
             const regionData = req.body;
             const region = await this.regionUseCase.createRegion(regionData);
 
-            res.status(201).json(ResponseHandler.created(region, 'Region created successfully'));
+            res.status(201).json(ResponseHandler.created(region, 'Məlumat uğurla yaradıldı'));
         } catch (error) {
             next(error);
         }
@@ -70,7 +70,7 @@ export class RegionController {
 
             const region = await this.regionUseCase.updateRegion(id, updateData);
 
-            res.json(ResponseHandler.updated(region, 'Region updated successfully'));
+            res.json(ResponseHandler.updated(region, 'Məlumat uğurla yeniləndi'));
         } catch (error) {
             next(error);
         }
@@ -81,7 +81,7 @@ export class RegionController {
             const { id } = req.params;
             await this.regionUseCase.deleteRegion(id);
 
-            res.json(ResponseHandler.deleted('Region deleted successfully'));
+            res.json(ResponseHandler.deleted('Məlumat uğurla silindi'));
         } catch (error) {
             next(error);
         }
@@ -92,7 +92,7 @@ export class RegionController {
             const { ids } = req.body;
             const result = await this.regionUseCase.deleteRegions(ids);
 
-            res.json(ResponseHandler.success(result, `${result.deletedCount} region(s) deleted successfully`));
+            res.json(ResponseHandler.success(result, ` məlumat uğurla silindi`));
         } catch (error) {
             next(error);
         }
@@ -103,7 +103,7 @@ export class RegionController {
             const { codes } = req.body;
             const existingCodes = await this.regionUseCase.checkExistingRegionCodes(codes);
 
-            res.json(ResponseHandler.success(existingCodes, 'Region codes checked successfully'));
+            res.json(ResponseHandler.success(existingCodes, 'Kodlar uğurla yoxlanıldı'));
         } catch (error) {
             next(error);
         }

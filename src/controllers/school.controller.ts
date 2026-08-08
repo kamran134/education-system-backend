@@ -17,7 +17,7 @@ export class SchoolController {
     updateSchoolsStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             await this.schoolUseCase.updateSchoolsStats();
-            res.json(ResponseHandler.success({}, 'School statistics updated successfully'));
+            res.json(ResponseHandler.success({}, 'Statistika uğurla yeniləndi'));
         } catch (error) {
             next(error);
         }
@@ -42,7 +42,7 @@ export class SchoolController {
             res.json(ResponseHandler.success({
                 data: result.data,
                 totalCount: result.totalCount
-            }, 'Schools retrieved successfully'));
+            }, 'Məlumat uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -53,7 +53,7 @@ export class SchoolController {
             const filters = RequestParser.parseFilterOptionsPg(req);
             const schools = await this.schoolUseCase.getSchoolsForFilter(filters);
 
-            res.json(ResponseHandler.success(schools, 'Schools for filter retrieved successfully'));
+            res.json(ResponseHandler.success(schools, 'Filtr üçün məlumatlar uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -64,7 +64,7 @@ export class SchoolController {
             const { id } = req.params;
             const school = await this.schoolUseCase.getSchoolById(id);
 
-            res.json(ResponseHandler.success(school, 'School retrieved successfully'));
+            res.json(ResponseHandler.success(school, 'Məlumat uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -76,7 +76,7 @@ export class SchoolController {
             const schoolService = new SchoolServicePg();
             const school = await schoolService.findByCode(Number(code));
 
-            res.json(ResponseHandler.success(school, 'School retrieved successfully'));
+            res.json(ResponseHandler.success(school, 'Məlumat uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -87,7 +87,7 @@ export class SchoolController {
             const schoolData = req.body;
             const school = await this.schoolUseCase.createSchool(schoolData);
 
-            res.status(201).json(ResponseHandler.created(school, 'School created successfully'));
+            res.status(201).json(ResponseHandler.created(school, 'Məlumat uğurla yaradıldı'));
         } catch (error) {
             next(error);
         }
@@ -101,7 +101,7 @@ export class SchoolController {
 
             const { school, cascadedTeachersCount, cascadedStudentsCount } = await this.schoolUseCase.updateSchool(id, updateData, changedByUserId);
 
-            res.json(ResponseHandler.updated({ ...school, cascadedTeachersCount, cascadedStudentsCount }, 'School updated successfully'));
+            res.json(ResponseHandler.updated({ ...school, cascadedTeachersCount, cascadedStudentsCount }, 'Məlumat uğurla yeniləndi'));
         } catch (error) {
             next(error);
         }
@@ -112,7 +112,7 @@ export class SchoolController {
             const { id } = req.params;
             await this.schoolUseCase.deleteSchool(id);
 
-            res.json(ResponseHandler.deleted('School deleted successfully'));
+            res.json(ResponseHandler.deleted('Məlumat uğurla silindi'));
         } catch (error) {
             next(error);
         }
@@ -124,7 +124,7 @@ export class SchoolController {
             const ids = schoolIds.split(',');
             const result = await this.schoolUseCase.deleteSchools(ids);
 
-            res.json(ResponseHandler.success(result, `${result.deletedCount} school(s) deleted successfully`));
+            res.json(ResponseHandler.success(result, ` məlumat uğurla silindi`));
         } catch (error) {
             next(error);
         }
@@ -133,13 +133,13 @@ export class SchoolController {
     processSchoolsFromExcel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             if (!req.file) {
-                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
+                res.status(400).json(ResponseHandler.badRequest('Fayl yüklənməyib'));
                 return;
             }
 
             const result = await this.schoolUseCase.processSchoolsFromFile(req.file.path);
 
-            res.json(ResponseHandler.success(result, `Processed ${result.processedData.length} schools from Excel file`));
+            res.json(ResponseHandler.success(result, `${result.processedData.length} schools fayldan uğurla emal edildi`));
         } catch (error) {
             next(error);
         }
@@ -151,7 +151,7 @@ export class SchoolController {
             const schoolService = new SchoolServicePg();
             const existingCodes = await schoolService.checkExistingSchoolCodes(codes);
 
-            res.json(ResponseHandler.success(existingCodes, 'School codes checked successfully'));
+            res.json(ResponseHandler.success(existingCodes, 'Kodlar uğurla yoxlanıldı'));
         } catch (error) {
             next(error);
         }
@@ -160,7 +160,7 @@ export class SchoolController {
     importLegacySchools = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             if (!req.file) {
-                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
+                res.status(400).json(ResponseHandler.badRequest('Fayl yüklənməyib'));
                 return;
             }
 
@@ -170,7 +170,7 @@ export class SchoolController {
 
             res.json(ResponseHandler.success(
                 result,
-                `Processed ${total} records: ${inserted} inserted, ${skipped} skipped, ${errors} error(s)`
+                `${total} qeyd emal edildi: ${inserted} əlavə edildi, ${skipped} buraxıldı, ${errors} xəta`
             ));
         } catch (error) {
             next(error);

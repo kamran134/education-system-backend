@@ -75,7 +75,7 @@ export class StudentController {
         try {
             const studentData = req.body;
             const student = await this.studentUseCase.createStudent(studentData);
-            res.status(201).json(ResponseHandler.created(student, 'Student created successfully'));
+            res.status(201).json(ResponseHandler.created(student, 'Məlumat uğurla yaradıldı'));
         } catch (error: any) {
             console.error('Error in createStudent:', error);
             if (error.message.includes('already exists') || error.message.includes('required') || error.message.includes('must be')) {
@@ -91,7 +91,7 @@ export class StudentController {
             const { id } = req.params;
             const updateData = req.body;
             const student = await this.studentUseCase.updateStudent(id, updateData);
-            res.status(200).json(ResponseHandler.updated(student, 'Student updated successfully'));
+            res.status(200).json(ResponseHandler.updated(student, 'Məlumat uğurla yeniləndi'));
         } catch (error: any) {
             console.error('Error in updateStudent:', error);
             if (error.message === 'Student not found') {
@@ -108,7 +108,7 @@ export class StudentController {
         try {
             const { id } = req.params;
             await this.studentUseCase.deleteStudent(id);
-            res.status(200).json(ResponseHandler.deleted('Student deleted successfully'));
+            res.status(200).json(ResponseHandler.deleted('Məlumat uğurla silindi'));
         } catch (error: any) {
             console.error('Error in deleteStudent:', error);
             if (error.message === 'Student not found') {
@@ -126,7 +126,7 @@ export class StudentController {
             const { studentIds } = req.params;
             const ids = studentIds.split(',');
             const result = await this.studentUseCase.deleteStudents(ids);
-            res.status(200).json(ResponseHandler.success(result, 'Students deleted successfully'));
+            res.status(200).json(ResponseHandler.success(result, 'Məlumat uğurla silindi'));
         } catch (error: any) {
             console.error('Error in deleteStudents:', error);
             if (error.message.includes('must be an array') || error.message.includes('at least')) {
@@ -141,7 +141,7 @@ export class StudentController {
         try {
             // This is a dangerous operation, should be protected with special authorization
             // For now, we'll just return an error
-            res.status(403).json(ResponseHandler.error('Operation not allowed'));
+            res.status(403).json(ResponseHandler.error('Əməliyyata icazə verilmir'));
         } catch (error: any) {
             console.error('Error in deleteAllStudents:', error);
             res.status(500).json(ResponseHandler.internalError('Error deleting all students', error));
@@ -166,7 +166,7 @@ export class StudentController {
     async repairStudents(req: Request, res: Response): Promise<void> {
         try {
             const result = await this.studentUseCase.repairStudents();
-            res.status(200).json(ResponseHandler.success(result, 'Students repaired successfully'));
+            res.status(200).json(ResponseHandler.success(result, 'Məlumat uğurla bərpa edildi'));
         } catch (error: any) {
             console.error('Error in repairStudents:', error);
             res.status(500).json(ResponseHandler.internalError('Error repairing students', error));
@@ -331,7 +331,7 @@ export class StudentController {
     async importLegacyStudents(req: Request, res: Response): Promise<void> {
         try {
             if (!req.file) {
-                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
+                res.status(400).json(ResponseHandler.badRequest('Fayl yüklənməyib'));
                 return;
             }
 
@@ -341,7 +341,7 @@ export class StudentController {
 
             res.json(ResponseHandler.success(
                 result,
-                `Processed ${total} records: ${inserted} inserted, ${skipped} skipped, ${errors} error(s)`
+                `${total} qeyd emal edildi: ${inserted} əlavə edildi, ${skipped} buraxıldı, ${errors} xəta`
             ));
         } catch (error: any) {
             res.status(500).json(ResponseHandler.internalError('Legacy import failed', error));

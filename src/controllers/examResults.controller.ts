@@ -43,7 +43,7 @@ export class ExamResultsController {
             res.json(ResponseHandler.success({
                 data: result.data,
                 totalCount: result.totalCount
-            }, 'Exam results retrieved successfully'));
+            }, 'Məlumat uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -55,11 +55,11 @@ export class ExamResultsController {
             const result = await this.examResultsUseCase.getExamResultById(id);
 
             if (!result) {
-                res.status(404).json(ResponseHandler.notFound('Exam result not found'));
+                res.status(404).json(ResponseHandler.notFound('Məlumat tapılmadı'));
                 return;
             }
 
-            res.json(ResponseHandler.success(result, 'Exam result retrieved successfully'));
+            res.json(ResponseHandler.success(result, 'Nəticə uğurla alındı'));
         } catch (error) {
             next(error);
         }

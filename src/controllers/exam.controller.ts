@@ -26,7 +26,7 @@ export class ExamController {
             res.json(ResponseHandler.success({
                 data: result.data,
                 totalCount: result.totalCount
-            }, 'Exams retrieved successfully'));
+            }, 'Məlumat uğurla alındı'));
         } catch (error) {
             console.error('Exam Controller - Error:', error);
             next(error);
@@ -38,7 +38,7 @@ export class ExamController {
             const filters = RequestParser.parseFilterOptionsPg(req);
             const exams = await this.examUseCase.getExamsForFilter(filters);
 
-            res.json(ResponseHandler.success(exams, 'Exams for filter retrieved successfully'));
+            res.json(ResponseHandler.success(exams, 'Filtr üçün məlumatlar uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -49,7 +49,7 @@ export class ExamController {
             const { id } = req.params;
             const exam = await this.examUseCase.getExamById(id);
 
-            res.json(ResponseHandler.success(exam, 'Exam retrieved successfully'));
+            res.json(ResponseHandler.success(exam, 'Məlumat uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -60,7 +60,7 @@ export class ExamController {
             const { month, year } = req.query;
             const exams = await this.examUseCase.getExamsByMonthYear(Number(month), Number(year));
 
-            res.json(ResponseHandler.success(exams, 'Exams retrieved successfully'));
+            res.json(ResponseHandler.success(exams, 'Məlumat uğurla alındı'));
         } catch (error) {
             next(error);
         }
@@ -71,7 +71,7 @@ export class ExamController {
             const examData = req.body;
             const exam = await this.examUseCase.createExam(examData);
 
-            res.status(201).json(ResponseHandler.created(exam, 'Exam created successfully'));
+            res.status(201).json(ResponseHandler.created(exam, 'Məlumat uğurla yaradıldı'));
         } catch (error) {
             next(error);
         }
@@ -84,7 +84,7 @@ export class ExamController {
             
             const exam = await this.examUseCase.updateExam(id, updateData);
 
-            res.json(ResponseHandler.updated(exam, 'Exam updated successfully'));
+            res.json(ResponseHandler.updated(exam, 'Məlumat uğurla yeniləndi'));
         } catch (error) {
             next(error);
         }
@@ -95,7 +95,7 @@ export class ExamController {
             const { id } = req.params;
             await this.examUseCase.deleteExam(id);
 
-            res.json(ResponseHandler.deleted('Exam deleted successfully'));
+            res.json(ResponseHandler.deleted('Məlumat uğurla silindi'));
         } catch (error) {
             next(error);
         }
@@ -106,7 +106,7 @@ export class ExamController {
             const { ids } = req.body;
             const result = await this.examUseCase.deleteExams(ids);
 
-            res.json(ResponseHandler.success(result, `${result.deletedCount} exam(s) deleted successfully`));
+            res.json(ResponseHandler.success(result, ` məlumat uğurla silindi`));
         } catch (error) {
             next(error);
         }
@@ -115,13 +115,13 @@ export class ExamController {
     processExamsFromExcel = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             if (!req.file) {
-                res.status(400).json(ResponseHandler.badRequest('No file uploaded'));
+                res.status(400).json(ResponseHandler.badRequest('Fayl yüklənməyib'));
                 return;
             }
 
             const result = await this.examUseCase.processExamsFromExcel(req.file.path);
 
-            res.json(ResponseHandler.success(result, `Processed ${result.processedData.length} exams from Excel file`));
+            res.json(ResponseHandler.success(result, `${result.processedData.length} exams fayldan uğurla emal edildi`));
         } catch (error) {
             next(error);
         }
@@ -132,7 +132,7 @@ export class ExamController {
             const { codes } = req.body;
             const existingCodes = await this.examUseCase.checkExistingExamCodes(codes);
 
-            res.json(ResponseHandler.success(existingCodes, 'Exam codes checked successfully'));
+            res.json(ResponseHandler.success(existingCodes, 'Kodlar uğurla yoxlanıldı'));
         } catch (error) {
             next(error);
         }
