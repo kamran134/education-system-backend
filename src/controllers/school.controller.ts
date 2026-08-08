@@ -5,6 +5,7 @@ import { SchoolServicePg } from "../services/school.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { saveEntityAvatarPg, removeEntityAvatarPg, canManageAvatar } from "../utils/avatar.util";
+import { districtIdsOfRegion } from "../utils/region-scope.util";
 
 export class SchoolController {
     private schoolUseCase: SchoolUseCase;
@@ -32,6 +33,8 @@ export class SchoolController {
                 filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
                 filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const result = await this.schoolUseCase.getSchools(pagination, filters, sort);

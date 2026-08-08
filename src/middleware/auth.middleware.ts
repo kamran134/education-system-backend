@@ -6,9 +6,10 @@ import { JWT_SECRET } from "../config/env";
 declare global {
     namespace Express {
         interface Request {
-            user?: { 
-                userId: string; 
+            user?: {
+                userId: string;
                 role: string;
+                regionId?: string;
                 districtId?: string;
                 schoolId?: string;
                 teacherId?: string;
@@ -33,8 +34,9 @@ export const authMiddleware = (roles: string[] = []) => (req: Request, res: Resp
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET) as { 
-            userId: string; 
+            userId: string;
             role: string;
+            regionId?: string;
             districtId?: string;
             schoolId?: string;
             teacherId?: string;
@@ -76,8 +78,9 @@ export const checkAdminRole = (req: Request, res: Response, next: NextFunction) 
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET) as { 
-            userId: string; 
+            userId: string;
             role: string;
+            regionId?: string;
             districtId?: string;
             schoolId?: string;
             teacherId?: string;
@@ -120,6 +123,7 @@ export const allRegisteredRoles = (req: Request, res: Response, next: NextFuncti
         const decoded = jwt.verify(token, JWT_SECRET) as {
             userId: string;
             role: string;
+            regionId?: string;
             districtId?: string;
             schoolId?: string;
             teacherId?: string;
@@ -158,6 +162,7 @@ export const canDelete = (req: Request, res: Response, next: NextFunction) => {
         const decoded = jwt.verify(token, JWT_SECRET) as {
             userId: string;
             role: string;
+            regionId?: string;
             districtId?: string;
             schoolId?: string;
             teacherId?: string;

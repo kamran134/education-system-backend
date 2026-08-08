@@ -40,6 +40,7 @@ export interface FilterOptions {
  * пару типов, когда переписывание всех сервисов (шаг 8 PG_MIGRATION_TASKS.md) завершится.
  */
 export interface FilterOptionsPg {
+    regionIds?: number[];
     districtIds?: number[];
     schoolIds?: number[];
     teacherIds?: number[];

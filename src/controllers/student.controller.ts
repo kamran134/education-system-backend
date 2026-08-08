@@ -5,6 +5,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { pg } from "../config/pg";
 import { saveEntityAvatarPg, removeEntityAvatarPg } from "../utils/avatar.util";
+import { districtIdsOfRegion } from "../utils/region-scope.util";
 import fs from 'fs';
 import path from 'path';
 import { smartCrop } from '../utils/smart-crop.util';
@@ -41,6 +42,8 @@ export class StudentController {
                     totalPages: 1
                 }));
                 return;
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const result = await this.studentUseCase.getStudents(pagination, filters, sort);

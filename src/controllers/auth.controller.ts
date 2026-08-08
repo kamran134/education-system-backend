@@ -13,16 +13,18 @@ import { pg } from "../config/pg";
 interface JwtPayload {
     userId: string;
     role: string;
+    regionId?: string;
     districtId?: string;
     schoolId?: string;
     teacherId?: string;
     studentId?: string;
 }
 
-const generateTokens = (userId: string, role: string, districtId?: string, schoolId?: string, teacherId?: string, studentId?: string) => {
+const generateTokens = (userId: string, role: string, regionId?: string, districtId?: string, schoolId?: string, teacherId?: string, studentId?: string) => {
     const payload: JwtPayload = { userId, role };
 
     // Add entity IDs based on role
+    if (regionId) payload.regionId = regionId;
     if (districtId) payload.districtId = districtId;
     if (schoolId) payload.schoolId = schoolId;
     if (teacherId) payload.teacherId = teacherId;
@@ -67,6 +69,7 @@ export const login = async (req: Request, res: Response) => {
         const { accessToken, refreshToken } = generateTokens(
             String(user.id),
             user.role,
+            user.regionId ? String(user.regionId) : undefined,
             user.districtId ? String(user.districtId) : undefined,
             user.schoolId ? String(user.schoolId) : undefined,
             user.teacherId ? String(user.teacherId) : undefined,
@@ -182,6 +185,7 @@ export const refreshToken = async (req: Request, res: Response) => {
         const { accessToken, refreshToken: newRefreshToken } = generateTokens(
             String(userWithToken.id),
             userWithToken.role,
+            userWithToken.regionId ? String(userWithToken.regionId) : undefined,
             userWithToken.districtId ? String(userWithToken.districtId) : undefined,
             userWithToken.schoolId ? String(userWithToken.schoolId) : undefined,
             userWithToken.teacherId ? String(userWithToken.teacherId) : undefined,

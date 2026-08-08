@@ -18,7 +18,8 @@ export interface District {
     id: number;
     code: number;
     name: string;
-    region: string | null;
+    regionId: number | null;
+    regionName: string | null;
     studentCount: number | null;
     rate: number | null;
     districtOfTheYearScore: number | null;
@@ -30,7 +31,7 @@ export interface District {
 export interface DistrictCreate {
     code: number;
     name: string;
-    region?: string | null;
+    regionId?: number | null;
     studentCount?: number;
     rate?: number;
     districtOfTheYearScore?: number;
@@ -77,7 +78,7 @@ export class DistrictServicePg {
             .values({
                 code: data.code,
                 name: data.name,
-                region: data.region ?? null,
+                region_id: data.regionId ?? null,
                 student_count: data.studentCount ?? null,
                 rate: data.rate ?? null,
                 district_of_the_year_score: data.districtOfTheYearScore ?? 0,
@@ -94,7 +95,7 @@ export class DistrictServicePg {
             .set({
                 ...(data.code !== undefined && { code: data.code }),
                 ...(data.name !== undefined && { name: data.name }),
-                ...(data.region !== undefined && { region: data.region }),
+                ...(data.regionId !== undefined && { region_id: data.regionId }),
                 ...(data.studentCount !== undefined && { student_count: data.studentCount }),
                 ...(data.rate !== undefined && { rate: data.rate }),
                 ...(data.districtOfTheYearScore !== undefined && { district_of_the_year_score: data.districtOfTheYearScore }),
@@ -275,6 +276,9 @@ export class DistrictServicePg {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
             q = q.where("code", ">=", parseInt(start)).where("code", "<=", parseInt(end));
         }
+        if (filters.regionIds && filters.regionIds.length > 0) {
+            q = q.where("region_id", "in", filters.regionIds);
+        }
         if (filters.search) {
             q = q.where(sql`name`, "ilike", `%${escapeRegex(filters.search)}%`);
         }
@@ -284,30 +288,38 @@ export class DistrictServicePg {
         return q;
     }
 
+    // "region" намеренно не в списке сортируемых колонок — сортировка по региону здесь
+    // не запрашивалась (REGIONS_TASKS.md шаг 5), фильтр regionIds покрывает потребность.
     private mapSortColumn(column: string): { column: string; needsRatingJoin: boolean } {
         if (column === "score") return { column: "current_score", needsRatingJoin: true };
         if (column === "averageScore") return { column: "current_average_score", needsRatingJoin: true };
         if (column === "place") return { column: "current_place", needsRatingJoin: true };
         const map: Record<string, string> = {
-            code: "code", name: "name", region: "region",
+            code: "code", name: "name",
             studentCount: "student_count", rate: "rate", active: "active",
         };
         return { column: map[column] ?? "name", needsRatingJoin: false };
     }
 
-    private async attachRatings(row: { id: number; code: number; name: string; region: string | null; student_count: number | null; rate: number | null; district_of_the_year_score: number | null; active: boolean; avatar_url: string | null }): Promise<District> {
-        const ratingRows = await pg
-            .selectFrom("district_year_ratings")
-            .select(["year", "score", "average_score", "place"])
-            .where("district_id", "=", row.id)
-            .orderBy("year")
-            .execute();
+    private async attachRatings(row: { id: number; code: number; name: string; region_id: number | null; student_count: number | null; rate: number | null; district_of_the_year_score: number | null; active: boolean; avatar_url: string | null }): Promise<District> {
+        const [ratingRows, region] = await Promise.all([
+            pg
+                .selectFrom("district_year_ratings")
+                .select(["year", "score", "average_score", "place"])
+                .where("district_id", "=", row.id)
+                .orderBy("year")
+                .execute(),
+            row.region_id
+                ? pg.selectFrom("regions").select("name").where("id", "=", row.region_id).executeTakeFirst()
+                : Promise.resolve(undefined),
+        ]);
 
         return {
             id: row.id,
             code: row.code,
             name: row.name,
-            region: row.region,
+            regionId: row.region_id,
+            regionName: region?.name ?? null,
             studentCount: row.student_count,
             rate: row.rate,
             districtOfTheYearScore: row.district_of_the_year_score,

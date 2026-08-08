@@ -66,5 +66,6 @@ Postgres сам откатит незавершённую транзакцию. 
 | `002_subjects_lookup.sql` | справочник предметов `subjects` + view `v_student_result_subject_scores` + валидация ключей `booklets.disciplines` |
 | `003_student_result_status.sql` | `student_results.status` → generated-колонка от `development_score` (гейт: см. `DB_REFACTOR_TASKS.md` §4) |
 | `004_code_change_log.sql` | таблица `code_change_logs` — журнал каскадных перекодировок teacher/school → потомки (`PHASE3_PLAN.md` п.4) |
+| `005_regions.sql` | сущность `regions` (12 RTİ), `districts.region_id`, `region_year_ratings`, роль `regionRepresenter`, views `v_region_year_scores`/`v_region_places`. Привязка район→регион НЕ автоматическая — состав районов в проде разошёлся со справочником докса (см. шапку файла), пользователь привязывает сам через UI |
 
 Обновлять таблицу при добавлении новых файлов.

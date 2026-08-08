@@ -112,6 +112,22 @@ export async function buildProfileSummaryPg(user: User): Promise<ProfileSummaryP
             };
         }
 
+        case "regionRepresenter": {
+            if (!user.regionId) return null;
+            const region = await pg
+                .selectFrom("regions")
+                .select(["id", "name", "avatar_url"])
+                .where("id", "=", user.regionId)
+                .executeTakeFirst();
+            if (!region) return null;
+
+            return {
+                entityId: region.id,
+                name: region.name,
+                avatarUrl: region.avatar_url,
+            };
+        }
+
         default:
             return null;
     }

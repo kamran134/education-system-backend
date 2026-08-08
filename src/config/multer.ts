@@ -78,6 +78,14 @@ export const districtAvatarUpload = multer({
     fileFilter: fileFilter
 });
 
+export const regionAvatarUpload = multer({
+    storage: makeAvatarStorage('regions'),
+    limits: {
+        fileSize: 8 * 1024 * 1024, // 8MB
+    },
+    fileFilter: fileFilter
+});
+
 // Multer для массовой загрузки аватаров
 const bulkAvatarStorage = multer.diskStorage({
     destination: (req, file, cb) => {

@@ -21,6 +21,7 @@ export interface UserSettingsRow {
     allTeacherCollumns: string[];
     allSchoolCollumns: string[];
     allDistrictCollumns: string[];
+    allRegionCollumns: string[];
     teacherViewCollumns: string[];
     directorViewCollumns: string[];
     districtViewCollumns: string[];
@@ -37,6 +38,7 @@ export interface UserSettingsUpdate {
     allTeacherCollumns?: string[];
     allSchoolCollumns?: string[];
     allDistrictCollumns?: string[];
+    allRegionCollumns?: string[];
     teacherViewCollumns?: string[];
     directorViewCollumns?: string[];
     districtViewCollumns?: string[];
@@ -52,6 +54,7 @@ function toColumns(data: Partial<UserSettingsUpdate>) {
         ...(data.allTeacherCollumns !== undefined && { all_teacher_collumns: data.allTeacherCollumns }),
         ...(data.allSchoolCollumns !== undefined && { all_school_collumns: data.allSchoolCollumns }),
         ...(data.allDistrictCollumns !== undefined && { all_district_collumns: data.allDistrictCollumns }),
+        ...(data.allRegionCollumns !== undefined && { all_region_collumns: data.allRegionCollumns }),
         ...(data.teacherViewCollumns !== undefined && { teacher_view_collumns: data.teacherViewCollumns }),
         ...(data.directorViewCollumns !== undefined && { director_view_collumns: data.directorViewCollumns }),
         ...(data.districtViewCollumns !== undefined && { district_view_collumns: data.districtViewCollumns }),
@@ -64,6 +67,7 @@ function toRow(row: {
     id: number; user_id: number | null;
     developing_student_collumns: string[]; student_collumns: string[]; all_student_collumns: string[];
     all_teacher_collumns: string[]; all_school_collumns: string[]; all_district_collumns: string[];
+    all_region_collumns: string[];
     teacher_view_collumns: string[]; director_view_collumns: string[]; district_view_collumns: string[];
     student_view_collumns: string[]; role_settings: Json; created_at: Date; updated_at: Date;
 }): UserSettingsRow {
@@ -76,6 +80,7 @@ function toRow(row: {
         allTeacherCollumns: row.all_teacher_collumns,
         allSchoolCollumns: row.all_school_collumns,
         allDistrictCollumns: row.all_district_collumns,
+        allRegionCollumns: row.all_region_collumns,
         teacherViewCollumns: row.teacher_view_collumns,
         directorViewCollumns: row.director_view_collumns,
         districtViewCollumns: row.district_view_collumns,

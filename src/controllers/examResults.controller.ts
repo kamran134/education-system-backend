@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from "express";
 import { ExamResultsUseCase } from "../usecases/examResults.usecase";
-import { ExamResultsService } from "../services/examResults.service";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 

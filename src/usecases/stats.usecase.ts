@@ -106,6 +106,16 @@ export class StatsUseCase {
         return await this.statsService.getDistrictStatistics(filters, sortColumn, sortDirection);
     }
 
+    async getRegionStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
+        data: RankedEntity[];
+        totalCount: number;
+    }> {
+        const sortColumn = filters.sortColumn || 'averageScore';
+        const sortDirection = filters.sortDirection || 'desc';
+
+        return await this.statsService.getRegionStatistics(filters, sortColumn, sortDirection);
+    }
+
     private validateStatisticsFilter(filters: StatisticsFilterPg): ValidationResult {
         const errors: string[] = [];
 

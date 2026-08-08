@@ -38,6 +38,12 @@ export interface RankedEntity {
     score: number | null; averageScore: number | null; place: number | null; districtPlace: number | null;
     filterPlace: number | null;
     studentCount: number | null;
+    // Опционально: getTeacherStatistics/getSchoolStatistics/getDistrictStatistics его НЕ
+    // заполняют (см. находку REGIONS_TASKS.md §6 — их SELECT никогда не включал fullname/name,
+    // хотя фронтовые шаблоны на result.fullName/result.name рассчитывают; отдельный баг, не
+    // из этой задачи). getRegionStatistics заполняет по-настоящему — новую сущность копией
+    // существующего пробела делать незачем.
+    name?: string;
 }
 
 /**
@@ -139,11 +145,13 @@ export class StatsServicePg {
         }
 
         // Шаг 3: пересчёт score/averageScore/place — студенты (путь A, единственный для них),
-        // затем учителя/школы/районы (путь B).
+        // затем учителя/школы/районы/регионы (путь B). Порядок важен: регион читает
+        // v_district_year_scores, поэтому recomputeRegionRatings идёт последним.
         await this.recomputeStudentRatings(academicYearStart);
         await this.recomputeTeacherRatings(academicYearStart);
         await this.recomputeSchoolRatings(academicYearStart);
         await this.recomputeDistrictRatings(academicYearStart);
+        await this.recomputeRegionRatings(academicYearStart);
 
         return 200;
     }
@@ -283,6 +291,18 @@ export class StatsServicePg {
         `.execute(pg);
     }
 
+    /** Регион читает v_district_year_scores — вызывать ПОСЛЕ recomputeDistrictRatings. */
+    private async recomputeRegionRatings(year: number): Promise<void> {
+        await pg.deleteFrom("region_year_ratings").where("year", "=", year).execute();
+        await sql`
+            INSERT INTO region_year_ratings (region_id, year, score, average_score, place)
+            SELECT rs.region_id, rs.academic_year, rs.score, rs.average_score, p.place
+            FROM v_region_year_scores rs
+            LEFT JOIN v_region_places p ON p.region_id = rs.region_id AND p.academic_year = rs.academic_year
+            WHERE rs.academic_year = ${year}
+        `.execute(pg);
+    }
+
     // ================================================================ READ-путь: статистика/лидерборды
     //
     // Отдельные эндпоинты от обычных списков сущностей (district/school/teacher/student .service.pg.ts) —
@@ -332,6 +352,9 @@ export class StatsServicePg {
                 "e.id as e_id", "e.name as e_name", "e.date as e_date",
             ]);
 
+        if (filters.regionIds && filters.regionIds.length > 0) {
+            query = query.where("d.region_id", "in", filters.regionIds);
+        }
         if (filters.districtIds && filters.districtIds.length > 0) {
             query = query.where("st.district_id", "in", filters.districtIds);
         }
@@ -440,6 +463,18 @@ export class StatsServicePg {
     }
 
     /** filterPlace: dense rank по сырому score (не averageScore) в рамках уже применённого фильтра. */
+    /**
+     * Ручной фильтр «по региону» в UI /stats (не путать с role-скоупингом regionRepresenter,
+     * который уже приходит как districtIds — см. utils/region-scope.util.ts). Разворачивает
+     * regionIds в districtIds один раз на запрос, дальше используется как обычный массив,
+     * без Kysely-подзапросов — так делают остальные фильтры в этом файле.
+     */
+    private async resolveRegionDistrictIds(regionIds: number[] | undefined): Promise<number[] | null> {
+        if (!regionIds || regionIds.length === 0) return null;
+        const rows = await pg.selectFrom("districts").select("id").where("region_id", "in", regionIds).execute();
+        return rows.map((r) => r.id);
+    }
+
     private buildFilterPlaceMap(rows: { id: number; score: number | null }[]): Map<number, number> {
         const sorted = [...rows].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
         const map = new Map<number, number>();
@@ -464,6 +499,7 @@ export class StatsServicePg {
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
         const dir = sortDirection === "asc" ? "asc" : "desc";
+        const regionDistrictIds = await this.resolveRegionDistrictIds(filters.regionIds);
 
         const baseQuery = () => {
             let q = pg
@@ -475,6 +511,7 @@ export class StatsServicePg {
                 q = q.where("t.active", "=", true);
                 if (filters.districtIds && filters.districtIds.length > 0) q = q.where("t.district_id", "in", filters.districtIds);
                 if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("t.school_id", "in", filters.schoolIds);
+                if (regionDistrictIds) q = q.where("t.district_id", "in", regionDistrictIds);
             }
             return q;
         };
@@ -518,6 +555,7 @@ export class StatsServicePg {
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
         const dir = sortDirection === "asc" ? "asc" : "desc";
+        const regionDistrictIds = await this.resolveRegionDistrictIds(filters.regionIds);
 
         const baseQuery = () => {
             let q = pg
@@ -526,6 +564,7 @@ export class StatsServicePg {
                 .where("sc.active", "=", true);
             if (filters.districtIds && filters.districtIds.length > 0) q = q.where("sc.district_id", "in", filters.districtIds);
             if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("sc.id", "in", filters.schoolIds);
+            if (regionDistrictIds) q = q.where("sc.district_id", "in", regionDistrictIds);
             return q;
         };
 
@@ -556,6 +595,60 @@ export class StatsServicePg {
     }
 
     /**
+     * Регион (PHASE3 п.1б) — по образцу getSchoolStatistics, НЕ getDistrictStatistics: у региона
+     * place берётся из region_year_ratings (записанного пересчётом), место не пересчитывается на
+     * лету под колонку сортировки — легаси-поведение района воспроизводить здесь незачем.
+     * studentCount — живой count(), у региона нет денормализованной колонки (см. db/schema.sql).
+     */
+    async getRegionStatistics(
+        filters: FilterOptionsPg & { page?: number; size?: number },
+        sortColumn: string,
+        sortDirection: string
+    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+        const currentYear = getCurrentAcademicYear();
+        const page = filters.page ?? 1;
+        const size = (filters as any).size ?? 100;
+        const skip = (page - 1) * size;
+        const dir = sortDirection === "asc" ? "asc" : "desc";
+
+        const baseQuery = () => {
+            let q = pg
+                .selectFrom("regions as r")
+                .leftJoin("region_year_ratings as ryr", (join) => join.onRef("ryr.region_id", "=", "r.id").on("ryr.year", "=", currentYear))
+                .where("r.active", "=", true);
+            if (filters.regionIds && filters.regionIds.length > 0) q = q.where("r.id", "in", filters.regionIds);
+            return q;
+        };
+
+        const sortMap: Record<string, any> = {
+            score: sql`ryr.score`, averageScore: sql`ryr.average_score`, place: sql`ryr.place`,
+            code: sql`r.code`, name: sql`r.name COLLATE az_ci`,
+        };
+        const orderExpr = sortMap[sortColumn] ?? sql`ryr.average_score`;
+        const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
+        const studentCountExpr = sql<number>`(SELECT count(*) FROM students st JOIN districts d ON d.id = st.district_id WHERE d.region_id = r.id)`;
+
+        const [rows, countRow, scoreRows] = await Promise.all([
+            baseQuery()
+                .select(["r.id as id", "r.code as code", "r.name as name", "ryr.score as score", "ryr.average_score as average_score", "ryr.place as place"])
+                .select(studentCountExpr.as("student_count"))
+                // NULLS LAST: регионы без строки в region_year_ratings иначе всплывают в начало при DESC.
+                .orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(size).offset(skip).execute(),
+            baseQuery().select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
+            baseQuery().select(["r.id as id", "ryr.score as score"]).execute(),
+        ]);
+
+        const filterPlaceMap = this.buildFilterPlaceMap(scoreRows);
+        const data: RankedEntity[] = rows.map((r) => ({
+            id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: r.average_score ?? 0,
+            place: r.place, districtPlace: null, studentCount: Number(r.student_count) || 0,
+            filterPlace: filterPlaceMap.get(r.id) ?? null,
+        }));
+
+        return { data, totalCount: Number(countRow.count) };
+    }
+
+    /**
      * Район — особый случай: place пересчитывается на лету под выбранную колонку сортировки
      * (score или averageScore), над ВСЕМИ районами в рамках code-фильтра — так было и в Mongo-версии
      * (assignPlaces(allData, sortColumn)), сохранено как есть, а не "исправлено" молча.
@@ -574,7 +667,7 @@ export class StatsServicePg {
         let query = pg
             .selectFrom("districts as d")
             .leftJoin("district_year_ratings as dyr", (join) => join.onRef("dyr.district_id", "=", "d.id").on("dyr.year", "=", currentYear))
-            .select(["d.id as id", "d.code as code", "d.student_count as student_count", "dyr.score as score", "dyr.average_score as average_score"])
+            .select(["d.id as id", "d.code as code", "d.region_id as region_id", "d.student_count as student_count", "dyr.score as score", "dyr.average_score as average_score"])
             .orderBy(sql`d.name COLLATE az_ci`);
         if (filters.code) {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
@@ -582,6 +675,7 @@ export class StatsServicePg {
         }
 
         const allData = await query.execute();
+        const regionIdById = new Map(allData.map((r) => [r.id, r.region_id]));
 
         const rankColumn: "score" | "average_score" = sortColumn === "score" ? "score" : "average_score";
         const sorted = [...allData].sort((a, b) => ((b[rankColumn] ?? 0) as number) - ((a[rankColumn] ?? 0) as number));
@@ -601,9 +695,20 @@ export class StatsServicePg {
 
         let data: RankedEntity[];
         let totalCount: number;
-        if (filters.districtIds && filters.districtIds.length > 0) {
-            const idSet = new Set(filters.districtIds);
-            data = withPlace.filter((d) => idSet.has(d.id));
+        const districtIdSet = filters.districtIds && filters.districtIds.length > 0 ? new Set(filters.districtIds) : null;
+        const regionIdSet = filters.regionIds && filters.regionIds.length > 0 ? new Set(filters.regionIds) : null;
+        if (districtIdSet || regionIdSet) {
+            // Обе фильтрации, если заданы одновременно, комбинируются через И — на практике не
+            // пересекаются (districtIds ставит role-скоуп regionRepresenter/districtRepresenter,
+            // regionIds — ручной фильтр в UI), но так корректно в любом случае.
+            data = withPlace.filter((d) => {
+                if (districtIdSet && !districtIdSet.has(d.id)) return false;
+                if (regionIdSet) {
+                    const regionId = regionIdById.get(d.id);
+                    if (regionId == null || !regionIdSet.has(regionId)) return false;
+                }
+                return true;
+            });
             totalCount = data.length;
         } else {
             const sortDir = sortDirection === "asc" ? 1 : -1;

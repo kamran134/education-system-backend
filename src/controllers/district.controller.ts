@@ -5,6 +5,7 @@ import { DistrictServicePg } from "../services/district.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { saveEntityAvatarPg, removeEntityAvatarPg, canManageAvatar } from "../utils/avatar.util";
+import { districtIdsOfRegion } from "../utils/region-scope.util";
 
 export class DistrictController {
     private districtUseCase: DistrictUseCase;
@@ -32,6 +33,8 @@ export class DistrictController {
             // districtIds не читает (см. комментарий в district.service.pg.ts) — не менять молча.
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
                 filters.districtIds = [parseInt(req.user.districtId, 10)];
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const result = await this.districtUseCase.getFilteredDistricts(pagination, filters, sort);

@@ -5,6 +5,7 @@ import { TeacherServicePg } from "../services/teacher.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { saveEntityAvatarPg, removeEntityAvatarPg, canManageAvatar } from "../utils/avatar.util";
+import { districtIdsOfRegion } from "../utils/region-scope.util";
 
 export class TeacherController {
     private teacherUseCase: TeacherUseCase;
@@ -34,6 +35,8 @@ export class TeacherController {
                 filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
                 filters.teacherIds = [parseInt(req.user.teacherId, 10)];
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const result = await this.teacherUseCase.getTeachers(pagination, filters, sort);

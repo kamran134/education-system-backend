@@ -3,8 +3,8 @@ import path from 'path';
 import { Model, Document } from 'mongoose';
 import { pg } from '../config/pg';
 
-/** Таблицы с колонкой avatar_url — те же 4 сущности, что и в Mongo-версии ниже. */
-type AvatarTable = 'districts' | 'schools' | 'teachers' | 'students';
+/** Таблицы с колонкой avatar_url. regions добавлен вместе с PHASE3 п.1б (REGIONS_TASKS.md). */
+type AvatarTable = 'districts' | 'schools' | 'teachers' | 'students' | 'regions';
 
 /** Postgres-версия saveEntityAvatar/removeEntityAvatar — см. Mongo-версии ниже, поведение то же. */
 export async function saveEntityAvatarPg(

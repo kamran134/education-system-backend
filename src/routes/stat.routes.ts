@@ -8,8 +8,9 @@ import {
     getStatisticsByExam, 
     getTeacherStatistics, 
     updateStatistics,
-    updateAllStatistics, 
-    getDistrictStatistics
+    updateAllStatistics,
+    getDistrictStatistics,
+    getRegionStatistics
 } from "../controllers/stat.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 
@@ -27,5 +28,6 @@ router.route("/by-exam/:examId").get(authMiddleware([]), getStatisticsByExam);
 router.route("/teachers").get(authMiddleware([]), getTeacherStatistics);
 router.route("/schools").get(authMiddleware([]), getSchoolStatistics);
 router.route("/districts").get(authMiddleware([]), getDistrictStatistics);
+router.route("/regions").get(authMiddleware([]), getRegionStatistics);
 
 export default router;

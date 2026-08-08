@@ -76,6 +76,7 @@ export class RequestParser {
                 : undefined;
 
         return {
+            regionIds: toIntArray(req.query.regionIds),
             districtIds: toIntArray(req.query.districtIds),
             schoolIds: toIntArray(req.query.schoolIds),
             teacherIds: toIntArray(req.query.teacherIds),

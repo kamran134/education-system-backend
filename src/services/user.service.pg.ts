@@ -9,6 +9,7 @@ export interface User {
     role: string;
     isApproved: boolean;
     lastLoginAt: Date | null;
+    regionId: number | null;
     districtId: number | null;
     schoolId: number | null;
     teacherId: number | null;
@@ -22,6 +23,7 @@ export interface UserCreate {
     passwordHash: string;
     role?: string;
     isApproved?: boolean;
+    regionId?: number | null;
     districtId?: number | null;
     schoolId?: number | null;
     teacherId?: number | null;
@@ -58,6 +60,7 @@ export class UserServicePg {
                 password_hash: userData.passwordHash,
                 role: userData.role ?? "student",
                 is_approved: userData.isApproved ?? false,
+                region_id: userData.regionId ?? null,
                 district_id: userData.districtId ?? null,
                 school_id: userData.schoolId ?? null,
                 teacher_id: userData.teacherId ?? null,
@@ -76,6 +79,7 @@ export class UserServicePg {
                 ...(updateData.passwordHash !== undefined && { password_hash: updateData.passwordHash }),
                 ...(updateData.role !== undefined && { role: updateData.role }),
                 ...(updateData.isApproved !== undefined && { is_approved: updateData.isApproved }),
+                ...(updateData.regionId !== undefined && { region_id: updateData.regionId }),
                 ...(updateData.districtId !== undefined && { district_id: updateData.districtId }),
                 ...(updateData.schoolId !== undefined && { school_id: updateData.schoolId }),
                 ...(updateData.teacherId !== undefined && { teacher_id: updateData.teacherId }),
@@ -155,7 +159,7 @@ export class UserServicePg {
 
     private toUser(row: {
         id: number; email: string; password_hash: string; role: string; is_approved: boolean;
-        last_login_at: Date | null; district_id: number | null; school_id: number | null;
+        last_login_at: Date | null; region_id: number | null; district_id: number | null; school_id: number | null;
         teacher_id: number | null; student_id: number | null; created_at: Date; updated_at: Date;
     }): User {
         return {
@@ -165,6 +169,7 @@ export class UserServicePg {
             role: row.role,
             isApproved: row.is_approved,
             lastLoginAt: row.last_login_at,
+            regionId: row.region_id,
             districtId: row.district_id,
             schoolId: row.school_id,
             teacherId: row.teacher_id,

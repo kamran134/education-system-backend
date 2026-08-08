@@ -23,11 +23,22 @@ CREATE COLLATION IF NOT EXISTS az_ci (provider = icu, locale = 'az-u-ks-level2',
 
 -- ============================================================ справочники и сущности
 
+CREATE TABLE regions (
+    id                       bigserial PRIMARY KEY,
+    code                     bigint  NOT NULL UNIQUE,   -- 2 знака, собственное кодовое пространство (10-21)
+    name                     text    NOT NULL,
+    region_of_the_year_score double precision DEFAULT 0,
+    active                   boolean NOT NULL DEFAULT true,
+    avatar_url               text
+    -- student_count намеренно НЕ хранится: делитель среднего балла и колонка UI считаются
+    -- одним живым count(students), чтобы не рассинхронизироваться (см. db/migrations/005_regions.sql)
+);
+
 CREATE TABLE districts (
     id                          bigserial PRIMARY KEY,
     code                        bigint  NOT NULL UNIQUE,          -- 3 знака
     name                        text    NOT NULL,
-    region                      text,                             -- в проде NULL у всех 41 (аудит 25.07.2026); PHASE3 п.1б сделает из этого сущность
+    region_id                   bigint  REFERENCES regions(id),   -- PHASE3 п.1б (005_regions.sql). Nullable: привязка не автоматическая, см. миграцию
     student_count               int,
     rate                        double precision,
     district_of_the_year_score  double precision DEFAULT 0,
@@ -289,6 +300,15 @@ CREATE TABLE district_year_ratings (
     PRIMARY KEY (district_id, year)
 );
 
+CREATE TABLE region_year_ratings (
+    region_id      bigint NOT NULL REFERENCES regions(id) ON DELETE CASCADE,
+    year           int    NOT NULL,
+    score          double precision,
+    average_score  double precision,
+    place          int,                                           -- district_place у региона тоже отсутствует
+    PRIMARY KEY (region_id, year)
+);
+
 
 -- ============================================================ пользователи и служебное
 
@@ -298,10 +318,10 @@ CREATE TABLE users (
     password_hash    text NOT NULL,
     role             text NOT NULL DEFAULT 'student'
                      CHECK (role IN ('superadmin','admin','moderator','districtRepresenter',
-                                     'schoolDirector','teacher','student')),
-                     -- PHASE3 п.1б добавит 'regionRepresenter' — ALTER ... DROP/ADD CONSTRAINT
+                                     'schoolDirector','teacher','student','regionRepresenter')),
     is_approved      boolean NOT NULL DEFAULT false,
     last_login_at    timestamptz,
+    region_id        bigint REFERENCES regions(id),
     district_id      bigint REFERENCES districts(id),
     school_id        bigint REFERENCES schools(id),
     teacher_id       bigint REFERENCES teachers(id),
@@ -335,6 +355,7 @@ CREATE TABLE user_settings (
     director_view_collumns       text[] NOT NULL DEFAULT '{}',
     district_view_collumns       text[] NOT NULL DEFAULT '{}',
     student_view_collumns        text[] NOT NULL DEFAULT '{}',
+    all_region_collumns          text[] NOT NULL DEFAULT '{}',
     role_settings                jsonb  NOT NULL DEFAULT '{}'::jsonb,
     created_at                   timestamptz NOT NULL DEFAULT now(),
     updated_at                   timestamptz NOT NULL DEFAULT now()
@@ -382,6 +403,7 @@ CREATE TABLE schema_migrations (
 
 -- ============================================================ индексы
 
+CREATE INDEX ON districts (region_id);
 CREATE INDEX ON schools  (district_id);
 CREATE INDEX ON teachers (school_id);
 CREATE INDEX ON teachers (district_id);
@@ -530,5 +552,37 @@ SELECT ds.district_id,
        dense_rank() OVER (PARTITION BY ds.academic_year ORDER BY ds.average_score DESC) AS place
 FROM v_district_year_scores ds
 WHERE ds.average_score > 0;
+
+-- Регион (PHASE3 п.1б, 005_regions.sql): сумма баллов его районов. Делитель — ЖИВОЕ число
+-- учеников региона, а не денормализованное поле — решение пользователя 08.08.2026.
+-- Легаси-ошибка делителя из v_district_year_scores (ученики_района × школы_района) сюда
+-- СОЗНАТЕЛЬНО не переносится: это отдельная сущность, не обязана повторять баг района.
+-- Пока район не привязан ни к одному региону (region_id IS NULL) — регион просто не
+-- получает строки, это корректное поведение, а не пробел.
+CREATE VIEW v_region_year_scores AS
+SELECT r.id AS region_id,
+       ds.academic_year,
+       sum(ds.score) AS score,
+       CASE WHEN cnt.students_in_region > 0
+            THEN sum(ds.score) / cnt.students_in_region ELSE 0 END AS average_score,
+       cnt.students_in_region
+FROM regions r
+JOIN districts d               ON d.region_id = r.id
+JOIN v_district_year_scores ds ON ds.district_id = d.id
+CROSS JOIN LATERAL (
+    SELECT count(*) AS students_in_region
+    FROM students st
+    JOIN districts d2 ON d2.id = st.district_id
+    WHERE d2.region_id = r.id
+) cnt
+GROUP BY r.id, ds.academic_year, cnt.students_in_region;
+
+-- Регион: места. Путь B — та же логика, что и у района/школы/учителя.
+CREATE VIEW v_region_places AS
+SELECT rs.region_id,
+       rs.academic_year,
+       dense_rank() OVER (PARTITION BY rs.academic_year ORDER BY rs.average_score DESC) AS place
+FROM v_region_year_scores rs
+WHERE rs.average_score > 0;
 
 COMMIT;

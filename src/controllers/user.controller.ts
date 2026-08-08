@@ -41,6 +41,11 @@ export const createUser = async (req: Request, res: Response) => {
         }
 
         // Validate role-specific fields
+        if (newUser.role === 'regionRepresenter' && !newUser.regionId) {
+            res.status(400).json({ message: "Regional təhsil idarəsi nümayəndəsi üçün regional idarə seçilməlidir" });
+            return;
+        }
+
         if (newUser.role === 'districtRepresenter' && !newUser.districtId) {
             res.status(400).json({ message: "Rayon nümayəndəsi üçün rayon seçilməlidir" });
             return;
@@ -69,6 +74,7 @@ export const createUser = async (req: Request, res: Response) => {
             passwordHash,
             role: newUser.role,
             isApproved: newUser.isApproved,
+            regionId: newUser.regionId ? parseInt(newUser.regionId, 10) : undefined,
             districtId: newUser.districtId ? parseInt(newUser.districtId, 10) : undefined,
             schoolId: newUser.schoolId ? parseInt(newUser.schoolId, 10) : undefined,
             teacherId: newUser.teacherId ? parseInt(newUser.teacherId, 10) : undefined,
@@ -121,6 +127,11 @@ export const updateUser = async (req: Request, res: Response) => {
         }
 
         // Validate role-specific fields when changing role
+        if (updateRole === 'regionRepresenter' && !updateData.regionId) {
+            res.status(400).json({ message: "Regional təhsil idarəsi nümayəndəsi üçün regional idarə seçilməlidir" });
+            return;
+        }
+
         if (updateRole === 'districtRepresenter' && !updateData.districtId) {
             res.status(400).json({ message: "Rayon nümayəndəsi üçün rayon seçilməlidir" });
             return;
@@ -145,6 +156,7 @@ export const updateUser = async (req: Request, res: Response) => {
             email: updateData.email,
             role: updateData.role,
             isApproved: updateData.isApproved,
+            regionId: updateData.regionId !== undefined ? (updateData.regionId ? parseInt(updateData.regionId, 10) : null) : undefined,
             districtId: updateData.districtId !== undefined ? (updateData.districtId ? parseInt(updateData.districtId, 10) : null) : undefined,
             schoolId: updateData.schoolId !== undefined ? (updateData.schoolId ? parseInt(updateData.schoolId, 10) : null) : undefined,
             teacherId: updateData.teacherId !== undefined ? (updateData.teacherId ? parseInt(updateData.teacherId, 10) : null) : undefined,

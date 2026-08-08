@@ -60,3 +60,21 @@ export interface InkishafStatistics {
 export interface InkishafFilter extends StatisticsFilter {
     minParticipations?: number;
 }
+
+/**
+ * Postgres-эпоха: те же фильтры, но id — числа, не Mongo ObjectId-строки.
+ * См. types/common.types.ts FilterOptionsPg для объяснения того же паттерна на других сущностях.
+ */
+export interface StatisticsFilterPg {
+    regionIds?: number[];
+    districtIds?: number[];
+    schoolIds?: number[];
+    teacherIds?: number[];
+    grades?: number[];
+    year?: number;
+    month?: string;
+}
+
+export interface InkishafFilterPg extends StatisticsFilterPg {
+    minParticipations?: number;
+}

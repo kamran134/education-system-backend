@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
-import { StatisticsService } from '../services/statistics.service';
-import { StatisticsFilter, InkishafFilter } from '../types/statistics.types';
+import { StatisticsServicePg } from '../services/statistics.service.pg';
+import { StatisticsFilterPg, InkishafFilterPg } from '../types/statistics.types';
 import { ResponseHandler } from '../utils/response-handler.util';
+import { districtIdsOfRegion } from '../utils/region-scope.util';
 
 /** Текущий учебный год (начало, напр. 2025 для 2025/2026) */
 function getCurrentAcademicYear(): number {
@@ -9,8 +10,12 @@ function getCurrentAcademicYear(): number {
     return now.getMonth() + 1 >= 9 ? now.getFullYear() : now.getFullYear() - 1;
 }
 
-/** Применяет RBAC: перезаписывает фильтры на основе роли JWT-пользователя */
-function applyRbacFilters(req: Request, filters: StatisticsFilter): void {
+/**
+ * Применяет RBAC: перезаписывает фильтры на основе роли JWT-пользователя.
+ * regionRepresenter разворачивается в districtIds своего региона — тот же паттерн,
+ * что и в остальных 11 сайтах role-скоупинга (см. utils/region-scope.util.ts).
+ */
+async function applyRbacFilters(req: Request, filters: StatisticsFilterPg): Promise<void> {
     const user = req.user;
     if (!user) return;
     const adminRoles = ['admin', 'superadmin'];
@@ -22,25 +27,57 @@ function applyRbacFilters(req: Request, filters: StatisticsFilter): void {
     }
 
     if (user.role === 'teacher' && user.teacherId) {
-        filters.teacherIds = [user.teacherId];
+        filters.teacherIds = [parseInt(user.teacherId, 10)];
         delete filters.districtIds;
         delete filters.schoolIds;
+        delete filters.regionIds;
     } else if (user.role === 'schoolDirector' && user.schoolId) {
-        filters.schoolIds = [user.schoolId];
+        filters.schoolIds = [parseInt(user.schoolId, 10)];
         delete filters.districtIds;
         delete filters.teacherIds;
+        delete filters.regionIds;
     } else if (user.role === 'districtRepresenter' && user.districtId) {
-        filters.districtIds = [user.districtId];
+        filters.districtIds = [parseInt(user.districtId, 10)];
         delete filters.schoolIds;
         delete filters.teacherIds;
+        delete filters.regionIds;
+    } else if (user.role === 'regionRepresenter' && user.regionId) {
+        filters.districtIds = await districtIdsOfRegion(parseInt(user.regionId, 10));
+        delete filters.schoolIds;
+        delete filters.teacherIds;
+        delete filters.regionIds;
     }
 }
 
+function parseIdList(raw: unknown): number[] | undefined {
+    if (!raw || typeof raw !== 'string' || raw.trim() === '') return undefined;
+    const ids = raw.split(',').map((id) => parseInt(id.trim(), 10)).filter((id) => !isNaN(id));
+    return ids.length > 0 ? ids : undefined;
+}
+
+function parseGrades(raw: unknown): number[] | undefined {
+    if (!raw || typeof raw !== 'string' || raw.trim() === '') return undefined;
+    const grades = raw.split(',').map(Number).filter((g) => !isNaN(g));
+    return grades.length > 0 ? grades : undefined;
+}
+
+function parseBaseFilters(req: Request): StatisticsFilterPg {
+    return {
+        regionIds: parseIdList(req.query.regionIds),
+        districtIds: parseIdList(req.query.districtIds),
+        schoolIds: parseIdList(req.query.schoolIds),
+        teacherIds: parseIdList(req.query.teacherIds),
+        grades: parseGrades(req.query.grades),
+        year: req.query.year ? parseInt(req.query.year as string) : undefined,
+        month: req.query.month as string,
+    };
+}
+
 export class StatisticsController {
-    private statisticsService: StatisticsService;
+    private statisticsService: StatisticsServicePg;
 
     constructor() {
-        this.statisticsService = new StatisticsService();
+        this.statisticsService = new StatisticsServicePg();
     }
 
     /**
@@ -49,20 +86,8 @@ export class StatisticsController {
      */
     async getYearlyStatistics(req: Request, res: Response): Promise<void> {
         try {
-            const filters: StatisticsFilter = {
-                districtIds: req.query.districtIds 
-                    ? (req.query.districtIds as string).split(',').filter(id => id.trim() !== '')
-                    : undefined,
-                schoolIds: req.query.schoolIds
-                    ? (req.query.schoolIds as string).split(',').filter(id => id.trim() !== '')
-                    : undefined,
-                grades: req.query.grades
-                    ? (req.query.grades as string).split(',').map(Number).filter(g => !isNaN(g))
-                    : undefined,
-                year: req.query.year ? parseInt(req.query.year as string) : undefined,
-                month: req.query.month as string
-            };
-            applyRbacFilters(req, filters);
+            const filters = parseBaseFilters(req);
+            await applyRbacFilters(req, filters);
 
             const statistics = await this.statisticsService.getYearlyStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));
@@ -78,20 +103,8 @@ export class StatisticsController {
      */
     async getMonthlyStatistics(req: Request, res: Response): Promise<void> {
         try {
-            const filters: StatisticsFilter = {
-                districtIds: req.query.districtIds 
-                    ? (req.query.districtIds as string).split(',').filter(id => id.trim() !== '')
-                    : undefined,
-                schoolIds: req.query.schoolIds
-                    ? (req.query.schoolIds as string).split(',').filter(id => id.trim() !== '')
-                    : undefined,
-                grades: req.query.grades
-                    ? (req.query.grades as string).split(',').map(Number).filter(g => !isNaN(g))
-                    : undefined,
-                year: req.query.year ? parseInt(req.query.year as string) : undefined,
-                month: req.query.month as string
-            };
-            applyRbacFilters(req, filters);
+            const filters = parseBaseFilters(req);
+            await applyRbacFilters(req, filters);
 
             const statistics = await this.statisticsService.getMonthlyStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));
@@ -107,20 +120,8 @@ export class StatisticsController {
      */
     async getStatistics(req: Request, res: Response): Promise<void> {
         try {
-            const filters: StatisticsFilter = {
-                districtIds: req.query.districtIds 
-                    ? (req.query.districtIds as string).split(',').filter(id => id.trim() !== '')
-                    : undefined,
-                schoolIds: req.query.schoolIds
-                    ? (req.query.schoolIds as string).split(',').filter(id => id.trim() !== '')
-                    : undefined,
-                grades: req.query.grades
-                    ? (req.query.grades as string).split(',').map(Number).filter(g => !isNaN(g))
-                    : undefined,
-                year: req.query.year ? parseInt(req.query.year as string) : undefined,
-                month: req.query.month as string
-            };
-            applyRbacFilters(req, filters);
+            const filters = parseBaseFilters(req);
+            await applyRbacFilters(req, filters);
 
             const statistics = await this.statisticsService.getStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));
@@ -136,22 +137,11 @@ export class StatisticsController {
      */
     async getInkishafStatistics(req: Request, res: Response): Promise<void> {
         try {
-            const filters: InkishafFilter = {
-                districtIds: req.query.districtIds
-                    ? (req.query.districtIds as string).split(',').filter(id => id.trim() !== '')
-                    : undefined,
-                schoolIds: req.query.schoolIds
-                    ? (req.query.schoolIds as string).split(',').filter(id => id.trim() !== '')
-                    : undefined,
-                grades: req.query.grades
-                    ? (req.query.grades as string).split(',').map(Number).filter(g => !isNaN(g))
-                    : undefined,
-                year: req.query.year ? parseInt(req.query.year as string) : undefined,
-                minParticipations: req.query.minParticipations
-                    ? parseInt(req.query.minParticipations as string)
-                    : 2
+            const filters: InkishafFilterPg = {
+                ...parseBaseFilters(req),
+                minParticipations: req.query.minParticipations ? parseInt(req.query.minParticipations as string) : 2,
             };
-            applyRbacFilters(req, filters);
+            await applyRbacFilters(req, filters);
 
             const statistics = await this.statisticsService.getInkishafStatistics(filters);
             res.status(200).json(ResponseHandler.success(statistics));

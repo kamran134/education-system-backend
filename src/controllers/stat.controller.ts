@@ -3,6 +3,7 @@ import { StatsUseCase } from "../usecases/stats.usecase";
 import { StatsServicePg } from "../services/stats.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
+import { districtIdsOfRegion } from "../utils/region-scope.util";
 
 export class StatsController {
     private statsUseCase: StatsUseCase;
@@ -59,6 +60,8 @@ export class StatsController {
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [parseInt(req.user.studentId, 10)];
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const statistics = await this.statsUseCase.getStudentStatistics(filters);
@@ -94,6 +97,8 @@ export class StatsController {
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [parseInt(req.user.studentId, 10)];
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const students = await this.statsUseCase.getDevelopingStudents(filters);
@@ -129,6 +134,8 @@ export class StatsController {
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [parseInt(req.user.studentId, 10)];
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const students = await this.statsUseCase.getStudentsOfMonth(filters);
@@ -164,6 +171,8 @@ export class StatsController {
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [parseInt(req.user.studentId, 10)];
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const students = await this.statsUseCase.getStudentsOfMonthByRepublic(filters);
@@ -214,6 +223,9 @@ export class StatsController {
             } else if (req.user?.role === 'teacher') {
                 if (!req.user.teacherId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
                 filters.teacherIds = [parseInt(req.user.teacherId, 10)];
+            } else if (req.user?.role === 'regionRepresenter') {
+                if (!req.user.regionId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const statistics = await this.statsUseCase.getTeacherStatistics(filters);
@@ -242,6 +254,9 @@ export class StatsController {
                 filters.schoolIds = [parseInt(req.user.schoolId, 10)];
             } else if (req.user?.role === 'teacher') {
                 res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return;
+            } else if (req.user?.role === 'regionRepresenter') {
+                if (!req.user.regionId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const statistics = await this.statsUseCase.getSchoolStatistics(filters);
@@ -267,6 +282,9 @@ export class StatsController {
                 filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'schoolDirector' || req.user?.role === 'teacher') {
                 res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return;
+            } else if (req.user?.role === 'regionRepresenter') {
+                if (!req.user.regionId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             }
 
             const statistics = await this.statsUseCase.getDistrictStatistics(filters);
@@ -274,6 +292,35 @@ export class StatsController {
         } catch (error: any) {
             console.error('Error in getDistrictStatistics:', error);
             res.status(500).json(ResponseHandler.internalError('Error fetching district statistics', error));
+        }
+    }
+
+    /**
+     * regionRepresenter видит только свой регион; districtRepresenter/schoolDirector/teacher/student
+     * не имеют своего региона — пустой результат (ср. getDistrictStatistics для schoolDirector/teacher).
+     */
+    async getRegionStatistics(req: Request, res: Response): Promise<void> {
+        try {
+            const filters = {
+                ...RequestParser.parseFilterOptionsPg(req),
+                sortColumn: req.query.sortColumn as string || 'averageScore',
+                sortDirection: req.query.sortDirection as string || 'desc',
+                page: parseInt(req.query.page as string) || 1,
+                size: parseInt(req.query.size as string) || 100
+            };
+
+            if (req.user?.role === 'regionRepresenter') {
+                if (!req.user.regionId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
+                filters.regionIds = [parseInt(req.user.regionId, 10)];
+            } else if (req.user?.role === 'districtRepresenter' || req.user?.role === 'schoolDirector' || req.user?.role === 'teacher' || req.user?.role === 'student') {
+                res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return;
+            }
+
+            const statistics = await this.statsUseCase.getRegionStatistics(filters);
+            res.status(200).json(ResponseHandler.success(statistics));
+        } catch (error: any) {
+            console.error('Error in getRegionStatistics:', error);
+            res.status(500).json(ResponseHandler.internalError('Error fetching region statistics', error));
         }
     }
 
@@ -294,3 +341,4 @@ export const getStatisticsByExam = (req: Request, res: Response) => statsControl
 export const getTeacherStatistics = (req: Request, res: Response) => statsController.getTeacherStatistics(req, res);
 export const getSchoolStatistics = (req: Request, res: Response) => statsController.getSchoolStatistics(req, res);
 export const getDistrictStatistics = (req: Request, res: Response) => statsController.getDistrictStatistics(req, res);
+export const getRegionStatistics = (req: Request, res: Response) => statsController.getRegionStatistics(req, res);

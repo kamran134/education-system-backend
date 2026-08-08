@@ -57,7 +57,7 @@ export interface Districts {
   legacy_mongo_id: string | null;
   name: string;
   rate: number | null;
-  region: string | null;
+  region_id: number | null;
   student_count: number | null;
 }
 
@@ -88,6 +88,25 @@ export interface GradePromotionLogs {
   legacy_mongo_id: string | null;
   promoted_count: number | null;
   status: Generated<string>;
+}
+
+// Добавлено вручную вслед за миграцией 005_regions.sql — перегенерировать через
+// kysely-codegen при следующей возможности подключиться к живой БД и сверить.
+export interface Regions {
+  active: Generated<boolean>;
+  avatar_url: string | null;
+  code: number;
+  id: Generated<number>;
+  name: string;
+  region_of_the_year_score: Generated<number | null>;
+}
+
+export interface RegionYearRatings {
+  average_score: number | null;
+  place: number | null;
+  region_id: number;
+  score: number | null;
+  year: number;
 }
 
 export interface Levels {
@@ -232,6 +251,7 @@ export interface Users {
   last_login_at: Timestamp | null;
   legacy_mongo_id: string | null;
   password_hash: string;
+  region_id: number | null;
   role: Generated<string>;
   school_id: number | null;
   student_id: number | null;
@@ -241,6 +261,7 @@ export interface Users {
 
 export interface UserSettings {
   all_district_collumns: Generated<string[]>;
+  all_region_collumns: Generated<string[]>;
   all_school_collumns: Generated<string[]>;
   all_student_collumns: Generated<string[]>;
   all_teacher_collumns: Generated<string[]>;
@@ -268,6 +289,20 @@ export interface VDistrictYearScores {
   average_score: number | null;
   district_id: number | null;
   score: number | null;
+}
+
+export interface VRegionYearScores {
+  academic_year: number | null;
+  average_score: number | null;
+  region_id: number | null;
+  score: number | null;
+  students_in_region: number | null;
+}
+
+export interface VRegionPlaces {
+  academic_year: number | null;
+  place: number | null;
+  region_id: number | null;
 }
 
 export interface VSchoolPlaces {
@@ -336,6 +371,8 @@ export interface DB {
   exams: Exams;
   grade_promotion_logs: GradePromotionLogs;
   levels: Levels;
+  region_year_ratings: RegionYearRatings;
+  regions: Regions;
   schema_migrations: SchemaMigrations;
   school_year_ratings: SchoolYearRatings;
   schools: Schools;
@@ -350,6 +387,8 @@ export interface DB {
   users: Users;
   v_district_places: VDistrictPlaces;
   v_district_year_scores: VDistrictYearScores;
+  v_region_places: VRegionPlaces;
+  v_region_year_scores: VRegionYearScores;
   v_school_places: VSchoolPlaces;
   v_school_year_scores: VSchoolYearScores;
   v_student_places: VStudentPlaces;

@@ -2,8 +2,8 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
-import connectDB from "./config/db";
 import districtRoutes from "./routes/district.routes";
+import regionRoutes from "./routes/region.routes";
 import schoolRoutes from "./routes/school.routes";
 import teacherRoutes from "./routes/teacher.routes";
 import bookletRoutes from "./routes/booklet.routes";
@@ -27,7 +27,13 @@ import { startTokenCleanupScheduler } from "./services/token.service.pg";
 import { loadLevelsCache } from "./services/levels.cache";
 
 dotenv.config();
-connectDB();
+
+// MongoDB больше не требуется: последний живой потребитель (statistics.service.ts) перенесён
+// на Kysely/Postgres 08.08.2026 (см. statistics.service.pg.ts). connectDB() раньше делал
+// process.exit(1) при недоступности Mongo — воспроизведено вживую при отладке региональных
+// управлений: весь бэкенд крашился, если MONGO_URI недостижим, даже когда ни один реальный
+// запрос Mongo не требовал. MONGO_URI/mongoose оставлены в package.json/.env только как
+// историческая зависимость — не читаются нигде в рантайме.
 
 // Запускаем планировщик очистки токенов
 startTokenCleanupScheduler();
@@ -108,6 +114,7 @@ app.get("/", (req, res) => {
 
 // Routes
 app.use("/api/districts", districtRoutes);
+app.use("/api/regions", regionRoutes);
 app.use("/api/schools", schoolRoutes);
 app.use("/api/teachers", teacherRoutes);
 app.use("/api/booklets", bookletRoutes);
