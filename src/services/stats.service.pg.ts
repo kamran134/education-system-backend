@@ -38,12 +38,10 @@ export interface RankedEntity {
     score: number | null; averageScore: number | null; place: number | null; districtPlace: number | null;
     filterPlace: number | null;
     studentCount: number | null;
-    // Опционально: getTeacherStatistics/getSchoolStatistics/getDistrictStatistics его НЕ
-    // заполняют (см. находку REGIONS_TASKS.md §6 — их SELECT никогда не включал fullname/name,
-    // хотя фронтовые шаблоны на result.fullName/result.name рассчитывают; отдельный баг, не
-    // из этой задачи). getRegionStatistics заполняет по-настоящему — новую сущность копией
-    // существующего пробела делать незачем.
     name?: string;
+    fullname?: string;
+    school?: { id: number; name: string } | null;
+    district?: { id: number; name: string } | null;
 }
 
 /**
@@ -524,7 +522,15 @@ export class StatsServicePg {
         const orderExpr = sortMap[sortColumn] ?? sql`tyr.average_score`;
         const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
 
-        let rowsQuery = baseQuery().select(["t.id as id", "t.code as code", "t.student_count as student_count", "tyr.score as score", "tyr.average_score as average_score", "tyr.place as place", "tyr.district_place as district_place"]);
+        let rowsQuery = baseQuery()
+            .leftJoin("schools as sc", "sc.id", "t.school_id")
+            .leftJoin("districts as d", "d.id", "t.district_id")
+            .select([
+                "t.id as id", "t.code as code", "t.fullname as fullname", "t.student_count as student_count",
+                "tyr.score as score", "tyr.average_score as average_score", "tyr.place as place", "tyr.district_place as district_place",
+                "sc.id as school_id", "sc.name as school_name",
+                "d.id as teacher_district_id", "d.name as teacher_district_name",
+            ]);
         if (!isSelfView) {
             // NULLS LAST: учителя без строки в teacher_year_ratings иначе всплывают в начало при DESC.
             rowsQuery = rowsQuery.orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(size).offset(skip) as typeof rowsQuery;
@@ -537,9 +543,11 @@ export class StatsServicePg {
 
         const filterPlaceMap = this.buildFilterPlaceMap(scoreRows);
         const data: RankedEntity[] = rows.map((r) => ({
-            id: r.id, code: r.code, score: r.score ?? 0, averageScore: r.average_score ?? 0,
+            id: r.id, code: r.code, fullname: r.fullname, score: r.score ?? 0, averageScore: r.average_score ?? 0,
             place: r.place, districtPlace: r.district_place, studentCount: r.student_count ?? 0,
             filterPlace: filterPlaceMap.get(r.id) ?? null,
+            school: r.school_id ? { id: r.school_id, name: r.school_name! } : null,
+            district: r.teacher_district_id ? { id: r.teacher_district_id, name: r.teacher_district_name! } : null,
         }));
 
         return { data, totalCount: Number(countRow.count) };
@@ -577,7 +585,12 @@ export class StatsServicePg {
 
         const [rows, countRow, scoreRows] = await Promise.all([
             baseQuery()
-                .select(["sc.id as id", "sc.code as code", "sc.student_count as student_count", "syr.score as score", "syr.average_score as average_score", "syr.place as place", "syr.district_place as district_place"])
+                .leftJoin("districts as d", "d.id", "sc.district_id")
+                .select([
+                    "sc.id as id", "sc.code as code", "sc.name as name", "sc.student_count as student_count",
+                    "syr.score as score", "syr.average_score as average_score", "syr.place as place", "syr.district_place as district_place",
+                    "d.id as school_district_id", "d.name as school_district_name",
+                ])
                 // NULLS LAST: школы без строки в school_year_ratings иначе всплывают в начало при DESC.
                 .orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(size).offset(skip).execute(),
             baseQuery().select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
@@ -586,9 +599,10 @@ export class StatsServicePg {
 
         const filterPlaceMap = this.buildFilterPlaceMap(scoreRows);
         const data: RankedEntity[] = rows.map((r) => ({
-            id: r.id, code: r.code, score: r.score ?? 0, averageScore: r.average_score ?? 0,
+            id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: r.average_score ?? 0,
             place: r.place, districtPlace: r.district_place, studentCount: r.student_count ?? 0,
             filterPlace: filterPlaceMap.get(r.id) ?? null,
+            district: r.school_district_id ? { id: r.school_district_id, name: r.school_district_name! } : null,
         }));
 
         return { data, totalCount: Number(countRow.count) };
@@ -667,7 +681,7 @@ export class StatsServicePg {
         let query = pg
             .selectFrom("districts as d")
             .leftJoin("district_year_ratings as dyr", (join) => join.onRef("dyr.district_id", "=", "d.id").on("dyr.year", "=", currentYear))
-            .select(["d.id as id", "d.code as code", "d.region_id as region_id", "d.student_count as student_count", "dyr.score as score", "dyr.average_score as average_score"])
+            .select(["d.id as id", "d.code as code", "d.name as name", "d.region_id as region_id", "d.student_count as student_count", "dyr.score as score", "dyr.average_score as average_score"])
             .orderBy(sql`d.name COLLATE az_ci`);
         if (filters.code) {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
@@ -688,7 +702,7 @@ export class StatsServicePg {
         const filterPlaceMap = this.buildFilterPlaceMap(allData.map((r) => ({ id: r.id, score: r.score })));
 
         const withPlace: RankedEntity[] = allData.map((r) => ({
-            id: r.id, code: r.code, score: r.score ?? 0, averageScore: r.average_score ?? 0,
+            id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: r.average_score ?? 0,
             place: placeById.get(r.id) ?? null, districtPlace: null,
             filterPlace: filterPlaceMap.get(r.id) ?? null, studentCount: r.student_count ?? 0,
         }));
