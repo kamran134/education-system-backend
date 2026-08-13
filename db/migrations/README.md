@@ -69,5 +69,6 @@ Postgres сам откатит незавершённую транзакцию. 
 | `005_regions.sql` | сущность `regions` (12 RTİ), `districts.region_id`, `region_year_ratings`, роль `regionRepresenter`, views `v_region_year_scores`/`v_region_places`. Привязка район→регион НЕ автоматическая — состав районов в проде разошёлся со справочником докса (см. шапку файла), пользователь привязывает сам через UI |
 | `006_district_region_required.sql` | `districts.region_id` → `NOT NULL`. Пользователь вручную привязал все 41 район к региону через UI, привязка завершена — поле стало обязательным |
 | `007_teacher_school_district_place.sql` | `v_teacher_places`/`v_school_places`: `district_place` считается (dense_rank по среднему баллу в рамках района), раньше был жёсткий `NULL` — путь B никогда не переносил эту логику с учеников на учителей/школы |
+| `008_student_ranking_uses_historical_grade.sql` | `v_student_places` группировала место/districtPlace ученика по живому `students.grade` — массовое повышение класса задним числом ломало уже посчитанные места за прошедший год. Переключено на исторический `student_results.grade` (добавлен в `v_student_year_scores`) |
 
 Обновлять таблицу при добавлении новых файлов.

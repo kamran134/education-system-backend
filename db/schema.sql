@@ -435,6 +435,10 @@ CREATE INDEX schools_name_trgm  ON schools  USING gin (name gin_trgm_ops);
 -- Эти views реализуют первый путь. Второй сознательно не реализован.
 
 -- Ученик: суммы за учебный год. stats.service.ts:1216 updateStudentScores
+-- grade в выдаче — исторический класс на момент результатов (student_results.grade), а не
+-- живой students.grade: один и тот же для всех результатов ученика внутри одного academic_year
+-- (класс меняется раз в год, на повышении), поэтому GROUP BY им не размножает строки.
+-- См. 008_student_ranking_uses_historical_grade.sql — почему это важно для v_student_places.
 CREATE VIEW v_student_year_scores AS
 SELECT sr.student_id,
        sr.academic_year,
@@ -452,20 +456,25 @@ SELECT sr.student_id,
                    + coalesce(sr.development_score, 0)
                    + coalesce(sr.student_of_the_month_score, 0)
                    + coalesce(sr.republic_wide_student_of_the_month_score, 0)) / count(*)
-            ELSE 0 END                                                  AS average_score
+            ELSE 0 END                                                  AS average_score,
+       sr.grade                                                         AS grade
 FROM student_results sr
 WHERE sr.academic_year IS NOT NULL
-GROUP BY sr.student_id, sr.academic_year;
+GROUP BY sr.student_id, sr.academic_year, sr.grade;
 
 -- Ученик: места. stats.service.ts:1312 updateStudentPlaces
 -- Ранг по score (НЕ по average_score), внутри класса; district_place — внутри класса и района.
 -- Фильтра «> 0» здесь нет: у ученика с нулём место есть. Это отличает учеников от остальных уровней.
+-- ВАЖНО: класс берётся из v_student_year_scores.grade (исторический, student_results.grade),
+-- а не из живого students.grade — иначе массовое повышение класса (Yeni tədris ili) задним
+-- числом ломает уже посчитанные места за прошедший учебный год (найдено и исправлено 14.08.2026,
+-- 008_student_ranking_uses_historical_grade.sql). students всё ещё нужен — для district_id.
 CREATE VIEW v_student_places AS
 SELECT sc.student_id,
        sc.academic_year,
-       dense_rank() OVER (PARTITION BY sc.academic_year, s.grade
+       dense_rank() OVER (PARTITION BY sc.academic_year, sc.grade
                           ORDER BY sc.score DESC)                AS place,
-       dense_rank() OVER (PARTITION BY sc.academic_year, s.grade, s.district_id
+       dense_rank() OVER (PARTITION BY sc.academic_year, sc.grade, s.district_id
                           ORDER BY sc.score DESC)                AS district_place
 FROM v_student_year_scores sc
 JOIN students s ON s.id = sc.student_id;

@@ -65,9 +65,17 @@ export interface StudentCreate {
     status?: string;
 }
 
+export interface ExamSummary {
+    id: number;
+    code: number;
+    name: string;
+    date: Date;
+}
+
 export interface StudentResultRow {
     id: number;
     examId: number | null;
+    exam: ExamSummary | null;
     grade: number;
     az: number; math: number; lifeKnowledge: number | null; logic: number | null; english: number | null;
     azCount: number; mathCount: number; lifeKnowledgeCount: number | null; logicCount: number | null; englishCount: number | null;
@@ -109,15 +117,19 @@ export class StudentServicePg {
 
     async getResultsByStudentId(studentId: number): Promise<StudentResultRow[]> {
         const rows = await pg
-            .selectFrom("student_results")
-            .selectAll()
-            .where("student_id", "=", studentId)
-            .orderBy("year", "desc")
-            .orderBy("month", "desc")
+            .selectFrom("student_results as sr")
+            .leftJoin("exams as e", "e.id", "sr.exam_id")
+            .selectAll("sr")
+            .select(["e.id as exam_id_full", "e.code as exam_code", "e.name as exam_name", "e.date as exam_date"])
+            .where("sr.student_id", "=", studentId)
+            .orderBy("sr.year", "desc")
+            .orderBy("sr.month", "desc")
             .execute();
 
         return rows.map((r) => ({
-            id: r.id, examId: r.exam_id, grade: r.grade,
+            id: r.id, examId: r.exam_id,
+            exam: r.exam_id_full ? { id: r.exam_id_full, code: r.exam_code!, name: r.exam_name!, date: r.exam_date! } : null,
+            grade: r.grade,
             az: r.az, math: r.math, lifeKnowledge: r.life_knowledge, logic: r.logic, english: r.english,
             azCount: r.az_count, mathCount: r.math_count, lifeKnowledgeCount: r.life_knowledge_count,
             logicCount: r.logic_count, englishCount: r.english_count,
