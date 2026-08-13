@@ -35,8 +35,14 @@ export class DistrictUseCase {
     }
 
     async createDistrict(districtData: DistrictCreate): Promise<District> {
-        ValidationUtils.validateRequired(districtData.name, 'District name');
-        ValidationUtils.validateRequired(districtData.code, 'District code');
+        const validationErrors = ValidationUtils.combine([
+            ValidationUtils.validateRequired(districtData.name, 'District name'),
+            ValidationUtils.validateRequired(districtData.code, 'District code'),
+            ValidationUtils.validateRequired(districtData.regionId, 'Region'),
+        ]);
+        if (!validationErrors.isValid) {
+            throw new Error(validationErrors.errors.join(', '));
+        }
 
         const existingDistrict = await this.districtService.findByCode(districtData.code);
         if (existingDistrict) {
@@ -57,6 +63,12 @@ export class DistrictUseCase {
             if (existingDistrict && existingDistrict.id !== parseInt(id, 10)) {
                 throw new Error('District with this code already exists');
             }
+        }
+
+        // region_id is NOT NULL (006_district_region_required.sql) — reject an explicit clear
+        // here instead of letting a raw Postgres constraint error surface to the client.
+        if ('regionId' in updateData && !updateData.regionId) {
+            throw new Error('Region is required');
         }
 
         return await this.districtService.update(parseInt(id, 10), updateData);

@@ -38,7 +38,7 @@ CREATE TABLE districts (
     id                          bigserial PRIMARY KEY,
     code                        bigint  NOT NULL UNIQUE,          -- 3 знака
     name                        text    NOT NULL,
-    region_id                   bigint  REFERENCES regions(id),   -- PHASE3 п.1б (005_regions.sql). Nullable: привязка не автоматическая, см. миграцию
+    region_id                   bigint  NOT NULL REFERENCES regions(id), -- PHASE3 п.1б (005_regions.sql), обязательно с 006_district_region_required.sql
     student_count               int,
     rate                        double precision,
     district_of_the_year_score  double precision DEFAULT 0,

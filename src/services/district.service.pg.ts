@@ -215,23 +215,12 @@ export class DistrictServicePg {
 
             const validDistricts = dataToInsert.filter((d) => d.code > 0 && d.name);
             const existingCodes = await this.checkExistingDistrictCodes(validDistricts.map((d) => d.code));
+            // Создание новых районов через этот bulk-эндпоинт заблокировано 13.08.2026:
+            // districts.region_id стал NOT NULL (006_district_region_required.sql), а Excel-файл
+            // региона не содержит и не вызывается ни из одного места фронтенда (проверено) — решение
+            // пользователя не расширять формат файла ради мёртвого пути, а просто не создавать здесь
+            // новые районы. Обновление studentCount у УЖЕ существующих районов ниже продолжает работать.
             const newDistricts = validDistricts.filter((d) => !existingCodes.includes(d.code));
-
-            if (newDistricts.length > 0) {
-                const created = await pg
-                    .insertInto("districts")
-                    .values(
-                        newDistricts.map((d) => ({
-                            code: d.code,
-                            name: d.name,
-                            student_count: d.studentCount,
-                            active: true,
-                        }))
-                    )
-                    .returningAll()
-                    .execute();
-                processedData.push(...(await Promise.all(created.map((r) => this.attachRatings(r)))));
-            }
 
             const existingToUpdate = validDistricts.filter((d) => existingCodes.includes(d.code));
             for (const d of existingToUpdate) {
@@ -246,7 +235,10 @@ export class DistrictServicePg {
             return {
                 processedData,
                 errors,
-                skippedItems: existingCodes.map((code) => ({ code, reason: "Already exists" })),
+                skippedItems: [
+                    ...existingCodes.map((code) => ({ code, reason: "Already exists" })),
+                    ...newDistricts.map((d) => ({ code: d.code, reason: "Region is required — create new districts individually" })),
+                ],
             };
         } catch (error) {
             await deleteFile(filePath).catch(() => {});
