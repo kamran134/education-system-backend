@@ -68,5 +68,6 @@ Postgres сам откатит незавершённую транзакцию. 
 | `004_code_change_log.sql` | таблица `code_change_logs` — журнал каскадных перекодировок teacher/school → потомки (`PHASE3_PLAN.md` п.4) |
 | `005_regions.sql` | сущность `regions` (12 RTİ), `districts.region_id`, `region_year_ratings`, роль `regionRepresenter`, views `v_region_year_scores`/`v_region_places`. Привязка район→регион НЕ автоматическая — состав районов в проде разошёлся со справочником докса (см. шапку файла), пользователь привязывает сам через UI |
 | `006_district_region_required.sql` | `districts.region_id` → `NOT NULL`. Пользователь вручную привязал все 41 район к региону через UI, привязка завершена — поле стало обязательным |
+| `007_teacher_school_district_place.sql` | `v_teacher_places`/`v_school_places`: `district_place` считается (dense_rank по среднему баллу в рамках района), раньше был жёсткий `NULL` — путь B никогда не переносил эту логику с учеников на учителей/школы |
 
 Обновлять таблицу при добавлении новых файлов.

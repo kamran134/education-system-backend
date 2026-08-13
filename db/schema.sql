@@ -487,14 +487,16 @@ GROUP BY t.id, t.student_count, sc.academic_year;
 -- Учитель: места. Решение заказчика 04.08.2026 (гейт 2, db/rating-semantics.md) — официальный
 -- путь расчёта мест для учителей/школ/районов: путь B (utils/ranking.util.ts updateEntityPlaces) —
 -- ранжирование по average_score, entities с average_score = 0 в ранжировании не участвуют
--- (получают place = NULL, а не место в хвосте) и district_place этот путь не считает вовсе —
--- столбец оставлен для единообразия формата API, всегда NULL.
+-- (получают place = NULL, а не место в хвосте). district_place досчитан 13.08.2026
+-- (007_teacher_school_district_place.sql) — та же dense_rank-логика, что и у учеников
+-- (v_student_places), просто без grade в PARTITION BY.
 CREATE VIEW v_teacher_places AS
 SELECT ts.teacher_id,
        ts.academic_year,
        dense_rank() OVER (PARTITION BY ts.academic_year ORDER BY ts.average_score DESC) AS place,
-       NULL::bigint AS district_place
+       dense_rank() OVER (PARTITION BY ts.academic_year, t.district_id ORDER BY ts.average_score DESC) AS district_place
 FROM v_teacher_year_scores ts
+JOIN teachers t ON t.id = ts.teacher_id
 WHERE ts.average_score > 0;
 
 -- Школа: сумма баллов её учителей / сохранённый student_count школы. stats.service.ts:1556
@@ -508,13 +510,15 @@ JOIN teachers t                ON t.school_id = sch.id
 JOIN v_teacher_year_scores ts  ON ts.teacher_id = t.id
 GROUP BY sch.id, sch.student_count, ts.academic_year;
 
--- Школа: места. Путь B — та же логика, что и у учителя (см. комментарий у v_teacher_places).
+-- Школа: места. Путь B — та же логика, что и у учителя (см. комментарий у v_teacher_places),
+-- district_place тоже досчитан 13.08.2026 (007_teacher_school_district_place.sql).
 CREATE VIEW v_school_places AS
 SELECT ss.school_id,
        ss.academic_year,
        dense_rank() OVER (PARTITION BY ss.academic_year ORDER BY ss.average_score DESC) AS place,
-       NULL::bigint AS district_place
+       dense_rank() OVER (PARTITION BY ss.academic_year, sc.district_id ORDER BY ss.average_score DESC) AS district_place
 FROM v_school_year_scores ss
+JOIN schools sc ON sc.id = ss.school_id
 WHERE ss.average_score > 0;
 
 -- Район: сумма баллов его школ. stats.service.ts:1723
