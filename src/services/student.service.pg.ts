@@ -79,6 +79,11 @@ export interface StudentResultRow {
     grade: number;
     az: number; math: number; lifeKnowledge: number | null; logic: number | null; english: number | null;
     azCount: number; mathCount: number; lifeKnowledgeCount: number | null; logicCount: number | null; englishCount: number | null;
+    // Вложенные disciplines/questionCounts — фронтенд (ExamResult) читает именно их, не плоские
+    // поля выше (те оставлены для обратной совместимости с другими потребителями). Отсутствующий
+    // предмет (NULL в БД) не попадает в объект вовсе — .az !== undefined в шаблоне так и ждёт.
+    disciplines: { az?: number; math?: number; lifeKnowledge?: number; logic?: number; english?: number };
+    questionCounts: { az?: number; math?: number; lifeKnowledge?: number; logic?: number; english?: number };
     totalScore: number; score: number; level: string; status: string | null;
     participationScore: number; developmentScore: number | null;
     studentOfTheMonthScore: number | null; republicWideStudentOfTheMonthScore: number | null;
@@ -126,6 +131,16 @@ export class StudentServicePg {
             .orderBy("sr.month", "desc")
             .execute();
 
+        const sparse = (az: number | null, math: number | null, lifeKnowledge: number | null, logic: number | null, english: number | null) => {
+            const obj: { az?: number; math?: number; lifeKnowledge?: number; logic?: number; english?: number } = {};
+            if (az !== null) obj.az = az;
+            if (math !== null) obj.math = math;
+            if (lifeKnowledge !== null) obj.lifeKnowledge = lifeKnowledge;
+            if (logic !== null) obj.logic = logic;
+            if (english !== null) obj.english = english;
+            return obj;
+        };
+
         return rows.map((r) => ({
             id: r.id, examId: r.exam_id,
             exam: r.exam_id_full ? { id: r.exam_id_full, code: r.exam_code!, name: r.exam_name!, date: r.exam_date! } : null,
@@ -133,6 +148,8 @@ export class StudentServicePg {
             az: r.az, math: r.math, lifeKnowledge: r.life_knowledge, logic: r.logic, english: r.english,
             azCount: r.az_count, mathCount: r.math_count, lifeKnowledgeCount: r.life_knowledge_count,
             logicCount: r.logic_count, englishCount: r.english_count,
+            disciplines: sparse(r.az, r.math, r.life_knowledge, r.logic, r.english),
+            questionCounts: sparse(r.az_count, r.math_count, r.life_knowledge_count, r.logic_count, r.english_count),
             totalScore: r.total_score, score: r.score, level: r.level, status: r.status,
             participationScore: r.participation_score, developmentScore: r.development_score,
             studentOfTheMonthScore: r.student_of_the_month_score,
