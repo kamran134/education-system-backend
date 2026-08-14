@@ -70,5 +70,6 @@ Postgres сам откатит незавершённую транзакцию. 
 | `006_district_region_required.sql` | `districts.region_id` → `NOT NULL`. Пользователь вручную привязал все 41 район к региону через UI, привязка завершена — поле стало обязательным |
 | `007_teacher_school_district_place.sql` | `v_teacher_places`/`v_school_places`: `district_place` считается (dense_rank по среднему баллу в рамках района), раньше был жёсткий `NULL` — путь B никогда не переносил эту логику с учеников на учителей/школы |
 | `008_student_ranking_uses_historical_grade.sql` | `v_student_places` группировала место/districtPlace ученика по живому `students.grade` — массовое повышение класса задним числом ломало уже посчитанные места за прошедший год. Переключено на исторический `student_results.grade` (добавлен в `v_student_year_scores`) |
+| `009_student_year_scores_single_grade.sql` | Инцидент сразу после 008: у части учеников `grade` расходится внутри одного `academic_year` (реальная грязь в данных) — `GROUP BY sr.grade` размножал строки, `INSERT` в `student_year_ratings` падал на PK, таблица осталась пустой. Один grade на (student_id, academic_year) теперь берётся из самого позднего по дате результата. Применена вручную на проде до пуша (см. commit) — прод был в проде неработоспособен |
 
 Обновлять таблицу при добавлении новых файлов.
