@@ -4,7 +4,7 @@ import { SchoolUseCase } from "../usecases/school.usecase";
 import { SchoolServicePg } from "../services/school.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatarPg, removeEntityAvatarPg, canManageAvatar } from "../utils/avatar.util";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 
 export class SchoolController {
@@ -107,6 +107,32 @@ export class SchoolController {
         }
     }
 
+    /**
+     * Самостоятельное редактирование ПРОФИЛЯ школы (description/history) — не полный updateSchool.
+     * Доступно admin/superadmin ИЛИ владельцу (schoolDirector своей школы), в отличие от полного
+     * PUT /:id (только admin/superadmin/moderator, см. routes). Контроллер сам вырезает из тела
+     * запроса только description/history — остальные поля (code/active/districtId/...) молча
+     * игнорируются, даже если клиент их пришлёт, это и есть граница безопасности этого эндпоинта.
+     */
+    updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+
+            if (!canManageOwnEntity(req.user?.role, req.user?.schoolId, id)) {
+                res.status(403).json(ResponseHandler.error('Yalnız öz məktəbinizin profilini redaktə edə bilərsiniz'));
+                return;
+            }
+
+            const { description, history } = req.body;
+            const changedByUserId = parseInt(req.user!.userId, 10);
+            const { school } = await this.schoolUseCase.updateSchool(id, { description, history }, changedByUserId);
+
+            res.json(ResponseHandler.updated(school, 'Profil uğurla yeniləndi'));
+        } catch (error) {
+            next(error);
+        }
+    }
+
     deleteSchool = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
@@ -181,7 +207,7 @@ export class SchoolController {
         try {
             const { id } = req.params;
 
-            if (!canManageAvatar(req.user?.role, req.user?.schoolId, id)) {
+            if (!canManageOwnEntity(req.user?.role, req.user?.schoolId, id)) {
                 if (req.file) fs.unlinkSync(req.file.path);
                 res.status(403).json(ResponseHandler.error('Yalnız öz məktəbinizin fotosunu dəyişə bilərsiniz'));
                 return;
@@ -209,7 +235,7 @@ export class SchoolController {
         try {
             const { id } = req.params;
 
-            if (!canManageAvatar(req.user?.role, req.user?.schoolId, id)) {
+            if (!canManageOwnEntity(req.user?.role, req.user?.schoolId, id)) {
                 res.status(403).json(ResponseHandler.error('Yalnız öz məktəbinizin fotosunu dəyişə bilərsiniz'));
                 return;
             }
@@ -248,6 +274,7 @@ export const getSchoolById = schoolController.getSchoolById;
 export const getSchoolByCode = schoolController.getSchoolByCode;
 export const createSchool = schoolController.createSchool;
 export const updateSchool = schoolController.updateSchool;
+export const updateSchoolProfile = schoolController.updateProfile;
 export const deleteSchool = schoolController.deleteSchool;
 export const deleteSchools = schoolController.deleteSchools;
 export const processSchoolsFromExcel = schoolController.processSchoolsFromExcel;

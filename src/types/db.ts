@@ -124,7 +124,9 @@ export interface Schools {
   address: string | null;
   avatar_url: string | null;
   code: number;
+  description: string | null;
   district_id: number;
+  history: string | null;
   id: Generated<number>;
   legacy_mongo_id: string | null;
   name: string;
@@ -215,6 +217,7 @@ export interface Subjects {
 export interface Teachers {
   active: Generated<boolean>;
   avatar_url: string | null;
+  biography: string | null;
   code: number;
   district_id: number | null;
   fullname: string;

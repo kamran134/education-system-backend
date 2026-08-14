@@ -4,7 +4,7 @@ import { DistrictUseCase } from "../usecases/district.usecase";
 import { DistrictServicePg } from "../services/district.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatarPg, removeEntityAvatarPg, canManageAvatar } from "../utils/avatar.util";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 
 export class DistrictController {
@@ -156,7 +156,7 @@ export class DistrictController {
         try {
             const { id } = req.params;
 
-            if (!canManageAvatar(req.user?.role, req.user?.districtId, id)) {
+            if (!canManageOwnEntity(req.user?.role, req.user?.districtId, id)) {
                 if (req.file) fs.unlinkSync(req.file.path);
                 res.status(403).json(ResponseHandler.error('Yalnız öz rayonunuzun fotosunu dəyişə bilərsiniz'));
                 return;
@@ -184,7 +184,7 @@ export class DistrictController {
         try {
             const { id } = req.params;
 
-            if (!canManageAvatar(req.user?.role, req.user?.districtId, id)) {
+            if (!canManageOwnEntity(req.user?.role, req.user?.districtId, id)) {
                 res.status(403).json(ResponseHandler.error('Yalnız öz rayonunuzun fotosunu dəyişə bilərsiniz'));
                 return;
             }

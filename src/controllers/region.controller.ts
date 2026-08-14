@@ -4,7 +4,7 @@ import { RegionUseCase } from "../usecases/region.usecase";
 import { RegionServicePg } from "../services/region.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatarPg, removeEntityAvatarPg, canManageAvatar } from "../utils/avatar.util";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity } from "../utils/avatar.util";
 
 export class RegionController {
     private regionUseCase: RegionUseCase;
@@ -113,7 +113,7 @@ export class RegionController {
         try {
             const { id } = req.params;
 
-            if (!canManageAvatar(req.user?.role, req.user?.regionId, id)) {
+            if (!canManageOwnEntity(req.user?.role, req.user?.regionId, id)) {
                 if (req.file) fs.unlinkSync(req.file.path);
                 res.status(403).json(ResponseHandler.error('Yalnız öz regional idarənizin fotosunu dəyişə bilərsiniz'));
                 return;
@@ -141,7 +141,7 @@ export class RegionController {
         try {
             const { id } = req.params;
 
-            if (!canManageAvatar(req.user?.role, req.user?.regionId, id)) {
+            if (!canManageOwnEntity(req.user?.role, req.user?.regionId, id)) {
                 res.status(403).json(ResponseHandler.error('Yalnız öz regional idarənizin fotosunu dəyişə bilərsiniz'));
                 return;
             }

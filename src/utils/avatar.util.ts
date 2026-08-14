@@ -104,10 +104,13 @@ export async function removeEntityAvatar<T extends HasAvatar>(
 }
 
 /**
- * superadmin/admin управляют аватаркой любой сущности; владелец (учитель/школа/район,
- * привязанный к своему teacherId/schoolId/districtId в JWT) — только своей.
+ * superadmin/admin управляют любой сущностью; владелец (учитель/школа/район/регион,
+ * привязанный к своему teacherId/schoolId/districtId/regionId в JWT) — только своей.
+ * Изначально писалась только для аватарки (см. имя файла), но логика ролевой проверки
+ * не специфична для аватаров — переиспользуется и для самостоятельного редактирования
+ * текстовых полей профиля (description/history/biography).
  */
-export function canManageAvatar(role: string | undefined, ownEntityId: string | undefined, targetId: string): boolean {
+export function canManageOwnEntity(role: string | undefined, ownEntityId: string | undefined, targetId: string): boolean {
     if (role === 'superadmin' || role === 'admin') {
         return true;
     }

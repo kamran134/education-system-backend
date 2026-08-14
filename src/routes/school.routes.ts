@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import { createAllSchools, createSchool, deleteSchool, deleteSchools, getSchoolById, getSchools, getSchoolsForFilter, repairSchools, updateSchool, updateSchoolsStats, importLegacySchools, uploadSchoolAvatar, deleteSchoolAvatar } from "../controllers/school.controller";
+import { createAllSchools, createSchool, deleteSchool, deleteSchools, getSchoolById, getSchools, getSchoolsForFilter, repairSchools, updateSchool, updateSchoolProfile, updateSchoolsStats, importLegacySchools, uploadSchoolAvatar, deleteSchoolAvatar } from "../controllers/school.controller";
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 import { schoolAvatarUpload } from "../config/multer";
 
@@ -21,6 +21,8 @@ router.route("/:id")
 router.route("/:id/avatar")
     .post(authMiddleware([]), schoolAvatarUpload.single('avatar'), uploadSchoolAvatar) // owner or admin, checked in controller
     .delete(authMiddleware([]), deleteSchoolAvatar);
+router.route("/:id/profile")
+    .patch(authMiddleware([]), updateSchoolProfile); // owner (schoolDirector) or admin, checked in controller
 router.route("/update-stats")
     .post(authMiddleware(["superadmin", "admin"]), updateSchoolsStats);
 

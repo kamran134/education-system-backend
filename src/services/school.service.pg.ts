@@ -28,6 +28,8 @@ export interface School {
     code: number;
     name: string;
     address: string | null;
+    description: string | null;
+    history: string | null;
     districtId: number;
     districtCode: number | null; // денормализация Mongo (school.districtCode) — здесь вычисляется джойном, не хранится
     district: DistrictSummary | null;
@@ -49,6 +51,8 @@ export interface SchoolCreate {
     code: number;
     name: string;
     address?: string | null;
+    description?: string | null;
+    history?: string | null;
     districtId: number;
     studentCount?: number;
     status?: string;
@@ -57,7 +61,8 @@ export interface SchoolCreate {
 }
 
 type SchoolRow = {
-    id: number; code: number; name: string; address: string | null; district_id: number;
+    id: number; code: number; name: string; address: string | null;
+    description: string | null; history: string | null; district_id: number;
     student_count: number | null; status: string | null; school_of_the_year_score: number | null;
     active: boolean; avatar_url: string | null;
 };
@@ -93,6 +98,8 @@ export class SchoolServicePg {
                 code: data.code,
                 name: data.name,
                 address: data.address ?? null,
+                description: data.description ?? null,
+                history: data.history ?? null,
                 district_id: data.districtId,
                 student_count: data.studentCount ?? null,
                 status: data.status ?? null,
@@ -109,6 +116,8 @@ export class SchoolServicePg {
             ...(data.code !== undefined && { code: data.code }),
             ...(data.name !== undefined && { name: data.name }),
             ...(data.address !== undefined && { address: data.address }),
+            ...(data.description !== undefined && { description: data.description }),
+            ...(data.history !== undefined && { history: data.history }),
             ...(data.districtId !== undefined && { district_id: data.districtId }),
             ...(data.studentCount !== undefined && { student_count: data.studentCount }),
             ...(data.status !== undefined && { status: data.status }),
@@ -442,6 +451,7 @@ export class SchoolServicePg {
             const district = districtById.get(row.district_id) ?? null;
             return {
                 id: row.id, code: row.code, name: row.name, address: row.address,
+                description: row.description, history: row.history,
                 districtId: row.district_id, districtCode: district?.code ?? null,
                 district: district ? { id: district.id, code: district.code, name: district.name } : null,
                 studentCount: row.student_count, status: row.status,

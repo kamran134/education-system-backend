@@ -4,7 +4,7 @@ import { TeacherUseCase } from "../usecases/teacher.usecase";
 import { TeacherServicePg } from "../services/teacher.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatarPg, removeEntityAvatarPg, canManageAvatar } from "../utils/avatar.util";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 
 export class TeacherController {
@@ -97,6 +97,30 @@ export class TeacherController {
         }
     }
 
+    /**
+     * Самостоятельное редактирование ПРОФИЛЯ учителя (biography) — не полный updateTeacher.
+     * См. комментарий у SchoolController.updateProfile — тот же паттерн: admin/superadmin ИЛИ
+     * владелец (учитель своей записи), тело запроса урезается до biography на уровне контроллера.
+     */
+    updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+
+            if (!canManageOwnEntity(req.user?.role, req.user?.teacherId, id)) {
+                res.status(403).json(ResponseHandler.error('Yalnız öz profilinizi redaktə edə bilərsiniz'));
+                return;
+            }
+
+            const { biography } = req.body;
+            const changedByUserId = parseInt(req.user!.userId, 10);
+            const { teacher } = await this.teacherUseCase.updateTeacher(id, { biography }, changedByUserId);
+
+            res.json(ResponseHandler.updated(teacher, 'Profil uğurla yeniləndi'));
+        } catch (error) {
+            next(error);
+        }
+    }
+
     deleteTeacher = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
@@ -180,7 +204,7 @@ export class TeacherController {
         try {
             const { id } = req.params;
 
-            if (!canManageAvatar(req.user?.role, req.user?.teacherId, id)) {
+            if (!canManageOwnEntity(req.user?.role, req.user?.teacherId, id)) {
                 if (req.file) fs.unlinkSync(req.file.path);
                 res.status(403).json(ResponseHandler.error('Yalnız öz fotonuzu dəyişə bilərsiniz'));
                 return;
@@ -208,7 +232,7 @@ export class TeacherController {
         try {
             const { id } = req.params;
 
-            if (!canManageAvatar(req.user?.role, req.user?.teacherId, id)) {
+            if (!canManageOwnEntity(req.user?.role, req.user?.teacherId, id)) {
                 res.status(403).json(ResponseHandler.error('Yalnız öz fotonuzu dəyişə bilərsiniz'));
                 return;
             }
@@ -235,6 +259,7 @@ export const getTeachersForFilter = teacherController.getTeachersForFilter;
 export const getTeacherById = teacherController.getTeacherById;
 export const createTeacher = teacherController.createTeacher;
 export const updateTeacher = teacherController.updateTeacher;
+export const updateTeacherProfile = teacherController.updateProfile;
 export const deleteTeacher = teacherController.deleteTeacher;
 export const deleteTeachers = teacherController.deleteTeachers;
 export const createAllTeachers = teacherController.processTeachersFromExcel;

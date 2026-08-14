@@ -27,6 +27,7 @@ export interface Teacher {
     id: number;
     code: number;
     fullname: string;
+    biography: string | null;
     schoolId: number | null;
     districtId: number | null;
     school: EntitySummary | null;
@@ -46,6 +47,7 @@ export interface Teacher {
 export interface TeacherCreate {
     code: number;
     fullname: string;
+    biography?: string | null;
     schoolId?: number | null;
     districtId?: number | null;
     studentCount?: number;
@@ -55,7 +57,8 @@ export interface TeacherCreate {
 }
 
 type TeacherRow = {
-    id: number; code: number; fullname: string; school_id: number | null; district_id: number | null;
+    id: number; code: number; fullname: string; biography: string | null;
+    school_id: number | null; district_id: number | null;
     student_count: number | null; status: string | null; teacher_of_the_year_score: number | null;
     active: boolean; avatar_url: string | null;
 };
@@ -84,6 +87,7 @@ export class TeacherServicePg {
             .values({
                 code: data.code,
                 fullname: data.fullname,
+                biography: data.biography ?? null,
                 school_id: data.schoolId ?? null,
                 district_id: data.districtId ?? null,
                 student_count: data.studentCount ?? null,
@@ -100,6 +104,7 @@ export class TeacherServicePg {
         return {
             ...(data.code !== undefined && { code: data.code }),
             ...(data.fullname !== undefined && { fullname: data.fullname }),
+            ...(data.biography !== undefined && { biography: data.biography }),
             ...(data.schoolId !== undefined && { school_id: data.schoolId }),
             ...(data.districtId !== undefined && { district_id: data.districtId }),
             ...(data.studentCount !== undefined && { student_count: data.studentCount }),
@@ -481,7 +486,7 @@ export class TeacherServicePg {
             const school = row.school_id !== null ? schoolById.get(row.school_id) : undefined;
             const district = row.district_id !== null ? districtById.get(row.district_id) : undefined;
             return {
-                id: row.id, code: row.code, fullname: row.fullname,
+                id: row.id, code: row.code, fullname: row.fullname, biography: row.biography,
                 schoolId: row.school_id, districtId: row.district_id,
                 school: school ? { id: school.id, code: school.code, name: school.name } : null,
                 district: district ? { id: district.id, code: district.code, name: district.name } : null,

@@ -52,6 +52,8 @@ CREATE TABLE schools (
     code                      bigint  NOT NULL UNIQUE,            -- 5 знаков = district*100 + nn
     name                      text    NOT NULL,
     address                   text,
+    description               text,   -- профиль школы (010_school_teacher_profile_text_fields.sql)
+    history                   text,   -- профиль школы, то же
     district_id               bigint  NOT NULL REFERENCES districts(id),
     student_count             int,
     status                    text,
@@ -67,6 +69,7 @@ CREATE TABLE teachers (
     id                         bigserial PRIMARY KEY,
     code                       bigint  NOT NULL UNIQUE,           -- 7 знаков = school*100 + nn
     fullname                   text    NOT NULL,
+    biography                  text,   -- профиль учителя (010_school_teacher_profile_text_fields.sql)
     school_id                  bigint  REFERENCES schools(id),    -- NULL допустим: в проде 2 учителя без школы
     district_id                bigint  REFERENCES districts(id),
     student_count              int,                               -- ВАЖНО: именно на него делится average_score (см. views)
