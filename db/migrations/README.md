@@ -73,5 +73,6 @@ Postgres сам откатит незавершённую транзакцию. 
 | `009_student_year_scores_single_grade.sql` | Инцидент сразу после 008: у части учеников `grade` расходится внутри одного `academic_year` (реальная грязь в данных) — `GROUP BY sr.grade` размножал строки, `INSERT` в `student_year_ratings` падал на PK, таблица осталась пустой. Один grade на (student_id, academic_year) теперь берётся из самого позднего по дате результата. Применена вручную на проде до пуша (см. commit) — прод был в проде неработоспособен |
 | `010_school_teacher_profile_text_fields.sql` | `schools.description`/`schools.history`, `teachers.biography` — свободные текстовые поля для профиля школы/учителя, первый шаг набора по просьбе заказчика |
 | `011_certificates.sql` | Именные сертификаты (`CERTIFICATES_TASK.md`): `certificate_templates` (картинка шаблона + раскладка полей `fields` jsonb, редактируется визуальным конструктором в админке), `issued_certificates` (снапшот на момент выдачи — школа/учитель не историчны в схеме, статистика пересчитывается задним числом), `certificate_serial_seq` для человекочитаемого номера |
+| `012_profile_fields.sql` | Переделка профильных страниц (`PROFILES_TASK.md`): `teachers.pedagogical_start_year`/`achievements`, `schools.director_name`/`founded_year`/`achievements`, `districts.education_head_name` |
 
 Обновлять таблицу при добавлении новых файлов.

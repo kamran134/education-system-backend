@@ -94,6 +94,30 @@ export class DistrictController {
         }
     }
 
+    /**
+     * Самостоятельное редактирование ПРОФИЛЯ района (educationHeadName, PROFILES_TASK.md §2.3) —
+     * не полный updateDistrict. Доступно admin/superadmin ИЛИ владельцу (districtRepresenter
+     * своего района), в отличие от полного PUT /:id (только admin/superadmin/moderator, см.
+     * routes). Тот же паттерн, что SchoolController.updateProfile / TeacherController.updateProfile.
+     */
+    updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+
+            if (!canManageOwnEntity(req.user?.role, req.user?.districtId, id)) {
+                res.status(403).json(ResponseHandler.error('Yalnız öz rayonunuzun profilini redaktə edə bilərsiniz'));
+                return;
+            }
+
+            const { educationHeadName } = req.body;
+            const district = await this.districtUseCase.updateDistrictProfile(id, { educationHeadName });
+
+            res.json(ResponseHandler.updated(district, 'Profil uğurla yeniləndi'));
+        } catch (error) {
+            next(error);
+        }
+    }
+
     deleteDistrict = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
@@ -213,6 +237,7 @@ export const getDistrictById = districtController.getDistrictById;
 export const updateDistrictsStats = districtController.updateDistrictsStats;
 export const createDistrict = districtController.createDistrict;
 export const updateDistrict = districtController.updateDistrict;
+export const updateDistrictProfile = districtController.updateProfile;
 export const deleteDistrict = districtController.deleteDistrict;
 export const deleteDistricts = districtController.deleteDistricts;
 export const processDistrictsFromExcel = districtController.processDistrictsFromExcel;

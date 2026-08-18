@@ -105,6 +105,28 @@ export class TeacherUseCase {
         return await this.teacherService.update(parseInt(id, 10), updateData, changedByUserId);
     }
 
+    /**
+     * Самостоятельное редактирование профиля (biography/pedagogicalStartYear/achievements) —
+     * PROFILES_TASK.md §2.3. Не проходит через полный updateTeacher: не трогает code, поэтому
+     * changedByUserId нужен только на случай сигнатуры teacherService.update, каскад кода не
+     * запускается (codeChanging всегда false для этого набора полей).
+     */
+    async updateTeacherProfile(id: string, data: { biography?: string | null; pedagogicalStartYear?: number | null; achievements?: string | null }, changedByUserId: number): Promise<{ teacher: Teacher; cascadedStudentsCount: number }> {
+        const validation = ValidationUtils.combine([
+            ValidationUtils.validateRequired(id, 'Teacher ID'),
+            ValidationUtils.validateId(id, 'Teacher ID'),
+            data.pedagogicalStartYear != null
+                ? ValidationUtils.validateNumber(data.pedagogicalStartYear, 'Pedaqoji stajın başlanğıc ili', 1950, new Date().getFullYear())
+                : null,
+        ]);
+
+        if (!validation.isValid) {
+            throw new Error(validation.errors.join(', '));
+        }
+
+        return await this.teacherService.update(parseInt(id, 10), data, changedByUserId);
+    }
+
     async deleteTeacher(id: string): Promise<void> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Teacher ID'),

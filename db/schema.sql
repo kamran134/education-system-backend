@@ -44,6 +44,7 @@ CREATE TABLE districts (
     district_of_the_year_score  double precision DEFAULT 0,
     active                      boolean NOT NULL DEFAULT true,
     avatar_url                  text,
+    education_head_name         text,   -- профиль района (012_profile_fields.sql)
     legacy_mongo_id             text UNIQUE
 );
 
@@ -54,6 +55,9 @@ CREATE TABLE schools (
     address                   text,
     description               text,   -- профиль школы (010_school_teacher_profile_text_fields.sql)
     history                   text,   -- профиль школы, то же
+    director_name             text,   -- профиль школы (012_profile_fields.sql)
+    founded_year              int CHECK (founded_year BETWEEN 1800 AND 2100),   -- профиль школы, то же
+    achievements              text,   -- профиль школы, то же
     district_id               bigint  NOT NULL REFERENCES districts(id),
     student_count             int,
     status                    text,
@@ -70,6 +74,8 @@ CREATE TABLE teachers (
     code                       bigint  NOT NULL UNIQUE,           -- 7 знаков = school*100 + nn
     fullname                   text    NOT NULL,
     biography                  text,   -- профиль учителя (010_school_teacher_profile_text_fields.sql)
+    pedagogical_start_year     int CHECK (pedagogical_start_year BETWEEN 1950 AND 2100),   -- профиль учителя (012_profile_fields.sql)
+    achievements               text,   -- профиль учителя, то же
     school_id                  bigint  REFERENCES schools(id),    -- NULL допустим: в проде 2 учителя без школы
     district_id                bigint  REFERENCES districts(id),
     student_count              int,                               -- ВАЖНО: именно на него делится average_score (см. views)

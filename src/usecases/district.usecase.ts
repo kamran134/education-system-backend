@@ -74,6 +74,21 @@ export class DistrictUseCase {
         return await this.districtService.update(parseInt(id, 10), updateData);
     }
 
+    /**
+     * Самостоятельное редактирование профиля (educationHeadName) — PROFILES_TASK.md §2.3.
+     * Первый профильный PATCH для района — раньше у districtRepresenter не было self-service
+     * редактирования вообще (только аватар). Не проходит через полный updateDistrict: не трогает
+     * code/regionId, ни одна из тамошних проверок здесь не нужна.
+     */
+    async updateDistrictProfile(id: string, data: { educationHeadName?: string | null }): Promise<District> {
+        const validationError = ValidationUtils.validateId(id, 'District ID');
+        if (validationError) {
+            throw new Error(validationError);
+        }
+
+        return await this.districtService.update(parseInt(id, 10), data);
+    }
+
     async deleteDistrict(id: string): Promise<void> {
         const validationError = ValidationUtils.validateId(id, 'District ID');
         if (validationError) {

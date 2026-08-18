@@ -42,6 +42,14 @@ export interface Teacher {
     place: number | null;
     districtPlace: number | null;
     ratings: YearRatingRow[];
+    // Только у findById (профильная страница, PROFILES_TASK.md §2.2) — не считаются в списках,
+    // это был бы N+1 по всем строкам. actualStudentCount != studentCount намеренно: studentCount —
+    // сохранённый делитель среднего балла (см. комментарий у колонки в db/schema.sql), его
+    // подменять живым count нельзя, иначе средние баллы молча разъедутся.
+    actualStudentCount?: number;
+    grades?: number[];
+    pedagogicalStartYear?: number | null;
+    achievements?: string | null;
 }
 
 export interface TeacherCreate {
@@ -54,6 +62,8 @@ export interface TeacherCreate {
     status?: string;
     teacherOfTheYearScore?: number;
     active?: boolean;
+    pedagogicalStartYear?: number | null;
+    achievements?: string | null;
 }
 
 type TeacherRow = {
@@ -61,6 +71,7 @@ type TeacherRow = {
     school_id: number | null; district_id: number | null;
     student_count: number | null; status: string | null; teacher_of_the_year_score: number | null;
     active: boolean; avatar_url: string | null;
+    pedagogical_start_year: number | null; achievements: string | null;
 };
 
 /** Postgres-версия TeacherService. См. district/school.service.pg.ts для общих решений. */
@@ -72,7 +83,8 @@ export class TeacherServicePg {
     async findById(id: number): Promise<Teacher | null> {
         const row = await pg.selectFrom("teachers").selectAll().where("id", "=", id).executeTakeFirst();
         if (!row) return null;
-        return (await this.attachExtras([row]))[0];
+        const teacher = (await this.attachExtras([row]))[0];
+        return await this.attachProfileCounts(teacher);
     }
 
     async findByCode(code: number): Promise<Teacher | null> {
@@ -111,6 +123,8 @@ export class TeacherServicePg {
             ...(data.status !== undefined && { status: data.status }),
             ...(data.teacherOfTheYearScore !== undefined && { teacher_of_the_year_score: data.teacherOfTheYearScore }),
             ...(data.active !== undefined && { active: data.active }),
+            ...(data.pedagogicalStartYear !== undefined && { pedagogical_start_year: data.pedagogicalStartYear }),
+            ...(data.achievements !== undefined && { achievements: data.achievements }),
         };
     }
 
@@ -495,8 +509,20 @@ export class TeacherServicePg {
                 score: current?.score ?? null, averageScore: current?.averageScore ?? null,
                 place: current?.place ?? null, districtPlace: current?.districtPlace ?? null,
                 ratings,
+                pedagogicalStartYear: row.pedagogical_start_year, achievements: row.achievements,
             };
         });
+    }
+
+    /**
+     * Только для профильной страницы (findById) — не вызывается из списков, чтобы не превратиться
+     * в N+1 по всем строкам. actualStudentCount — живой count, НЕ то же самое, что studentCount
+     * (сохранённый делитель среднего балла, см. комментарий у Teacher.actualStudentCount выше).
+     */
+    private async attachProfileCounts(teacher: Teacher): Promise<Teacher> {
+        const students = await pg.selectFrom("students").select(["grade"]).where("teacher_id", "=", teacher.id).execute();
+        const grades = [...new Set(students.map((s) => s.grade).filter((g): g is number => g !== null))].sort((a, b) => a - b);
+        return { ...teacher, actualStudentCount: students.length, grades };
     }
 }
 

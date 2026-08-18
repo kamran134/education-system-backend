@@ -14,6 +14,16 @@ function getCurrentAcademicYear(): number {
  * Применяет RBAC: перезаписывает фильтры на основе роли JWT-пользователя.
  * regionRepresenter разворачивается в districtIds своего региона — тот же паттерн,
  * что и в остальных 11 сайтах role-скоупинга (см. utils/region-scope.util.ts).
+ *
+ * Скоуп роли только НАВЯЗЫВАЕТСЯ, более узкие фильтры на уровнях НИЖЕ скоупа не удаляются
+ * (PROFILES_TASK.md §2.4). Раньше здесь удалялись все прочие фильтры, включая более узкие —
+ * из-за этого директор школы, открывший профиль СВОЕГО учителя, видел в блоке статистики
+ * профиля цифры всей школы вместо цифр учителя (без ошибки, просто неверные числа). Условия
+ * в statistics.service.pg.ts соединяются через AND, поэтому, например,
+ * `school_id = <школа директора> AND teacher_id = <запрошенный>` безопасен сам по себе:
+ * чужой учитель просто даёт пустую выборку, утечки данных нет. Удаляются только фильтры ВЫШЕ
+ * или ВНЕ скоупа роли — они были бы способом обойти скоуп (например, districtDirector,
+ * подставив чужой districtIds).
  */
 async function applyRbacFilters(req: Request, filters: StatisticsFilterPg): Promise<void> {
     const user = req.user;
@@ -27,6 +37,7 @@ async function applyRbacFilters(req: Request, filters: StatisticsFilterPg): Prom
     }
 
     if (user.role === 'teacher' && user.teacherId) {
+        // Учитель — самый узкий скоуп, сужать дальше некуда.
         filters.teacherIds = [parseInt(user.teacherId, 10)];
         delete filters.districtIds;
         delete filters.schoolIds;
@@ -34,18 +45,16 @@ async function applyRbacFilters(req: Request, filters: StatisticsFilterPg): Prom
     } else if (user.role === 'schoolDirector' && user.schoolId) {
         filters.schoolIds = [parseInt(user.schoolId, 10)];
         delete filters.districtIds;
-        delete filters.teacherIds;
         delete filters.regionIds;
+        // teacherIds НЕ удаляем: AND со schoolIds уже ограничивает выборку своей школой.
     } else if (user.role === 'districtRepresenter' && user.districtId) {
         filters.districtIds = [parseInt(user.districtId, 10)];
-        delete filters.schoolIds;
-        delete filters.teacherIds;
         delete filters.regionIds;
+        // schoolIds/teacherIds НЕ удаляем — та же причина, ограничены districtIds через AND.
     } else if (user.role === 'regionRepresenter' && user.regionId) {
         filters.districtIds = await districtIdsOfRegion(parseInt(user.regionId, 10));
-        delete filters.schoolIds;
-        delete filters.teacherIds;
         delete filters.regionIds;
+        // schoolIds/teacherIds НЕ удаляем — та же причина, ограничены districtIds через AND.
     }
 }
 

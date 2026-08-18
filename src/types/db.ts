@@ -53,6 +53,7 @@ export interface Districts {
   avatar_url: string | null;
   code: number;
   district_of_the_year_score: Generated<number | null>;
+  education_head_name: string | null;
   id: Generated<number>;
   legacy_mongo_id: string | null;
   name: string;
@@ -155,12 +156,15 @@ export interface Levels {
 }
 
 export interface Schools {
+  achievements: string | null;
   active: Generated<boolean>;
   address: string | null;
   avatar_url: string | null;
   code: number;
   description: string | null;
+  director_name: string | null;
   district_id: number;
+  founded_year: number | null;
   history: string | null;
   id: Generated<number>;
   legacy_mongo_id: string | null;
@@ -250,6 +254,7 @@ export interface Subjects {
 }
 
 export interface Teachers {
+  achievements: string | null;
   active: Generated<boolean>;
   avatar_url: string | null;
   biography: string | null;
@@ -258,6 +263,7 @@ export interface Teachers {
   fullname: string;
   id: Generated<number>;
   legacy_mongo_id: string | null;
+  pedagogical_start_year: number | null;
   school_id: number | null;
   status: string | null;
   student_count: number | null;

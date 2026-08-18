@@ -128,6 +128,27 @@ export class SchoolUseCase {
         return await this.schoolService.update(parseInt(id, 10), updateData, changedByUserId);
     }
 
+    /**
+     * Самостоятельное редактирование профиля (description/history/directorName/foundedYear/
+     * achievements) — PROFILES_TASK.md §2.3. Не проходит через полный updateSchool: не трогает
+     * code, каскад кода не запускается.
+     */
+    async updateSchoolProfile(id: string, data: { description?: string | null; history?: string | null; directorName?: string | null; foundedYear?: number | null; achievements?: string | null }, changedByUserId: number): Promise<{ school: School; cascadedTeachersCount: number; cascadedStudentsCount: number }> {
+        const validation = ValidationUtils.combine([
+            ValidationUtils.validateRequired(id, 'School ID'),
+            ValidationUtils.validateId(id, 'School ID'),
+            data.foundedYear != null
+                ? ValidationUtils.validateNumber(data.foundedYear, 'Məktəbin yaranma tarixi', 1800, new Date().getFullYear())
+                : null,
+        ]);
+
+        if (!validation.isValid) {
+            throw new Error(validation.errors.join(', '));
+        }
+
+        return await this.schoolService.update(parseInt(id, 10), data, changedByUserId);
+    }
+
     async deleteSchool(id: string): Promise<void> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'School ID'),

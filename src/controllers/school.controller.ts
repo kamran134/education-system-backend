@@ -108,11 +108,12 @@ export class SchoolController {
     }
 
     /**
-     * Самостоятельное редактирование ПРОФИЛЯ школы (description/history) — не полный updateSchool.
-     * Доступно admin/superadmin ИЛИ владельцу (schoolDirector своей школы), в отличие от полного
-     * PUT /:id (только admin/superadmin/moderator, см. routes). Контроллер сам вырезает из тела
-     * запроса только description/history — остальные поля (code/active/districtId/...) молча
-     * игнорируются, даже если клиент их пришлёт, это и есть граница безопасности этого эндпоинта.
+     * Самостоятельное редактирование ПРОФИЛЯ школы (description/history/directorName/foundedYear/
+     * achievements, PROFILES_TASK.md §2.3) — не полный updateSchool. Доступно admin/superadmin
+     * ИЛИ владельцу (schoolDirector своей школы), в отличие от полного PUT /:id (только
+     * admin/superadmin/moderator, см. routes). Контроллер сам вырезает из тела запроса только
+     * эти пять полей — остальные (code/active/districtId/...) молча игнорируются, даже если
+     * клиент их пришлёт, это и есть граница безопасности этого эндпоинта.
      */
     updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
@@ -123,9 +124,9 @@ export class SchoolController {
                 return;
             }
 
-            const { description, history } = req.body;
+            const { description, history, directorName, foundedYear, achievements } = req.body;
             const changedByUserId = parseInt(req.user!.userId, 10);
-            const { school } = await this.schoolUseCase.updateSchool(id, { description, history }, changedByUserId);
+            const { school } = await this.schoolUseCase.updateSchoolProfile(id, { description, history, directorName, foundedYear, achievements }, changedByUserId);
 
             res.json(ResponseHandler.updated(school, 'Profil uğurla yeniləndi'));
         } catch (error) {

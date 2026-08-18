@@ -26,6 +26,18 @@ export interface District {
     active: boolean;
     avatarUrl: string | null;
     ratings: YearRatingRow[];
+    educationHeadName: string | null;
+    // Только у findById (профильная страница, PROFILES_TASK.md §2.2) — не считаются в списках,
+    // это был бы N+1 по всем строкам. actualStudentCount != studentCount намеренно: studentCount —
+    // сохранённый делитель среднего балла, подменять его живым count нельзя.
+    schoolCount?: number;
+    teacherCount?: number;
+    actualStudentCount?: number;
+    // Плоские поля текущего года — для паритета с Teacher/School (там есть, здесь раньше не было,
+    // только ratings[]). Считаются из того же ratings[], не отдельным запросом.
+    score?: number | null;
+    averageScore?: number | null;
+    place?: number | null;
 }
 
 export interface DistrictCreate {
@@ -36,6 +48,7 @@ export interface DistrictCreate {
     rate?: number;
     districtOfTheYearScore?: number;
     active?: boolean;
+    educationHeadName?: string | null;
 }
 
 /**
@@ -63,7 +76,8 @@ export class DistrictServicePg {
     async findById(id: number): Promise<District | null> {
         const row = await pg.selectFrom("districts").selectAll().where("id", "=", id).executeTakeFirst();
         if (!row) return null;
-        return await this.attachRatings(row);
+        const district = await this.attachRatings(row);
+        return await this.attachProfileCounts(district);
     }
 
     async findByCode(code: number): Promise<District | null> {
@@ -83,6 +97,7 @@ export class DistrictServicePg {
                 rate: data.rate ?? null,
                 district_of_the_year_score: data.districtOfTheYearScore ?? 0,
                 active: data.active ?? true,
+                education_head_name: data.educationHeadName ?? null,
             })
             .returningAll()
             .executeTakeFirstOrThrow();
@@ -100,6 +115,7 @@ export class DistrictServicePg {
                 ...(data.rate !== undefined && { rate: data.rate }),
                 ...(data.districtOfTheYearScore !== undefined && { district_of_the_year_score: data.districtOfTheYearScore }),
                 ...(data.active !== undefined && { active: data.active }),
+                ...(data.educationHeadName !== undefined && { education_head_name: data.educationHeadName }),
             })
             .where("id", "=", id)
             .returningAll()
@@ -298,7 +314,7 @@ export class DistrictServicePg {
         return { column: map[column] ?? "name", needsRatingJoin: false };
     }
 
-    private async attachRatings(row: { id: number; code: number; name: string; region_id: number | null; student_count: number | null; rate: number | null; district_of_the_year_score: number | null; active: boolean; avatar_url: string | null }): Promise<District> {
+    private async attachRatings(row: { id: number; code: number; name: string; region_id: number | null; student_count: number | null; rate: number | null; district_of_the_year_score: number | null; active: boolean; avatar_url: string | null; education_head_name: string | null }): Promise<District> {
         const [ratingRows, region] = await Promise.all([
             pg
                 .selectFrom("district_year_ratings")
@@ -322,7 +338,35 @@ export class DistrictServicePg {
             districtOfTheYearScore: row.district_of_the_year_score,
             active: row.active,
             avatarUrl: row.avatar_url,
+            educationHeadName: row.education_head_name,
             ratings: ratingRows.map((r) => ({ year: r.year, score: r.score, averageScore: r.average_score, place: r.place })),
+        };
+    }
+
+    /**
+     * Только для профильной страницы (findById) — не вызывается из списков, чтобы не превратиться
+     * в N+1 по всем строкам. actualStudentCount — живой count, НЕ то же самое, что studentCount
+     * (сохранённый делитель среднего балла). score/averageScore/place берутся из ratings[] текущего
+     * года — паритет с Teacher/School, там эти плоские поля уже есть.
+     */
+    private async attachProfileCounts(district: District): Promise<District> {
+        const currentYear = getCurrentAcademicYear();
+        const current = district.ratings.find((r) => r.year === currentYear);
+
+        const [schoolCountRow, teacherCountRow, studentCountRow] = await Promise.all([
+            pg.selectFrom("schools").select(({ fn }) => [fn.countAll().as("count")]).where("district_id", "=", district.id).where("active", "=", true).executeTakeFirstOrThrow(),
+            pg.selectFrom("teachers").select(({ fn }) => [fn.countAll().as("count")]).where("district_id", "=", district.id).where("active", "=", true).executeTakeFirstOrThrow(),
+            pg.selectFrom("students").select(({ fn }) => [fn.countAll().as("count")]).where("district_id", "=", district.id).executeTakeFirstOrThrow(),
+        ]);
+
+        return {
+            ...district,
+            schoolCount: Number(schoolCountRow.count),
+            teacherCount: Number(teacherCountRow.count),
+            actualStudentCount: Number(studentCountRow.count),
+            score: current?.score ?? null,
+            averageScore: current?.averageScore ?? null,
+            place: current?.place ?? null,
         };
     }
 }

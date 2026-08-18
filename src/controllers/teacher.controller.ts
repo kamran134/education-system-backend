@@ -98,9 +98,10 @@ export class TeacherController {
     }
 
     /**
-     * Самостоятельное редактирование ПРОФИЛЯ учителя (biography) — не полный updateTeacher.
-     * См. комментарий у SchoolController.updateProfile — тот же паттерн: admin/superadmin ИЛИ
-     * владелец (учитель своей записи), тело запроса урезается до biography на уровне контроллера.
+     * Самостоятельное редактирование ПРОФИЛЯ учителя (biography, pedaqoji stajın başlanğıc ili,
+     * uğurları — PROFILES_TASK.md §2.3) — не полный updateTeacher. См. комментарий у
+     * SchoolController.updateProfile — тот же паттерн: admin/superadmin ИЛИ владелец (учитель
+     * своей записи), тело запроса урезается до этих трёх полей на уровне контроллера.
      */
     updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
@@ -111,9 +112,9 @@ export class TeacherController {
                 return;
             }
 
-            const { biography } = req.body;
+            const { biography, pedagogicalStartYear, achievements } = req.body;
             const changedByUserId = parseInt(req.user!.userId, 10);
-            const { teacher } = await this.teacherUseCase.updateTeacher(id, { biography }, changedByUserId);
+            const { teacher } = await this.teacherUseCase.updateTeacherProfile(id, { biography, pedagogicalStartYear, achievements }, changedByUserId);
 
             res.json(ResponseHandler.updated(teacher, 'Profil uğurla yeniləndi'));
         } catch (error) {
