@@ -2,9 +2,11 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import sharp from "sharp";
+import { sql } from "kysely";
 import { pg } from "../config/pg";
 import { CertificateField } from "../types/certificate.types";
 import { defaultCertificateLayout } from "./certificate-default-layout";
+import { scaleLayout } from "./certificate-layout.util";
 
 export interface CertificateTemplate {
     id: number;
@@ -103,6 +105,25 @@ export class CertificateTemplateService {
         };
     }
 
+    /**
+     * Самый свежий настроенный шаблон той же награды — источник для автонаследования
+     * раскладки в create() (CERTIFICATE_LAYOUT_REUSE_TASK.md). Только тот же award_code:
+     * у разных наград (developing_student vs будущий student_of_the_month) разные картинки
+     * и разная вёрстка, координаты одной награды бессмысленны для другой.
+     */
+    private async findLayoutSource(awardCode: string): Promise<CertificateTemplate | null> {
+        const row = await pg
+            .selectFrom("certificate_templates")
+            .selectAll()
+            .where("award_code", "=", awardCode)
+            .where("active", "=", true)
+            .where(sql<boolean>`jsonb_array_length(fields) > 0`)
+            .orderBy("updated_at", "desc")
+            .limit(1)
+            .executeTakeFirst();
+        return row ? toTemplate(row) : null;
+    }
+
     async create(data: {
         awardCode: string;
         levelCode: string | null;
@@ -110,6 +131,16 @@ export class CertificateTemplateService {
         imageBuffer: Buffer;
     }): Promise<CertificateTemplate> {
         const { imagePath, width, height } = await this.saveImage(data.imageBuffer);
+
+        // Наследуем раскладку с самого свежего настроенного шаблона той же награды вместо
+        // заводской — админ, который уже довёл один шаблон до ума, не должен переделывать
+        // расстановку с нуля для каждого следующего. Заводская — только если наследовать
+        // не от кого (первый шаблон этой награды).
+        const source = await this.findLayoutSource(data.awardCode);
+        const fields = source
+            ? scaleLayout(source.fields, { width: source.imageWidth, height: source.imageHeight }, { width, height })
+            : defaultCertificateLayout();
+
         const row = await pg
             .insertInto("certificate_templates")
             .values({
@@ -121,11 +152,31 @@ export class CertificateTemplateService {
                 image_height: height,
                 // Не пустой массив: админ должен увидеть готовый сертификат сразу после
                 // загрузки картинки и лишь подвинуть при необходимости.
-                fields: JSON.stringify(defaultCertificateLayout()),
+                fields: JSON.stringify(fields),
             })
             .returningAll()
             .executeTakeFirstOrThrow();
         return toTemplate(row);
+    }
+
+    /** Раскладка source-шаблона, отмасштабированная под размеры target — для явного
+     * копирования из редактора (кнопка "Köçür"), не сохраняет. */
+    async layoutFrom(
+        targetId: number,
+        sourceId: number
+    ): Promise<{ status: "ok"; fields: CertificateField[] } | { status: "not_found" } | { status: "empty_source" }> {
+        const target = await this.findById(targetId);
+        const source = await this.findById(sourceId);
+        if (!target || !source) return { status: "not_found" };
+        if (source.fields.length === 0) return { status: "empty_source" };
+        return {
+            status: "ok",
+            fields: scaleLayout(
+                source.fields,
+                { width: source.imageWidth, height: source.imageHeight },
+                { width: target.imageWidth, height: target.imageHeight }
+            ),
+        };
     }
 
     async updateFields(id: number, fields: CertificateField[], active?: boolean): Promise<CertificateTemplate | null> {

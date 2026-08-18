@@ -28,6 +28,31 @@ export class CertificateController {
         }
     };
 
+    // Раскладка другого шаблона той же награды, отмасштабированная под текущий —
+    // кнопка "Köçür" в редакторе (CERTIFICATE_LAYOUT_REUSE_TASK.md). Ничего не сохраняет.
+    getLayoutFrom = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const targetId = parseInt(req.params.id, 10);
+            const sourceId = parseInt(req.params.sourceId, 10);
+            if (targetId === sourceId) {
+                res.status(400).json(ResponseHandler.badRequest("Şablon özündən köçürülə bilməz"));
+                return;
+            }
+            const result = await templates.layoutFrom(targetId, sourceId);
+            if (result.status === "not_found") {
+                res.status(404).json(ResponseHandler.notFound("Şablon tapılmadı"));
+                return;
+            }
+            if (result.status === "empty_source") {
+                res.status(409).json(ResponseHandler.badRequest("Mənbə şablonda tənzimlənmiş sahə yoxdur"));
+                return;
+            }
+            res.json(ResponseHandler.success(result.fields));
+        } catch (err) {
+            next(err);
+        }
+    };
+
     getTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const template = await templates.findById(parseInt(req.params.id, 10));

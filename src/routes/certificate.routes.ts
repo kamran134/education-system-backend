@@ -43,6 +43,10 @@ router
 
 router.route("/templates/:id/preview").post(authMiddleware(ADMIN_ROLES), controller.previewTemplate);
 
+// Раскладка source-шаблона, отмасштабированная под :id — не сохраняет, только считает.
+// Путь длиннее "/templates/:id", с ним не конфликтует (см. CERTIFICATE_LAYOUT_REUSE_TASK.md).
+router.route("/templates/:id/layout-from/:sourceId").get(authMiddleware(ADMIN_ROLES), controller.getLayoutFrom);
+
 // ---- Админ: выданные сертификаты ----
 router.route("/issued").get(authMiddleware(ADMIN_ROLES), controller.listIssued);
 router.route("/issued/:id/revoke").post(authMiddleware(ADMIN_ROLES), controller.revokeIssued);
