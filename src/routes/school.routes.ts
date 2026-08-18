@@ -5,7 +5,7 @@ import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 import { schoolAvatarUpload } from "../config/multer";
 
 const router = express.Router();
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ dest: "uploads/temp/" });
 
 router.route("/").get(authMiddleware([]), getSchools).post(authMiddleware(["superadmin", "admin", "moderator"]), createSchool);
 router.route("/filter").get(authMiddleware([]), getSchoolsForFilter);

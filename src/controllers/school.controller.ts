@@ -168,6 +168,14 @@ export class SchoolController {
             res.json(ResponseHandler.success(result, `${result.processedData.length} schools fayldan uğurla emal edildi`));
         } catch (error) {
             next(error);
+        } finally {
+            if (req.file) {
+                try {
+                    fs.unlinkSync(req.file.path);
+                } catch (unlinkError) {
+                    console.error('Error deleting temp file:', unlinkError);
+                }
+            }
         }
     }
 
@@ -200,6 +208,14 @@ export class SchoolController {
             ));
         } catch (error) {
             next(error);
+        } finally {
+            if (req.file) {
+                try {
+                    fs.unlinkSync(req.file.path);
+                } catch (unlinkError) {
+                    console.error('Error deleting temp file:', unlinkError);
+                }
+            }
         }
     }
 

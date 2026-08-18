@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import fs from "fs";
 import { StudentResultUseCase } from "../usecases/studentResult.usecase";
 import { StudentResultServicePg } from "../services/studentResult.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
@@ -120,6 +121,14 @@ export class StudentResultController {
             res.status(201).json(ResponseHandler.created(result, "Şagirdlərin nəticələri uğurla yaradıldı!"));
         } catch (error) {
             next(error);
+        } finally {
+            if (req.file) {
+                try {
+                    fs.unlinkSync(req.file.path);
+                } catch (unlinkError) {
+                    console.error('Error deleting temp file:', unlinkError);
+                }
+            }
         }
     }
 
@@ -159,6 +168,14 @@ export class StudentResultController {
             res.status(200).json(ResponseHandler.success(result, "İdxal tamamlandı!"));
         } catch (error) {
             next(error);
+        } finally {
+            if (req.file) {
+                try {
+                    fs.unlinkSync(req.file.path);
+                } catch (unlinkError) {
+                    console.error('Error deleting temp file:', unlinkError);
+                }
+            }
         }
     }
 }

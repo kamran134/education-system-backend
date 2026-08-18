@@ -345,6 +345,14 @@ export class StudentController {
             ));
         } catch (error: any) {
             res.status(500).json(ResponseHandler.internalError('Legacy import failed', error));
+        } finally {
+            if (req.file) {
+                try {
+                    fs.unlinkSync(req.file.path);
+                } catch (unlinkError) {
+                    console.error('Error deleting temp file:', unlinkError);
+                }
+            }
         }
     }
 }

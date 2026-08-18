@@ -4,7 +4,7 @@ import { getStudents, getStudent, deleteAllStudents, deleteStudent, deleteStuden
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 import { avatarUpload, bulkAvatarUpload } from "../config/multer";
 
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ dest: 'uploads/temp/' });
 
 const router = express.Router();
 

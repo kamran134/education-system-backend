@@ -11,7 +11,7 @@ import {
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 
 const router = express.Router();
-const upload = multer({ dest: "uploads/" });
+const upload = multer({ dest: "uploads/temp/" });
 
 router.route("/")
     .get(authMiddleware([]), getBooklets)

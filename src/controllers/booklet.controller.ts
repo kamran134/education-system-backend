@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import fs from "fs";
 import { BookletUseCase } from "../usecases/booklet.usecase";
 import { BookletServicePg, BookletFilterOptionsPg } from "../services/booklet.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
@@ -121,6 +122,14 @@ export class BookletController {
             res.status(201).json(ResponseHandler.created(result, "Kitabça cavabları uğurla yükləndi!"));
         } catch (error) {
             next(error);
+        } finally {
+            if (req.file) {
+                try {
+                    fs.unlinkSync(req.file.path);
+                } catch (unlinkError) {
+                    console.error('Error deleting temp file:', unlinkError);
+                }
+            }
         }
     }
 }
