@@ -90,6 +90,41 @@ export interface GradePromotionLogs {
   status: Generated<string>;
 }
 
+// Добавлено вручную вслед за миграцией 011_certificates.sql — перегенерировать через
+// kysely-codegen при следующей возможности подключиться к живой БД и сверить.
+export interface CertificateTemplates {
+  active: Generated<boolean>;
+  award_code: string;
+  created_at: Generated<Timestamp>;
+  fields: Generated<Json>;
+  id: Generated<number>;
+  image_height: number;
+  image_path: string;
+  image_width: number;
+  level_code: string | null;
+  name: string;
+  updated_at: Generated<Timestamp>;
+}
+
+// Добавлено вручную вслед за миграцией 011_certificates.sql — перегенерировать через
+// kysely-codegen при следующей возможности подключиться к живой БД и сверить.
+export interface IssuedCertificates {
+  award_code: string;
+  data: Json;
+  id: Generated<number>;
+  image_height: number;
+  image_path: string;
+  image_width: number;
+  issued_at: Generated<Timestamp>;
+  layout: Json;
+  revoke_reason: string | null;
+  revoked_at: Timestamp | null;
+  serial: string;
+  student_result_id: number;
+  template_id: number;
+  verify_token: string;
+}
+
 // Добавлено вручную вслед за миграцией 005_regions.sql — перегенерировать через
 // kysely-codegen при следующей возможности подключиться к живой БД и сверить.
 export interface Regions {
@@ -368,11 +403,13 @@ export interface VTeacherYearScores {
 
 export interface DB {
   booklets: Booklets;
+  certificate_templates: CertificateTemplates;
   code_change_logs: CodeChangeLogs;
   district_year_ratings: DistrictYearRatings;
   districts: Districts;
   exams: Exams;
   grade_promotion_logs: GradePromotionLogs;
+  issued_certificates: IssuedCertificates;
   levels: Levels;
   region_year_ratings: RegionYearRatings;
   regions: Regions;

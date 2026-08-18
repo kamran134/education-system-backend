@@ -404,6 +404,50 @@ CREATE TABLE schema_migrations (
 );
 
 
+-- ============================================================ сертификаты (011_certificates.sql)
+
+-- Шаблон = картинка + раскладка полей (координаты в px картинки), редактируется визуальным
+-- конструктором в админке. image_path иммутабелен (имя = sha1 содержимого) — на него
+-- ссылаются уже выданные сертификаты через свою собственную копию пути, см. ниже.
+CREATE TABLE certificate_templates (
+    id           bigserial PRIMARY KEY,
+    award_code   text NOT NULL,                 -- 'developing_student' и далее
+    level_code   text REFERENCES levels(code),  -- NULL, если награда не зависит от пилли
+    name         text NOT NULL,
+    image_path   text NOT NULL,
+    image_width  int  NOT NULL,
+    image_height int  NOT NULL,
+    fields       jsonb NOT NULL DEFAULT '[]'::jsonb,
+    active       boolean NOT NULL DEFAULT true,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX certificate_templates_award_level_uq
+    ON certificate_templates (award_code, coalesce(level_code, ''));
+
+CREATE SEQUENCE certificate_serial_seq;
+
+-- Снапшот на момент выдачи: школа/учитель в схеме не историчны, статистику пересчитывают
+-- задним числом — без копии данных/раскладки повторное скачивание давало бы другой документ.
+CREATE TABLE issued_certificates (
+    id                bigserial PRIMARY KEY,
+    serial            text NOT NULL UNIQUE,    -- ISIM-2026-000123, печатается на сертификате
+    verify_token      text NOT NULL UNIQUE,    -- неугадываемый, для публичной проверки по QR
+    student_result_id bigint NOT NULL REFERENCES student_results(id) ON DELETE CASCADE,
+    award_code        text NOT NULL,
+    template_id       bigint NOT NULL REFERENCES certificate_templates(id),
+    image_path        text  NOT NULL,
+    image_width       int   NOT NULL,
+    image_height      int   NOT NULL,
+    layout            jsonb NOT NULL,
+    data              jsonb NOT NULL,
+    issued_at         timestamptz NOT NULL DEFAULT now(),
+    revoked_at        timestamptz,
+    revoke_reason     text,
+    UNIQUE (student_result_id, award_code)
+);
+
+
 -- ============================================================ индексы
 
 CREATE INDEX ON districts (region_id);
@@ -420,6 +464,7 @@ CREATE INDEX ON student_results (academic_year);
 CREATE INDEX ON student_results (exam_id, grade);
 CREATE INDEX ON booklets (exam_id);
 CREATE INDEX ON user_refresh_tokens (user_id);
+CREATE INDEX issued_certificates_result_idx ON issued_certificates (student_result_id);
 
 -- Поиск по ФИО. Заменяет regex-поиск в student.service.ts buildFilter().
 CREATE INDEX students_name_trgm ON students USING gin ((coalesce(last_name,'') || ' ' || first_name) gin_trgm_ops);

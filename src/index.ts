@@ -18,6 +18,7 @@ import authRoutes from "./routes/auth.routes";
 import examResultsRoutes from "./routes/examResults.routes";
 import academicYearRoutes from "./routes/gradePromotion.routes";
 import referenceRoutes from "./routes/reference.routes";
+import certificateRoutes from "./routes/certificate.routes";
 import publicRoutes from "./routes/public.routes";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
@@ -129,6 +130,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/user-settings", userSettingsRoutes);
 app.use("/api/academic-year", academicYearRoutes);
 app.use("/api/reference", referenceRoutes);
+app.use("/api/certificates", certificateRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/auth", authLimiter, authRoutes);
 
