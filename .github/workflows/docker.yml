@@ -5,6 +5,14 @@ on:
     branches:
       - main
 
+# Не даём двум прогонам ЭТОГО репозитория деплоить одновременно (быстрый повторный push).
+# Межрепозиторную гонку с фронтендом это НЕ решает: concurrency-группы в GitHub Actions
+# ограничены одним репозиторием и не разделяются между ними. Для этого — flock на сервере,
+# см. шаг деплоя ниже.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -53,7 +61,15 @@ jobs:
           ssh -i deploy_key -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
             "bash ~/isim/db/migrations/apply-pending.sh"
 
+      # flock сериализует деплой с фронтендовым воркфлоу: оба гоняют `docker compose` над одним
+      # проектом ~/isim, а параллельные вызовы compose над одним проектом не безопасны. 19.08.2026
+      # именно это и произошло — пуш обоих репозиториев подряд, деплои наложились, и бэкендовый
+      # упал с "removal of container ... is already in progress" (контейнер при этом успел
+      # подняться на новом коде, свалилась только уборка старого, но воркфлоу вышел с кодом 1).
+      # -w 600: ждать освобождения замка до 10 минут, а не падать сразу.
+      # --force-recreate: у compose после того сбоя остался контейнер с временным именем
+      # <hash>_backend-app, и обычный `up -d` считал его актуальным и ничего не пересоздавал.
       - name: Deploy backend on server
         run: |
           ssh -i deploy_key -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
-            "cd ~/isim && docker compose pull backend && docker compose up -d backend"
+            "flock -w 600 /tmp/isim-deploy.lock -c 'cd ~/isim && docker compose pull backend && docker compose up -d --force-recreate backend'"
