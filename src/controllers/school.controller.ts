@@ -6,6 +6,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
+import { canViewEntity } from "../utils/hierarchy-access.util";
 
 export class SchoolController {
     private schoolUseCase: SchoolUseCase;
@@ -63,6 +64,12 @@ export class SchoolController {
         try {
             const { id } = req.params;
             const school = await this.schoolUseCase.getSchoolById(id);
+
+            const canView = await canViewEntity(req.user, 'school', school.id, { districtId: school.districtId });
+            if (!canView) {
+                res.status(403).json(ResponseHandler.error('Bu profilə baxmaq icazəniz yoxdur'));
+                return;
+            }
 
             res.json(ResponseHandler.success(school, 'Məlumat uğurla alındı'));
         } catch (error) {

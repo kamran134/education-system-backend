@@ -6,6 +6,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
+import { canViewEntity } from "../utils/hierarchy-access.util";
 
 export class DistrictController {
     private districtUseCase: DistrictUseCase;
@@ -63,6 +64,12 @@ export class DistrictController {
         try {
             const { id } = req.params;
             const district = await this.districtUseCase.getDistrictById(id);
+
+            const canView = await canViewEntity(req.user, 'district', district.id, { regionId: district.regionId });
+            if (!canView) {
+                res.status(403).json(ResponseHandler.error('Bu profilə baxmaq icazəniz yoxdur'));
+                return;
+            }
 
             res.json(ResponseHandler.success(district, 'Məlumat uğurla alındı'));
         } catch (error) {

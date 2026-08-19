@@ -6,6 +6,7 @@ import { ResponseHandler } from "../utils/response-handler.util";
 import { pg } from "../config/pg";
 import { saveEntityAvatarPg, removeEntityAvatarPg } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
+import { canViewEntity } from "../utils/hierarchy-access.util";
 import fs from 'fs';
 import path from 'path';
 import { smartCrop } from '../utils/smart-crop.util';
@@ -58,6 +59,17 @@ export class StudentController {
         try {
             const { id } = req.params;
             const student = await this.studentUseCase.getStudentById(id);
+
+            const canView = await canViewEntity(req.user, 'student', student.id, {
+                teacherId: student.teacherId,
+                schoolId: student.schoolId,
+                districtId: student.districtId,
+            });
+            if (!canView) {
+                res.status(403).json(ResponseHandler.error('Bu profilə baxmaq icazəniz yoxdur'));
+                return;
+            }
+
             res.status(200).json(ResponseHandler.success(student));
         } catch (error: any) {
             console.error('Error in getStudent:', error);

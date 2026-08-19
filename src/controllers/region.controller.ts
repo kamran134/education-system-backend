@@ -5,6 +5,7 @@ import { RegionServicePg } from "../services/region.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity } from "../utils/avatar.util";
+import { canViewEntity } from "../utils/hierarchy-access.util";
 
 export class RegionController {
     private regionUseCase: RegionUseCase;
@@ -45,6 +46,12 @@ export class RegionController {
         try {
             const { id } = req.params;
             const region = await this.regionUseCase.getRegionById(id);
+
+            const canView = await canViewEntity(req.user, 'region', region.id);
+            if (!canView) {
+                res.status(403).json(ResponseHandler.error('Bu profilə baxmaq icazəniz yoxdur'));
+                return;
+            }
 
             res.json(ResponseHandler.success(region, 'Məlumat uğurla alındı'));
         } catch (error) {
