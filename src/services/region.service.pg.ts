@@ -22,6 +22,16 @@ export interface Region {
     districtCount: number;
     studentCount: number;
     ratings: YearRatingRow[];
+    // Только у findById (профильная страница, PROFILE_AS_HOME_TASK.md §4.1) — в отличие от
+    // districtCount/studentCount выше, которые attachExtras считает и для списков тоже.
+    // Здесь список не трогаем: эти два счётчика нужны только на профиле.
+    schoolCount?: number;
+    teacherCount?: number;
+    // Плоские поля текущего года — паритет с District/School/Teacher. Берутся из ratings[],
+    // отдельного запроса не делают.
+    score?: number | null;
+    averageScore?: number | null;
+    place?: number | null;
 }
 
 export interface RegionCreate {
@@ -48,7 +58,8 @@ export class RegionServicePg {
     async findById(id: number): Promise<Region | null> {
         const row = await pg.selectFrom("regions").selectAll().where("id", "=", id).executeTakeFirst();
         if (!row) return null;
-        return await this.attachExtras(row);
+        const region = await this.attachExtras(row);
+        return await this.attachProfileCounts(region);
     }
 
     async findByCode(code: number): Promise<Region | null> {
@@ -209,6 +220,42 @@ export class RegionServicePg {
             districtCount: Number(districtCountRow.count),
             studentCount: Number(studentCountRow.count),
             ratings: ratingRows.map((r) => ({ year: r.year, score: r.score, averageScore: r.average_score, place: r.place })),
+        };
+    }
+
+    /**
+     * Только для профильной страницы (findById) — не вызывается из списков. У региона нет
+     * своей FK на школы/учителей, поэтому оба счёта идут джойном через districts.region_id,
+     * так же как studentCount в attachExtras.
+     */
+    private async attachProfileCounts(region: Region): Promise<Region> {
+        const currentYear = getCurrentAcademicYear();
+        const current = region.ratings.find((r) => r.year === currentYear);
+
+        const [schoolCountRow, teacherCountRow] = await Promise.all([
+            pg
+                .selectFrom("schools")
+                .innerJoin("districts", "districts.id", "schools.district_id")
+                .select(({ fn }) => [fn.countAll().as("count")])
+                .where("districts.region_id", "=", region.id)
+                .where("schools.active", "=", true)
+                .executeTakeFirstOrThrow(),
+            pg
+                .selectFrom("teachers")
+                .innerJoin("districts", "districts.id", "teachers.district_id")
+                .select(({ fn }) => [fn.countAll().as("count")])
+                .where("districts.region_id", "=", region.id)
+                .where("teachers.active", "=", true)
+                .executeTakeFirstOrThrow(),
+        ]);
+
+        return {
+            ...region,
+            schoolCount: Number(schoolCountRow.count),
+            teacherCount: Number(teacherCountRow.count),
+            score: current?.score ?? null,
+            averageScore: current?.averageScore ?? null,
+            place: current?.place ?? null,
         };
     }
 }
