@@ -103,15 +103,24 @@ export async function removeEntityAvatar<T extends HasAvatar>(
     return true;
 }
 
+/** Роли, которые управляют чужими сущностями наравне с админом. moderator раньше отсутствовал
+ *  здесь: PUT /:id ему разрешён на уровне роутов, но canManageOwnEntity его не пропускала —
+ *  расхождение, не замеченное, пока правка сущности была ещё доступна и владельцу тоже
+ *  (PROFILES_V2_TASK.md §2.3). */
+const ADMIN_LIKE_ROLES = ['superadmin', 'admin', 'moderator'];
+
+export function isAdminLike(role: string | undefined): boolean {
+    return !!role && ADMIN_LIKE_ROLES.includes(role);
+}
+
 /**
- * superadmin/admin управляют любой сущностью; владелец (учитель/школа/район/регион,
+ * admin-подобные роли управляют любой сущностью; владелец (учитель/школа/район/регион,
  * привязанный к своему teacherId/schoolId/districtId/regionId в JWT) — только своей.
- * Изначально писалась только для аватарки (см. имя файла), но логика ролевой проверки
- * не специфична для аватаров — переиспользуется и для самостоятельного редактирования
- * текстовых полей профиля (description/history/biography).
+ * С PROFILES_V2_TASK.md остаётся в силе только для аватарки: владелец больше не правит
+ * текстовые поля профиля самостоятельно (см. isAdminLike в updateProfile-контроллерах).
  */
 export function canManageOwnEntity(role: string | undefined, ownEntityId: string | undefined, targetId: string): boolean {
-    if (role === 'superadmin' || role === 'admin') {
+    if (isAdminLike(role)) {
         return true;
     }
 

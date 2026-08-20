@@ -4,7 +4,7 @@ import { DistrictUseCase } from "../usecases/district.usecase";
 import { DistrictServicePg } from "../services/district.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity } from "../utils/avatar.util";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity, isAdminLike } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 import { canViewEntity } from "../utils/hierarchy-access.util";
 
@@ -102,17 +102,18 @@ export class DistrictController {
     }
 
     /**
-     * Самостоятельное редактирование ПРОФИЛЯ района (educationHeadName, PROFILES_TASK.md §2.3) —
-     * не полный updateDistrict. Доступно admin/superadmin ИЛИ владельцу (districtRepresenter
-     * своего района), в отличие от полного PUT /:id (только admin/superadmin/moderator, см.
-     * routes). Тот же паттерн, что SchoolController.updateProfile / TeacherController.updateProfile.
+     * Редактирование ПРОФИЛЯ района (educationHeadName, PROFILES_TASK.md §2.3) — не полный
+     * updateDistrict. С PROFILES_V2_TASK.md §2.3 владелец (districtRepresenter своего района)
+     * сюда больше не допущен — только admin-подобные роли, как и у полного PUT /:id.
+     * Представителю района остаётся только фото (uploadAvatar/deleteAvatar ниже, там
+     * по-прежнему canManageOwnEntity).
      */
     updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
 
-            if (!canManageOwnEntity(req.user?.role, req.user?.districtId, id)) {
-                res.status(403).json(ResponseHandler.error('Yalnız öz rayonunuzun profilini redaktə edə bilərsiniz'));
+            if (!isAdminLike(req.user?.role)) {
+                res.status(403).json(ResponseHandler.error('Bu məlumatları yalnız administrator dəyişə bilər'));
                 return;
             }
 

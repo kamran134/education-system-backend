@@ -4,7 +4,7 @@ import { TeacherUseCase } from "../usecases/teacher.usecase";
 import { TeacherServicePg } from "../services/teacher.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity } from "../utils/avatar.util";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity, isAdminLike } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 import { canViewEntity } from "../utils/hierarchy-access.util";
 
@@ -108,17 +108,18 @@ export class TeacherController {
     }
 
     /**
-     * Самостоятельное редактирование ПРОФИЛЯ учителя (biography, pedaqoji stajın başlanğıc ili,
-     * uğurları — PROFILES_TASK.md §2.3) — не полный updateTeacher. См. комментарий у
-     * SchoolController.updateProfile — тот же паттерн: admin/superadmin ИЛИ владелец (учитель
-     * своей записи), тело запроса урезается до этих трёх полей на уровне контроллера.
+     * Редактирование ПРОФИЛЯ учителя (biography, pedaqoji stajın başlanğıc ili, uğurları —
+     * PROFILES_TASK.md §2.3) — не полный updateTeacher. С PROFILES_V2_TASK.md §2.3 владелец
+     * (учитель своей записи) сюда больше не допущен: самостоятельное редактирование убрано,
+     * учителю остаётся только фото (см. uploadAvatar/deleteAvatar ниже — там по-прежнему
+     * canManageOwnEntity). Тело запроса урезается до этих трёх полей на уровне контроллера.
      */
     updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
 
-            if (!canManageOwnEntity(req.user?.role, req.user?.teacherId, id)) {
-                res.status(403).json(ResponseHandler.error('Yalnız öz profilinizi redaktə edə bilərsiniz'));
+            if (!isAdminLike(req.user?.role)) {
+                res.status(403).json(ResponseHandler.error('Bu məlumatları yalnız administrator dəyişə bilər'));
                 return;
             }
 

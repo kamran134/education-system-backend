@@ -4,7 +4,7 @@ import { SchoolUseCase } from "../usecases/school.usecase";
 import { SchoolServicePg } from "../services/school.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity } from "../utils/avatar.util";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity, isAdminLike } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 import { canViewEntity } from "../utils/hierarchy-access.util";
 
@@ -115,19 +115,20 @@ export class SchoolController {
     }
 
     /**
-     * Самостоятельное редактирование ПРОФИЛЯ школы (description/history/directorName/foundedYear/
-     * achievements, PROFILES_TASK.md §2.3) — не полный updateSchool. Доступно admin/superadmin
-     * ИЛИ владельцу (schoolDirector своей школы), в отличие от полного PUT /:id (только
-     * admin/superadmin/moderator, см. routes). Контроллер сам вырезает из тела запроса только
-     * эти пять полей — остальные (code/active/districtId/...) молча игнорируются, даже если
-     * клиент их пришлёт, это и есть граница безопасности этого эндпоинта.
+     * Редактирование ПРОФИЛЯ школы (description/history/directorName/foundedYear/achievements,
+     * PROFILES_TASK.md §2.3) — не полный updateSchool. С PROFILES_V2_TASK.md §2.3 владелец
+     * (schoolDirector своей школы) сюда больше не допущен — только admin-подобные роли, как и
+     * у полного PUT /:id. Директору остаётся только фото (uploadAvatar/deleteAvatar ниже, там
+     * по-прежнему canManageOwnEntity). Контроллер сам вырезает из тела запроса только эти пять
+     * полей — остальные (code/active/districtId/...) молча игнорируются, даже если клиент их
+     * пришлёт, это и есть граница безопасности этого эндпоинта.
      */
     updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
 
-            if (!canManageOwnEntity(req.user?.role, req.user?.schoolId, id)) {
-                res.status(403).json(ResponseHandler.error('Yalnız öz məktəbinizin profilini redaktə edə bilərsiniz'));
+            if (!isAdminLike(req.user?.role)) {
+                res.status(403).json(ResponseHandler.error('Bu məlumatları yalnız administrator dəyişə bilər'));
                 return;
             }
 
