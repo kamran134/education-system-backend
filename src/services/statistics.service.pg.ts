@@ -44,12 +44,13 @@ export class StatisticsServicePg {
         return { start: monthStart, end: monthEnd, endInclusive: true };
     }
 
-    /** Общий фильтр по региону/району/школе/учителю/классу — применяется к алиасу students-таблицы. */
+    /** Общий фильтр по району/школе/учителю/классу — применяется к алиасу students-таблицы.
+     *  regionIds здесь НЕ обрабатывается: у students нет колонки region_id, регион достаётся
+     *  только через districts.region_id. Все четыре вызывающих метода сами джойнят districts
+     *  и вешают where d.region_id in (...) при непустом regionIds — эта ветка была копипастой
+     *  несуществующей колонки и роняла запрос в 500 (PROFILES_V2_TASK.md §4.3). */
     private applyStudentFilters<Q extends { where: any }>(query: Q, alias: string, filters: StatisticsFilterPg): Q {
         let q = query;
-        if (filters.regionIds && filters.regionIds.length > 0) {
-            q = q.where(`${alias}.region_id` as any, "in", filters.regionIds);
-        }
         if (filters.districtIds && filters.districtIds.length > 0) {
             q = q.where(`${alias}.district_id` as any, "in", filters.districtIds);
         }
