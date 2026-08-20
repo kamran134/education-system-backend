@@ -313,6 +313,32 @@ export class CertificateIssueService {
         return !!row;
     }
 
+    // Жёсткое удаление снапшота — не то же самое, что revoke(). revoke оставляет след
+    // (публичная проверка отвечает "ləğv edilib"), а этот метод стирает строку целиком:
+    // следующее скачивание того же результата+награды пройдёт issueOrGet() с нуля и
+    // снимет свежий снапшот с ТЕКУЩЕГО шаблона — новый serial, новый verify_token, старый
+    // QR (если он вообще был встроен) станет невалиден. Ручная операция для конкретной
+    // ситуации "шаблон был неправильным, хотим, чтобы все получили пересчитанный".
+    async deleteSnapshot(id: number): Promise<boolean> {
+        const row = await pg.deleteFrom("issued_certificates").where("id", "=", id).returning("id").executeTakeFirst();
+        return !!row;
+    }
+
+    /**
+     * Массовый сброс всех снапшотов конкретного шаблона. template_id — стабильный FK:
+     * редактирование шаблона (updateFields/replaceImage) правит ТУ ЖЕ строку, не создаёт
+     * новую, поэтому фильтр по template_id ловит все снапшоты, когда-либо снятые с этого
+     * шаблона, независимо от того, какую версию раскладки/картинки они застали.
+     */
+    async deleteSnapshotsByTemplate(templateId: number): Promise<number> {
+        const rows = await pg
+            .deleteFrom("issued_certificates")
+            .where("template_id", "=", templateId)
+            .returning("id")
+            .execute();
+        return rows.length;
+    }
+
     async list(opts: { limit: number; offset: number }): Promise<{ rows: IssuedCertificate[]; total: number }> {
         const rows = await pg
             .selectFrom("issued_certificates")

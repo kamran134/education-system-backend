@@ -50,6 +50,11 @@ router.route("/templates/:id/layout-from/:sourceId").get(authMiddleware(ADMIN_RO
 // ---- Админ: выданные сертификаты ----
 router.route("/issued").get(authMiddleware(ADMIN_ROLES), controller.listIssued);
 router.route("/issued/:id/revoke").post(authMiddleware(ADMIN_ROLES), controller.revokeIssued);
+router.route("/issued/:id").delete(authMiddleware(ADMIN_ROLES), controller.deleteIssued);
+
+// Сброс всех снапшотов шаблона — из редактора, когда шаблон только что починили и хотят,
+// чтобы уже скачавшие получили пересчитанный сертификат при следующем скачивании.
+router.route("/templates/:id/issued").delete(authMiddleware(ADMIN_ROLES), controller.deleteIssuedByTemplate);
 
 // ---- Скачивание — тот же доступ, что и GET /api/students/:id (authMiddleware([])) ----
 router.route("/result/:studentResultId/:awardCode").get(authMiddleware([]), controller.downloadForResult);

@@ -184,6 +184,31 @@ export class CertificateController {
         }
     };
 
+    // Жёсткое удаление одного снапшота — не revoke, строка стирается целиком.
+    deleteIssued = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const ok = await issue.deleteSnapshot(parseInt(req.params.id, 10));
+            if (!ok) {
+                res.status(404).json(ResponseHandler.notFound("Sertifikat tapılmadı"));
+                return;
+            }
+            res.json(ResponseHandler.deleted());
+        } catch (err) {
+            next(err);
+        }
+    };
+
+    // Сброс ВСЕХ снапшотов конкретного шаблона — когда шаблон был неправильным и нужно,
+    // чтобы все, кто уже скачал, получили пересчитанный сертификат при следующем скачивании.
+    deleteIssuedByTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const deleted = await issue.deleteSnapshotsByTemplate(parseInt(req.params.id, 10));
+            res.json(ResponseHandler.success({ deleted }));
+        } catch (err) {
+            next(err);
+        }
+    };
+
     // ---- Скачивание (доступ = доступ к странице ученика, authMiddleware([])) ----
 
     downloadForResult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
