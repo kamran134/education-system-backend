@@ -5,7 +5,7 @@ import sharp from "sharp";
 import { sql } from "kysely";
 import { pg } from "../config/pg";
 import { CertificateField } from "../types/certificate.types";
-import { defaultCertificateLayout } from "./certificate-default-layout";
+import { defaultCertificateLayout, defaultVerificationFields } from "./certificate-default-layout";
 import { scaleLayout } from "./certificate-layout.util";
 
 export interface CertificateTemplate {
@@ -145,14 +145,15 @@ export class CertificateTemplateService {
         // не от кого (первый шаблон этой награды) И картинка портретная — заводская
         // раскладка подобрана пиксельным анализом ПОД портретные шаблоны (2480×3508),
         // на альбомной («Ayın şagirdi» и т.п.) её координаты — мусор за краем картинки
-        // (CERTIFICATES_V2_TASK.md §3). Для альбома без источника — пустая раскладка,
-        // админ расставляет сам.
+        // (CERTIFICATES_V2_TASK.md §3). Для альбома без источника — не пусто: без QR/номера
+        // сертификат нельзя проверить ни для одной награды, поэтому хотя бы их подставляем
+        // пропорционально; остальное (фраза, ФИО и т.д.) админ расставляет сам.
         const source = await this.findLayoutSource(data.awardCode);
         const fields = source
             ? scaleLayout(source.fields, { width: source.imageWidth, height: source.imageHeight }, { width, height })
             : isPortraitLike(width, height)
               ? defaultCertificateLayout()
-              : [];
+              : defaultVerificationFields(width, height);
 
         const row = await pg
             .insertInto("certificate_templates")

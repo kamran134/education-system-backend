@@ -84,3 +84,29 @@ export function defaultCertificateLayout(): CertificateField[] {
         field({ id: "d_serial", type: "serial", x: 130, y: 380, w: 260, h: 34, fontSize: 20, color: "#666666" }),
     ];
 }
+
+/**
+ * Минимальный набор — только QR и номер, верхний левый угол. Для шаблона, у которого
+ * нет ни источника для наследования раскладки, ни портретных пропорций (заводская
+ * defaultCertificateLayout() подобрана под конкретный портретный макет и на другой
+ * картинке будет мусором за краем) — но без QR/номера сертификат нельзя проверить,
+ * это не опционально ни для одной награды. Проценты — те же пропорции, что у
+ * defaultCertificateLayout() на исходных 2480×3508, просто отвязаны от фиксированного
+ * размера картинки (см. CERTIFICATES_V2_TASK.md — жалоба на пропавший QR у альбомных
+ * наград без пилле).
+ */
+export function defaultVerificationFields(imageWidth: number, imageHeight: number): CertificateField[] {
+    const qrSize = Math.round(imageWidth * 0.0887);
+    const marginX = Math.round(imageWidth * 0.0605);
+    const marginY = Math.round(imageHeight * 0.043);
+    const serialFontSize = Math.max(12, Math.round(imageWidth * 0.008));
+
+    return [
+        field({ id: "d_qr", type: "qr", x: marginX, y: marginY, w: qrSize, h: qrSize }),
+        field({
+            id: "d_serial", type: "serial",
+            x: Math.max(0, marginX - 20), y: marginY + qrSize + 20, w: qrSize + 40, h: Math.round(qrSize * 0.16),
+            fontSize: serialFontSize, color: "#666666",
+        }),
+    ];
+}
