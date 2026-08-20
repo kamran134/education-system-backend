@@ -24,6 +24,13 @@ export interface CertificateTemplate {
 
 const CERTIFICATES_DIR = path.join(process.cwd(), "uploads", "certificates");
 
+// Соотношение сторон присланных портретных шаблонов (2480×3508). Заводская раскладка
+// подобрана именно под него — за пределами разумного допуска координаты бессмысленны.
+const PORTRAIT_RATIO = 2480 / 3508;
+function isPortraitLike(width: number, height: number): boolean {
+    return Math.abs(width / height - PORTRAIT_RATIO) <= 0.05;
+}
+
 function toTemplate(row: any): CertificateTemplate {
     return {
         id: row.id,
@@ -135,11 +142,17 @@ export class CertificateTemplateService {
         // Наследуем раскладку с самого свежего настроенного шаблона той же награды вместо
         // заводской — админ, который уже довёл один шаблон до ума, не должен переделывать
         // расстановку с нуля для каждого следующего. Заводская — только если наследовать
-        // не от кого (первый шаблон этой награды).
+        // не от кого (первый шаблон этой награды) И картинка портретная — заводская
+        // раскладка подобрана пиксельным анализом ПОД портретные шаблоны (2480×3508),
+        // на альбомной («Ayın şagirdi» и т.п.) её координаты — мусор за краем картинки
+        // (CERTIFICATES_V2_TASK.md §3). Для альбома без источника — пустая раскладка,
+        // админ расставляет сам.
         const source = await this.findLayoutSource(data.awardCode);
         const fields = source
             ? scaleLayout(source.fields, { width: source.imageWidth, height: source.imageHeight }, { width, height })
-            : defaultCertificateLayout();
+            : isPortraitLike(width, height)
+              ? defaultCertificateLayout()
+              : [];
 
         const row = await pg
             .insertInto("certificate_templates")

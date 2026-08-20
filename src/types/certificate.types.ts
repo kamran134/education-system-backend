@@ -46,8 +46,19 @@ export interface CertificateField {
     autoShrink: boolean;
     minFontSize: number;
     mask: CertificateFieldMask | null;
-    /** Только для type === 'static' */
+    /** Только для type === 'static'. Поддерживает плейсхолдеры {month}/{grade}/{level}/…
+     *  (та же линейка типов, что CertificateFieldType) и инлайновый **жирный** —
+     *  см. CERTIFICATES_V2_TASK.md §1. */
     text?: string;
+    /** Цвет **жирного** участка, если должен отличаться от основного `color` (например,
+     *  тёмно-синий как «Karyera və Psixologiya» на самом шаблоне). `undefined` — жирный
+     *  красится тем же `color`, что и остальной текст (обратная совместимость). */
+    boldColor?: string;
+    /** Перенос по словам вместо одной строки. Опционально: у полей, сохранённых до
+     *  v2, этого ключа нет в JSON — везде читать как `field.multiline ?? false`. */
+    multiline?: boolean;
+    /** Множитель кегля для высоты строки при multiline. `field.lineHeight ?? 1.25`. */
+    lineHeight?: number;
 }
 
 // Значения полей на конкретном сертификате — то, что печатается. Обязательные поля

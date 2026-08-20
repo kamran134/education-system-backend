@@ -52,7 +52,7 @@ router.route("/issued").get(authMiddleware(ADMIN_ROLES), controller.listIssued);
 router.route("/issued/:id/revoke").post(authMiddleware(ADMIN_ROLES), controller.revokeIssued);
 
 // ---- Скачивание — тот же доступ, что и GET /api/students/:id (authMiddleware([])) ----
-router.route("/result/:studentResultId").get(authMiddleware([]), controller.downloadForResult);
+router.route("/result/:studentResultId/:awardCode").get(authMiddleware([]), controller.downloadForResult);
 router.route("/availability/student/:studentId").get(authMiddleware([]), controller.availabilityForStudent);
 
 export default router;

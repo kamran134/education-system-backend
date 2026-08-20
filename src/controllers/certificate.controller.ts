@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { CertificateTemplateService } from "../services/certificate-template.service";
 import { defaultCertificateLayout } from "../services/certificate-default-layout";
-import { CertificateIssueService } from "../services/certificate-issue.service";
+import { AWARD_CODES, CertificateIssueService } from "../services/certificate-issue.service";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { CertificateField } from "../types/certificate.types";
 
@@ -189,7 +189,12 @@ export class CertificateController {
     downloadForResult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const studentResultId = parseInt(req.params.studentResultId, 10);
-            const issued = await issue.issueOrGet(studentResultId, "developing_student");
+            const awardCode = req.params.awardCode;
+            if (!(AWARD_CODES as readonly string[]).includes(awardCode)) {
+                res.status(400).json(ResponseHandler.badRequest("Naməlum mükafat növü"));
+                return;
+            }
+            const issued = await issue.issueOrGet(studentResultId, awardCode);
             const pdf = await issue.renderPdf(issued);
             res.setHeader("Content-Type", "application/pdf");
             res.setHeader("Content-Disposition", `attachment; filename="sertifikat-${issued.serial}.pdf"`);

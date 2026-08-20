@@ -57,15 +57,45 @@ function toIssued(row: any): IssuedCertificate {
     };
 }
 
+// Три награды, зеркалит CERTIFICATES_V2_TASK.md §4.1. Экспортируется — контроллер
+// валидирует :awardCode из URL по этому же списку, чтобы не плодить второй источник истины.
+export const AWARD_CODES = [
+    "developing_student",
+    "student_of_the_month",
+    "republic_wide_student_of_the_month",
+] as const;
+export type AwardCode = (typeof AWARD_CODES)[number];
+
+// Только developing_student градуирован по пилле — у остальных двух один шаблон на
+// награду (level_code=NULL). buildData() всегда возвращает ФАКТИЧЕСКУЮ пиллю ученика
+// на этом результате (нужна для рендера самого сертификата и для {level}), но искать
+// шаблон по ней для наград без градации нельзя — там всегда искать level_code=null.
+const LEVEL_GRADED_AWARDS: ReadonlySet<AwardCode> = new Set(["developing_student"]);
+
+interface EligibilityRow {
+    status: string | null;
+    development_score: number | null;
+    student_of_the_month_score: number | null;
+    republic_wide_student_of_the_month_score: number | null;
+}
+
 // Право на сертификат по каждому award_code — единственное место, где это решается.
-// Для 'developing_student' зеркалит markDevelopingStudents() в stats.service.pg.ts:
-// туда пишется status='İnkişaf edən şagird' + development_score=10 одновременно,
-// достаточно проверить любое из двух (оба поля обнуляются вместе при пересчёте).
-function isEligible(awardCode: string, sr: { status: string | null; development_score: number | null }): boolean {
-    if (awardCode === "developing_student") {
-        return sr.status === "İnkişaf edən şagird" || (sr.development_score ?? 0) > 0;
+// 'developing_student' зеркалит markDevelopingStudents() в stats.service.pg.ts: туда
+// пишется status='İnkişaf edən şagird' + development_score=10 одновременно, достаточно
+// проверить любое из двух (оба поля обнуляются вместе при пересчёте). Обе месячные награды
+// зеркалят awardStudentOfTheMonth() — та же функция ставит *_score=5 только победителям
+// на уровне Lisey; это подтверждённое заказчиком поведение, не баг, здесь не расширяем.
+function isEligible(awardCode: string, sr: EligibilityRow): boolean {
+    switch (awardCode) {
+        case "developing_student":
+            return sr.status === "İnkişaf edən şagird" || (sr.development_score ?? 0) > 0;
+        case "student_of_the_month":
+            return (sr.student_of_the_month_score ?? 0) > 0;
+        case "republic_wide_student_of_the_month":
+            return (sr.republic_wide_student_of_the_month_score ?? 0) > 0;
+        default:
+            return false;
     }
-    return false;
 }
 
 const templateService = new CertificateTemplateService();
@@ -90,21 +120,28 @@ export class CertificateIssueService {
         return row ? toIssued(row) : null;
     }
 
-    // studentResultId ученика, доступных сертификатов может быть несколько наград —
-    // для карточки ученика достаточно знать, какие award_code уже выданы/доступны.
-    async availabilityForStudent(studentId: number): Promise<
-        Record<number, { available: boolean; serial: string | null }>
-    > {
+    // Одному результату может полагаться сразу несколько наград (взял республику →
+    // почти наверняка взял и район; плюс мог одновременно подняться в пилле) — отдаём
+    // все три статуса на результат, а не один флаг (CERTIFICATES_V2_TASK.md §4.1).
+    async availabilityForStudent(
+        studentId: number
+    ): Promise<Record<number, Record<AwardCode, { available: boolean; serial: string | null }>>> {
         const results = await pg
             .selectFrom("student_results")
-            .select(["id", "status", "development_score"])
+            .select([
+                "id",
+                "status",
+                "development_score",
+                "student_of_the_month_score",
+                "republic_wide_student_of_the_month_score",
+            ])
             .where("student_id", "=", studentId)
             .execute();
 
         const issued = results.length
             ? await pg
                   .selectFrom("issued_certificates")
-                  .select(["student_result_id", "serial", "revoked_at"])
+                  .select(["student_result_id", "award_code", "serial", "revoked_at"])
                   .where(
                       "student_result_id",
                       "in",
@@ -112,20 +149,22 @@ export class CertificateIssueService {
                   )
                   .execute()
             : [];
-        const issuedByResult = new Map(issued.map((i) => [i.student_result_id, i]));
+        const issuedByResultAward = new Map(issued.map((i) => [`${i.student_result_id}:${i.award_code}`, i]));
 
-        const out: Record<number, { available: boolean; serial: string | null }> = {};
+        const out: Record<number, Record<AwardCode, { available: boolean; serial: string | null }>> = {};
         for (const r of results) {
-            const already = issuedByResult.get(r.id);
-            if (already && !already.revoked_at) {
-                out[r.id] = { available: true, serial: already.serial };
-                continue;
+            const perAward = {} as Record<AwardCode, { available: boolean; serial: string | null }>;
+            for (const award of AWARD_CODES) {
+                const already = issuedByResultAward.get(`${r.id}:${award}`);
+                if (already && !already.revoked_at) {
+                    perAward[award] = { available: true, serial: already.serial };
+                } else if (already?.revoked_at) {
+                    perAward[award] = { available: false, serial: null };
+                } else {
+                    perAward[award] = { available: isEligible(award, r), serial: null };
+                }
             }
-            if (already?.revoked_at) {
-                out[r.id] = { available: false, serial: null };
-                continue;
-            }
-            out[r.id] = { available: isEligible("developing_student", r), serial: null };
+            out[r.id] = perAward;
         }
         return out;
     }
@@ -201,7 +240,13 @@ export class CertificateIssueService {
 
         const sr = await pg
             .selectFrom("student_results")
-            .select(["id", "status", "development_score"])
+            .select([
+                "id",
+                "status",
+                "development_score",
+                "student_of_the_month_score",
+                "republic_wide_student_of_the_month_score",
+            ])
             .where("id", "=", studentResultId)
             .executeTakeFirst();
         if (!sr || !isEligible(awardCode, sr)) {
@@ -210,10 +255,11 @@ export class CertificateIssueService {
 
         const { data, levelCode } = await this.buildData(studentResultId);
 
-        const template = await templateService.findActive(awardCode, levelCode);
+        const templateLevelCode = LEVEL_GRADED_AWARDS.has(awardCode as AwardCode) ? levelCode : null;
+        const template = await templateService.findActive(awardCode, templateLevelCode);
         if (!template) {
             throw new CertificateNoTemplateError(
-                `Bu pillə üçün sertifikat şablonu hələ yüklənməyib (${awardCode}/${levelCode})`
+                `Bu pillə üçün sertifikat şablonu hələ yüklənməyib (${awardCode}/${templateLevelCode})`
             );
         }
 
