@@ -74,5 +74,6 @@ Postgres сам откатит незавершённую транзакцию. 
 | `010_school_teacher_profile_text_fields.sql` | `schools.description`/`schools.history`, `teachers.biography` — свободные текстовые поля для профиля школы/учителя, первый шаг набора по просьбе заказчика |
 | `011_certificates.sql` | Именные сертификаты (`CERTIFICATES_TASK.md`): `certificate_templates` (картинка шаблона + раскладка полей `fields` jsonb, редактируется визуальным конструктором в админке), `issued_certificates` (снапшот на момент выдачи — школа/учитель не историчны в схеме, статистика пересчитывается задним числом), `certificate_serial_seq` для человекочитаемого номера |
 | `012_profile_fields.sql` | Переделка профильных страниц (`PROFILES_TASK.md`): `teachers.pedagogical_start_year`/`achievements`, `schools.director_name`/`founded_year`/`achievements`, `districts.education_head_name` |
+| `013_ratings_by_raw_score.sql` | Отмена решения от 04.08.2026: место учителей/школ/районов/регионов (`v_teacher_places`/`v_school_places`/`v_district_places`/`v_region_places`) переключено с `average_score` на сырой `score` — «путь B» был неверным пониманием требования заказчика, не его выбором. Ученики не менялись (уже были на `score`). См. `db/rating-semantics.md` §20.08.2026 |
 
 Обновлять таблицу при добавлении новых файлов.

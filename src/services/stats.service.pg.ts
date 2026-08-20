@@ -691,7 +691,11 @@ export class StatsServicePg {
         const allData = await query.execute();
         const regionIdById = new Map(allData.map((r) => [r.id, r.region_id]));
 
-        const rankColumn: "score" | "average_score" = sortColumn === "score" ? "score" : "average_score";
+        // По умолчанию (без явной сортировки по averageScore) место — по сырому score, как и в
+        // персистентном v_district_places/district_year_ratings.place, а не по среднему баллу —
+        // иначе первая загрузка /stats (район) показывала бы место, не совпадающее с профилем
+        // района, пока пользователь не кликнет по колонке вручную. Решение 20.08.2026.
+        const rankColumn: "score" | "average_score" = sortColumn === "averageScore" ? "average_score" : "score";
         const sorted = [...allData].sort((a, b) => ((b[rankColumn] ?? 0) as number) - ((a[rankColumn] ?? 0) as number));
         const placeById = new Map<number, number>();
         let place = 1;

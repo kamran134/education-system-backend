@@ -547,20 +547,21 @@ JOIN students s               ON s.teacher_id = t.id
 JOIN v_student_year_scores sc ON sc.student_id = s.id
 GROUP BY t.id, t.student_count, sc.academic_year;
 
--- Учитель: места. Решение заказчика 04.08.2026 (гейт 2, db/rating-semantics.md) — официальный
--- путь расчёта мест для учителей/школ/районов: путь B (utils/ranking.util.ts updateEntityPlaces) —
--- ранжирование по average_score, entities с average_score = 0 в ранжировании не участвуют
--- (получают place = NULL, а не место в хвосте). district_place досчитан 13.08.2026
--- (007_teacher_school_district_place.sql) — та же dense_rank-логика, что и у учеников
--- (v_student_places), просто без grade в PARTITION BY.
+-- Учитель: места. Решение заказчика 04.08.2026 (гейт 2, db/rating-semantics.md) заменено
+-- решением 20.08.2026: заказчик имел в виду места по СЫРОМУ score (как у учеников), а не по
+-- среднему — «путь B по average_score» было неверным пониманием требования. Ранжирование —
+-- по score, entities с score = 0 в ранжировании не участвуют (получают place = NULL, а не
+-- место в хвосте — это отдельное, не пересмотренное сейчас решение). district_place —
+-- та же dense_rank-логика, что и у учеников (v_student_places), просто без grade в PARTITION BY.
+-- См. 013_ratings_by_raw_score.sql.
 CREATE VIEW v_teacher_places AS
 SELECT ts.teacher_id,
        ts.academic_year,
-       dense_rank() OVER (PARTITION BY ts.academic_year ORDER BY ts.average_score DESC) AS place,
-       dense_rank() OVER (PARTITION BY ts.academic_year, t.district_id ORDER BY ts.average_score DESC) AS district_place
+       dense_rank() OVER (PARTITION BY ts.academic_year ORDER BY ts.score DESC) AS place,
+       dense_rank() OVER (PARTITION BY ts.academic_year, t.district_id ORDER BY ts.score DESC) AS district_place
 FROM v_teacher_year_scores ts
 JOIN teachers t ON t.id = ts.teacher_id
-WHERE ts.average_score > 0;
+WHERE ts.score > 0;
 
 -- Школа: сумма баллов её учителей / сохранённый student_count школы. stats.service.ts:1556
 CREATE VIEW v_school_year_scores AS
@@ -573,16 +574,16 @@ JOIN teachers t                ON t.school_id = sch.id
 JOIN v_teacher_year_scores ts  ON ts.teacher_id = t.id
 GROUP BY sch.id, sch.student_count, ts.academic_year;
 
--- Школа: места. Путь B — та же логика, что и у учителя (см. комментарий у v_teacher_places),
--- district_place тоже досчитан 13.08.2026 (007_teacher_school_district_place.sql).
+-- Школа: места. По score — та же логика, что и у учителя (см. комментарий у v_teacher_places).
+-- См. 013_ratings_by_raw_score.sql.
 CREATE VIEW v_school_places AS
 SELECT ss.school_id,
        ss.academic_year,
-       dense_rank() OVER (PARTITION BY ss.academic_year ORDER BY ss.average_score DESC) AS place,
-       dense_rank() OVER (PARTITION BY ss.academic_year, sc.district_id ORDER BY ss.average_score DESC) AS district_place
+       dense_rank() OVER (PARTITION BY ss.academic_year ORDER BY ss.score DESC) AS place,
+       dense_rank() OVER (PARTITION BY ss.academic_year, sc.district_id ORDER BY ss.score DESC) AS district_place
 FROM v_school_year_scores ss
 JOIN schools sc ON sc.id = ss.school_id
-WHERE ss.average_score > 0;
+WHERE ss.score > 0;
 
 -- Район: сумма баллов его школ. stats.service.ts:1723
 --
@@ -612,13 +613,14 @@ CROSS JOIN LATERAL (
 ) cnt
 GROUP BY d.id, ss.academic_year, cnt.legacy_divisor, cnt.students_in_district;
 
--- Район: места. Путь B, та же логика. district_place у района не существовал ни в одном из путей.
+-- Район: места. По score, та же логика. district_place у района не существовал ни в одном из путей.
+-- См. 013_ratings_by_raw_score.sql.
 CREATE VIEW v_district_places AS
 SELECT ds.district_id,
        ds.academic_year,
-       dense_rank() OVER (PARTITION BY ds.academic_year ORDER BY ds.average_score DESC) AS place
+       dense_rank() OVER (PARTITION BY ds.academic_year ORDER BY ds.score DESC) AS place
 FROM v_district_year_scores ds
-WHERE ds.average_score > 0;
+WHERE ds.score > 0;
 
 -- Регион (PHASE3 п.1б, 005_regions.sql): сумма баллов его районов. Делитель — ЖИВОЕ число
 -- учеников региона, а не денормализованное поле — решение пользователя 08.08.2026.
@@ -644,12 +646,12 @@ CROSS JOIN LATERAL (
 ) cnt
 GROUP BY r.id, ds.academic_year, cnt.students_in_region;
 
--- Регион: места. Путь B — та же логика, что и у района/школы/учителя.
+-- Регион: места. По score — та же логика, что и у района/школы/учителя. См. 013_ratings_by_raw_score.sql.
 CREATE VIEW v_region_places AS
 SELECT rs.region_id,
        rs.academic_year,
-       dense_rank() OVER (PARTITION BY rs.academic_year ORDER BY rs.average_score DESC) AS place
+       dense_rank() OVER (PARTITION BY rs.academic_year ORDER BY rs.score DESC) AS place
 FROM v_region_year_scores rs
-WHERE rs.average_score > 0;
+WHERE rs.score > 0;
 
 COMMIT;
