@@ -268,9 +268,14 @@ export class StudentServicePg {
         base = this.applyFilter(base, filters);
 
         const { column, needsRatingJoin } = this.mapSortColumn(sort.sortColumn);
-        const orderExpr = needsRatingJoin ? sql.ref(column) : column === "last_name"
-            ? sql`students.last_name COLLATE az_ci`
-            : sql.ref(`students.${column}`);
+        const azCollatedColumns: Record<string, any> = {
+            first_name: sql`students.first_name COLLATE az_ci`,
+            last_name: sql`students.last_name COLLATE az_ci`,
+            middle_name: sql`students.middle_name COLLATE az_ci`,
+        };
+        const orderExpr = needsRatingJoin
+            ? sql.ref(column)
+            : azCollatedColumns[column] ?? sql.ref(`students.${column}`);
         const dirSql = sort.sortDirection === "asc" ? sql`ASC` : sql`DESC`;
         // NULLS LAST явно: ученики без строки в student_year_ratings (LEFT JOIN) иначе всплывают
         // в начало при DESC — Postgres по умолчанию сортирует NULL как "больше всех" значений.
@@ -511,7 +516,7 @@ export class StudentServicePg {
         if (column === "place") return { column: "current_place", needsRatingJoin: true };
         if (column === "districtPlace") return { column: "current_district_place", needsRatingJoin: true };
         const map: Record<string, string> = {
-            code: "code", firstName: "first_name", lastName: "last_name",
+            code: "code", firstName: "first_name", lastName: "last_name", middleName: "middle_name",
             grade: "grade", status: "status",
         };
         return { column: map[column] ?? "last_name", needsRatingJoin: false };
