@@ -265,12 +265,23 @@ export class TeacherServicePg {
             .leftJoin("teacher_year_ratings", (join) =>
                 join.onRef("teacher_year_ratings.teacher_id", "=", "teachers.id").on("teacher_year_ratings.year", "=", currentYear)
             )
+            // Only for the "school.name"/"district.name" sort below — attachExtras() fetches the
+            // actual school/district data separately, these joins aren't selected from.
+            .leftJoin("schools as sc", "sc.id", "teachers.school_id")
+            .leftJoin("districts as d", "d.id", "teachers.district_id")
             .selectAll("teachers")
             .select(["teacher_year_ratings.score as current_score", "teacher_year_ratings.average_score as current_average_score"]);
         base = this.applyFilter(base, filters);
 
+        // "school.name"/"district.name" are the literal sortColumn keys the frontend sends (teachers-list
+        // TableColumn.key) — checked against the raw value, since mapSortColumn has no entry for them.
+        const joinedNameSortColumns: Record<string, any> = {
+            "school.name": sql`sc.name COLLATE az_ci`,
+            "district.name": sql`d.name COLLATE az_ci`,
+        };
         const { column, needsRatingJoin } = this.mapSortColumn(sort.sortColumn);
-        const orderExpr = column === "fullname" ? sql`teachers.fullname COLLATE az_ci` : sql.ref(needsRatingJoin ? column : `teachers.${column}`);
+        const orderExpr = joinedNameSortColumns[sort.sortColumn]
+            ?? (column === "fullname" ? sql`teachers.fullname COLLATE az_ci` : sql.ref(needsRatingJoin ? column : `teachers.${column}`));
         const dirSql = sort.sortDirection === "asc" ? sql`ASC` : sql`DESC`;
         // NULLS LAST явно: учителя без строки в teacher_year_ratings (LEFT JOIN) иначе всплывают
         // в начало при DESC — Postgres по умолчанию сортирует NULL как "больше всех" значений.

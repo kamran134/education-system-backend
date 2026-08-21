@@ -243,6 +243,22 @@ export class StudentServicePg {
     ): Promise<{ data: Student[]; totalCount: number }> {
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
 
+        // filterPlace: dense rank by score within the current filter scope (region/district/school/
+        // teacher/grade), excluding code/search — text search must not reshuffle rankings — partitioned
+        // by grade, matching the old Mongo-version buildScorePlaceMap. A joined derived table instead of
+        // a second JS ranking pass, same technique already used for participation_count below.
+        const rankFilterOptions = { ...filters, code: undefined, search: undefined };
+        const filterPlaceSubquery = this.applyFilter(
+            pg.selectFrom("students")
+                .leftJoin("student_year_ratings", (join) =>
+                    join.onRef("student_year_ratings.student_id", "=", "students.id").on("student_year_ratings.year", "=", currentYear)
+                ),
+            rankFilterOptions
+        ).select([
+            "students.id as student_id",
+            sql<number>`DENSE_RANK() OVER (PARTITION BY coalesce(students.grade, 0) ORDER BY coalesce(student_year_ratings.score, 0) DESC)`.as("filter_place"),
+        ]);
+
         // participationCount — теперь просто COUNT по academic_year (generated column), без ручного $or по месяцам.
         let base = pg
             .selectFrom("students")
@@ -257,6 +273,12 @@ export class StudentServicePg {
                     .as("participation"),
                 (join) => join.onRef("participation.student_id", "=", "students.id")
             )
+            .leftJoin(filterPlaceSubquery.as("fp"), (join) => join.onRef("fp.student_id", "=", "students.id"))
+            // Only for the "teacher"/"school"/"district" sort below — attachExtras() fetches the
+            // actual teacher/school/district data separately, these joins aren't selected from.
+            .leftJoin("teachers as t", "t.id", "students.teacher_id")
+            .leftJoin("schools as sc", "sc.id", "students.school_id")
+            .leftJoin("districts as d", "d.id", "students.district_id")
             .selectAll("students")
             .select([
                 "student_year_ratings.score as current_score",
@@ -264,18 +286,27 @@ export class StudentServicePg {
                 "student_year_ratings.place as current_place",
                 "student_year_ratings.district_place as current_district_place",
                 sql<number>`coalesce(participation.participation_count, 0)`.as("participation_count"),
+                "fp.filter_place as filter_place",
             ]);
         base = this.applyFilter(base, filters);
 
+        // "teacher"/"school"/"district" are the literal sortColumn keys students-year-tab sends
+        // (TableColumn.key there, e.g. teacher's field is 'teacher.fullname' but the sort key is
+        // just 'teacher') — checked against the raw value, since mapSortColumn has no entries for them.
+        const joinedNameSortColumns: Record<string, any> = {
+            teacher: sql`t.fullname COLLATE az_ci`,
+            school: sql`sc.name COLLATE az_ci`,
+            district: sql`d.name COLLATE az_ci`,
+        };
         const { column, needsRatingJoin } = this.mapSortColumn(sort.sortColumn);
         const azCollatedColumns: Record<string, any> = {
             first_name: sql`students.first_name COLLATE az_ci`,
             last_name: sql`students.last_name COLLATE az_ci`,
             middle_name: sql`students.middle_name COLLATE az_ci`,
         };
-        const orderExpr = needsRatingJoin
+        const orderExpr = joinedNameSortColumns[sort.sortColumn] ?? (needsRatingJoin
             ? sql.ref(column)
-            : azCollatedColumns[column] ?? sql.ref(`students.${column}`);
+            : azCollatedColumns[column] ?? sql.ref(`students.${column}`));
         const dirSql = sort.sortDirection === "asc" ? sql`ASC` : sql`DESC`;
         // NULLS LAST явно: ученики без строки в student_year_ratings (LEFT JOIN) иначе всплывают
         // в начало при DESC — Postgres по умолчанию сортирует NULL как "больше всех" значений.
@@ -288,36 +319,7 @@ export class StudentServicePg {
                 .executeTakeFirstOrThrow(),
         ]);
 
-        // filterPlace: dense rank по score внутри текущего среза фильтров (без code/search — текстовый
-        // поиск не должен менять ранжирование), партиция по grade — точно как buildScorePlaceMap в Mongo-версии.
-        const rankFilterOptions = { ...filters, code: undefined, search: undefined };
-        const rankRows = await this.applyFilter(
-            pg.selectFrom("students")
-                .leftJoin("student_year_ratings", (join) =>
-                    join.onRef("student_year_ratings.student_id", "=", "students.id").on("student_year_ratings.year", "=", currentYear)
-                ),
-            rankFilterOptions
-        )
-            .select(["students.id as id", sql<number>`coalesce(student_year_ratings.score, 0)`.as("score"), sql<number>`coalesce(students.grade, 0)`.as("grade")])
-            .execute();
-
-        const filterPlaceById = new Map<number, number>();
-        const byGrade = new Map<number, typeof rankRows>();
-        for (const r of rankRows) {
-            if (!byGrade.has(r.grade)) byGrade.set(r.grade, []);
-            byGrade.get(r.grade)!.push(r);
-        }
-        for (const group of byGrade.values()) {
-            group.sort((a, b) => b.score - a.score);
-            let place = 1, prevScore: number | null = null;
-            group.forEach((r, i) => {
-                if (i > 0 && r.score < prevScore!) place = i + 1;
-                filterPlaceById.set(r.id, place);
-                prevScore = r.score;
-            });
-        }
-
-        const data = await this.attachExtras(rows, filterPlaceById);
+        const data = await this.attachExtras(rows);
         return { data, totalCount: Number(countRow.count) };
     }
 
@@ -518,6 +520,8 @@ export class StudentServicePg {
         // participation_count is a bare SELECT alias (coalesce(participation.participation_count, 0)),
         // not a students table column — needs the same unprefixed sql.ref as current_score/current_place.
         if (column === "participationCount") return { column: "participation_count", needsRatingJoin: true };
+        // Same for filter_place — a DENSE_RANK() window function result joined in from a derived table.
+        if (column === "filterPlace") return { column: "filter_place", needsRatingJoin: true };
         const map: Record<string, string> = {
             code: "code", firstName: "first_name", lastName: "last_name", middleName: "middle_name",
             grade: "grade", status: "status",
@@ -525,7 +529,7 @@ export class StudentServicePg {
         return { column: map[column] ?? "last_name", needsRatingJoin: false };
     }
 
-    private async attachExtras(rows: (StudentRow & Partial<{ current_score: number | null; current_average_score: number | null; current_place: number | null; current_district_place: number | null; participation_count: number }>)[], filterPlaceById?: Map<number, number>): Promise<Student[]> {
+    private async attachExtras(rows: (StudentRow & Partial<{ current_score: number | null; current_average_score: number | null; current_place: number | null; current_district_place: number | null; participation_count: number; filter_place: number | null }>)[]): Promise<Student[]> {
         if (rows.length === 0) return [];
         const studentIds = rows.map((r) => r.id);
         const teacherIds = [...new Set(rows.map((r) => r.teacher_id).filter((id): id is number => id !== null))];
@@ -574,7 +578,7 @@ export class StudentServicePg {
                 averageScore: (row.current_average_score ?? current?.averageScore) ?? null,
                 place: (row.current_place ?? current?.place) ?? null,
                 districtPlace: (row.current_district_place ?? current?.districtPlace) ?? null,
-                filterPlace: filterPlaceById?.get(row.id) ?? null,
+                filterPlace: row.filter_place ?? null,
                 participationCount: (row.participation_count ?? participationById.get(row.id)) ?? 0,
                 ratings,
             };

@@ -474,20 +474,6 @@ export class StatsServicePg {
         return rows.map((r) => r.id);
     }
 
-    private buildFilterPlaceMap(rows: { id: number; score: number | null }[]): Map<number, number> {
-        const sorted = [...rows].sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-        const map = new Map<number, number>();
-        let place = 1;
-        let prevScore: number | null = null;
-        sorted.forEach((r, i) => {
-            const score = r.score ?? 0;
-            if (i > 0 && score < prevScore!) place = i + 1;
-            map.set(r.id, place);
-            prevScore = score;
-        });
-        return map;
-    }
-
     async getTeacherStatistics(
         filters: FilterOptionsPg & { page?: number; size?: number },
         sortColumn: string,
@@ -516,12 +502,17 @@ export class StatsServicePg {
         };
 
         const isSelfView = !!(filters.teacherIds && filters.teacherIds.length > 0);
+        // filterPlace: dense rank by score within this exact filtered scope (same WHERE as baseQuery,
+        // no separate query needed — the scope here already equals the result scope, unlike students
+        // where code/search must be excluded from the rank; see getFilteredStudents).
+        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(tyr.score, 0) DESC)`;
         const sortMap: Record<string, any> = {
             score: sql`tyr.score`, averageScore: sql`tyr.average_score`, place: sql`tyr.place`,
             districtPlace: sql`tyr.district_place`, code: sql`t.code`,
             // "fullName" (capital N) is the persisted frontend column key; "fullname" kept for back-compat.
             fullname: sql`t.fullname COLLATE az_ci`, fullName: sql`t.fullname COLLATE az_ci`,
             school: sql`sc.name COLLATE az_ci`, district: sql`d.name COLLATE az_ci`, studentCount: sql`t.student_count`,
+            filterPlace: sql`filter_place`,
         };
         const orderExpr = sortMap[sortColumn] ?? sql`tyr.average_score`;
         const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
@@ -534,22 +525,21 @@ export class StatsServicePg {
                 "tyr.score as score", "tyr.average_score as average_score", "tyr.place as place", "tyr.district_place as district_place",
                 "sc.id as school_id", "sc.name as school_name",
                 "d.id as teacher_district_id", "d.name as teacher_district_name",
-            ]);
+            ])
+            .select(filterPlaceExpr.as("filter_place"));
         if (!isSelfView) {
             // NULLS LAST: учителя без строки в teacher_year_ratings иначе всплывают в начало при DESC.
             rowsQuery = rowsQuery.orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(size).offset(skip) as typeof rowsQuery;
         }
-        const [rows, countRow, scoreRows] = await Promise.all([
+        const [rows, countRow] = await Promise.all([
             rowsQuery.execute(),
             baseQuery().select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
-            baseQuery().select(["t.id as id", "tyr.score as score"]).execute(),
         ]);
 
-        const filterPlaceMap = this.buildFilterPlaceMap(scoreRows);
         const data: RankedEntity[] = rows.map((r) => ({
             id: r.id, code: r.code, fullname: r.fullname, score: r.score ?? 0, averageScore: r.average_score ?? 0,
             place: r.place, districtPlace: r.district_place, studentCount: r.student_count ?? 0,
-            filterPlace: filterPlaceMap.get(r.id) ?? null,
+            filterPlace: r.filter_place ?? null,
             school: r.school_id ? { id: r.school_id, name: r.school_name! } : null,
             district: r.teacher_district_id ? { id: r.teacher_district_id, name: r.teacher_district_name! } : null,
         }));
@@ -580,15 +570,18 @@ export class StatsServicePg {
             return q;
         };
 
+        // filterPlace: dense rank by score within this exact filtered scope — same reasoning as
+        // getTeacherStatistics above.
+        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(syr.score, 0) DESC)`;
         const sortMap: Record<string, any> = {
             score: sql`syr.score`, averageScore: sql`syr.average_score`, place: sql`syr.place`,
             districtPlace: sql`syr.district_place`, code: sql`sc.code`, name: sql`sc.name COLLATE az_ci`,
-            district: sql`d.name COLLATE az_ci`, studentCount: sql`sc.student_count`,
+            district: sql`d.name COLLATE az_ci`, studentCount: sql`sc.student_count`, filterPlace: sql`filter_place`,
         };
         const orderExpr = sortMap[sortColumn] ?? sql`syr.average_score`;
         const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
 
-        const [rows, countRow, scoreRows] = await Promise.all([
+        const [rows, countRow] = await Promise.all([
             baseQuery()
                 .leftJoin("districts as d", "d.id", "sc.district_id")
                 .select([
@@ -596,17 +589,16 @@ export class StatsServicePg {
                     "syr.score as score", "syr.average_score as average_score", "syr.place as place", "syr.district_place as district_place",
                     "d.id as school_district_id", "d.name as school_district_name",
                 ])
+                .select(filterPlaceExpr.as("filter_place"))
                 // NULLS LAST: школы без строки в school_year_ratings иначе всплывают в начало при DESC.
                 .orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(size).offset(skip).execute(),
             baseQuery().select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
-            baseQuery().select(["sc.id as id", "syr.score as score"]).execute(),
         ]);
 
-        const filterPlaceMap = this.buildFilterPlaceMap(scoreRows);
         const data: RankedEntity[] = rows.map((r) => ({
             id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: r.average_score ?? 0,
             place: r.place, districtPlace: r.district_place, studentCount: r.student_count ?? 0,
-            filterPlace: filterPlaceMap.get(r.id) ?? null,
+            filterPlace: r.filter_place ?? null,
             district: r.school_district_id ? { id: r.school_district_id, name: r.school_district_name! } : null,
         }));
 
@@ -639,12 +631,15 @@ export class StatsServicePg {
             return q;
         };
 
+        // filterPlace: dense rank by score within this exact filtered scope — same reasoning as
+        // getTeacherStatistics above.
+        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(ryr.score, 0) DESC)`;
         const sortMap: Record<string, any> = {
             score: sql`ryr.score`, averageScore: sql`ryr.average_score`, place: sql`ryr.place`,
             code: sql`r.code`, name: sql`r.name COLLATE az_ci`,
-            // References the `student_count`/`district_count` SELECT aliases below — no table
-            // prefix, same technique as participation_count in student.service.pg.ts.
-            studentCount: sql`student_count`, districtCount: sql`district_count`,
+            // References the `student_count`/`district_count`/`filter_place` SELECT aliases below —
+            // no table prefix, same technique as participation_count in student.service.pg.ts.
+            studentCount: sql`student_count`, districtCount: sql`district_count`, filterPlace: sql`filter_place`,
         };
         const orderExpr = sortMap[sortColumn] ?? sql`ryr.average_score`;
         const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
@@ -653,23 +648,22 @@ export class StatsServicePg {
         // "Rayon sayı" was in the API response for the list, but never for this ranking query.
         const districtCountExpr = sql<number>`(SELECT count(*) FROM districts dd WHERE dd.region_id = r.id)`;
 
-        const [rows, countRow, scoreRows] = await Promise.all([
+        const [rows, countRow] = await Promise.all([
             baseQuery()
                 .select(["r.id as id", "r.code as code", "r.name as name", "ryr.score as score", "ryr.average_score as average_score", "ryr.place as place"])
                 .select(studentCountExpr.as("student_count"))
                 .select(districtCountExpr.as("district_count"))
+                .select(filterPlaceExpr.as("filter_place"))
                 // NULLS LAST: регионы без строки в region_year_ratings иначе всплывают в начало при DESC.
                 .orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(size).offset(skip).execute(),
             baseQuery().select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
-            baseQuery().select(["r.id as id", "ryr.score as score"]).execute(),
         ]);
 
-        const filterPlaceMap = this.buildFilterPlaceMap(scoreRows);
         const data: RankedEntity[] = rows.map((r) => ({
             id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: r.average_score ?? 0,
             place: r.place, districtPlace: null, studentCount: Number(r.student_count) || 0,
             districtCount: Number(r.district_count) || 0,
-            filterPlace: filterPlaceMap.get(r.id) ?? null,
+            filterPlace: r.filter_place ?? null,
         }));
 
         return { data, totalCount: Number(countRow.count) };
@@ -695,6 +689,9 @@ export class StatsServicePg {
             .selectFrom("districts as d")
             .leftJoin("district_year_ratings as dyr", (join) => join.onRef("dyr.district_id", "=", "d.id").on("dyr.year", "=", currentYear))
             .select(["d.id as id", "d.code as code", "d.name as name", "d.region_id as region_id", "d.student_count as student_count", "dyr.score as score", "dyr.average_score as average_score"])
+            // filterPlace: dense rank by score within this exact (code-filtered) scope — same reasoning
+            // as getTeacherStatistics above; matches what buildFilterPlaceMap used to compute over allData.
+            .select(sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(dyr.score, 0) DESC)`.as("filter_place"))
             .orderBy(sql`d.name COLLATE az_ci`);
         if (filters.code) {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
@@ -708,6 +705,8 @@ export class StatsServicePg {
         // персистентном v_district_places/district_year_ratings.place, а не по среднему баллу —
         // иначе первая загрузка /stats (район) показывала бы место, не совпадающее с профилем
         // района, пока пользователь не кликнет по колонке вручную. Решение 20.08.2026.
+        // Это ИМЕННО про число в колонке "place" — какой колонкой фактически отсортирован
+        // возвращаемый список, решается отдельно ниже (sortAccessors), не смешивать.
         const rankColumn: "score" | "average_score" = sortColumn === "averageScore" ? "average_score" : "score";
         const sorted = [...allData].sort((a, b) => ((b[rankColumn] ?? 0) as number) - ((a[rankColumn] ?? 0) as number));
         const placeById = new Map<number, number>();
@@ -716,13 +715,30 @@ export class StatsServicePg {
             if (i > 0 && ((r[rankColumn] ?? 0) as number) < ((sorted[i - 1][rankColumn] ?? 0) as number)) place = i + 1;
             placeById.set(r.id, place);
         });
-        const filterPlaceMap = this.buildFilterPlaceMap(allData.map((r) => ({ id: r.id, score: r.score })));
 
         const withPlace: RankedEntity[] = allData.map((r) => ({
             id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: r.average_score ?? 0,
             place: placeById.get(r.id) ?? null, districtPlace: null,
-            filterPlace: filterPlaceMap.get(r.id) ?? null, studentCount: r.student_count ?? 0,
+            filterPlace: r.filter_place ?? null, studentCount: r.student_count ?? 0,
         }));
+
+        // Actual row order for the response — independent of how "place" above was computed.
+        // Previously this always re-sorted by rankColumn regardless of what the user clicked, so
+        // "Kodu"/"Adı"/"Şagird sayı"/"Yer"/"Filtr üzrə yer" headers didn't change the order at all.
+        const sortAccessors: Record<string, (r: RankedEntity) => number> = {
+            code: (r) => r.code, studentCount: (r) => r.studentCount ?? 0,
+            place: (r) => r.place ?? 0, filterPlace: (r) => r.filterPlace ?? 0,
+            score: (r) => r.score ?? 0, averageScore: (r) => r.averageScore ?? 0,
+        };
+        const dir = sortDirection === "asc" ? 1 : -1;
+        let ordered: RankedEntity[];
+        if (sortColumn === "name") {
+            // Already fetched in az_ci order (see query.orderBy above) — just flip it for desc.
+            ordered = sortDirection === "asc" ? withPlace : [...withPlace].reverse();
+        } else {
+            const accessor = sortAccessors[sortColumn] ?? sortAccessors[rankColumn === "score" ? "score" : "averageScore"];
+            ordered = [...withPlace].sort((a, b) => dir * (accessor(a) - accessor(b)));
+        }
 
         let data: RankedEntity[];
         let totalCount: number;
@@ -732,7 +748,7 @@ export class StatsServicePg {
             // Обе фильтрации, если заданы одновременно, комбинируются через И — на практике не
             // пересекаются (districtIds ставит role-скоуп regionRepresenter/districtRepresenter,
             // regionIds — ручной фильтр в UI), но так корректно в любом случае.
-            data = withPlace.filter((d) => {
+            data = ordered.filter((d) => {
                 if (districtIdSet && !districtIdSet.has(d.id)) return false;
                 if (regionIdSet) {
                     const regionId = regionIdById.get(d.id);
@@ -742,10 +758,8 @@ export class StatsServicePg {
             });
             totalCount = data.length;
         } else {
-            const sortDir = sortDirection === "asc" ? 1 : -1;
-            withPlace.sort((a, b) => sortDir * (((a as any)[rankColumn === "score" ? "score" : "averageScore"] ?? 0) - ((b as any)[rankColumn === "score" ? "score" : "averageScore"] ?? 0)));
-            totalCount = withPlace.length;
-            data = withPlace.slice(skip, skip + size);
+            totalCount = ordered.length;
+            data = ordered.slice(skip, skip + size);
         }
 
         return { data, totalCount };

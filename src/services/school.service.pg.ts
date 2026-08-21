@@ -235,12 +235,19 @@ export class SchoolServicePg {
             .leftJoin("school_year_ratings", (join) =>
                 join.onRef("school_year_ratings.school_id", "=", "schools.id").on("school_year_ratings.year", "=", currentYear)
             )
+            // Only for the "district.name" sort below — attachExtras() fetches the actual district
+            // data separately, this join isn't selected from.
+            .leftJoin("districts as d", "d.id", "schools.district_id")
             .selectAll("schools")
             .select(["school_year_ratings.score as current_score", "school_year_ratings.average_score as current_average_score"]);
         base = this.applyFilter(base, filters);
 
+        // "district.name" is the literal sortColumn key the frontend sends (schools-list
+        // TableColumn.key) — checked against the raw value, since mapSortColumn has no entry for it.
         const { column, needsRatingJoin } = this.mapSortColumn(sort.sortColumn);
-        const orderExpr = column === "name" ? sql`schools.name COLLATE az_ci` : sql.ref(needsRatingJoin ? column : `schools.${column}`);
+        const orderExpr = sort.sortColumn === "district.name"
+            ? sql`d.name COLLATE az_ci`
+            : column === "name" ? sql`schools.name COLLATE az_ci` : sql.ref(needsRatingJoin ? column : `schools.${column}`);
         const dirSql = sort.sortDirection === "asc" ? sql`ASC` : sql`DESC`;
         // NULLS LAST явно: школы без строки в school_year_ratings (LEFT JOIN) иначе всплывают
         // в начало при DESC — Postgres по умолчанию сортирует NULL как "больше всех" значений.
