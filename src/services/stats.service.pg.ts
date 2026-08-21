@@ -38,6 +38,7 @@ export interface RankedEntity {
     score: number | null; averageScore: number | null; place: number | null; districtPlace: number | null;
     filterPlace: number | null;
     studentCount: number | null;
+    districtCount?: number | null;
     name?: string;
     fullname?: string;
     school?: { id: number; name: string } | null;
@@ -641,18 +642,22 @@ export class StatsServicePg {
         const sortMap: Record<string, any> = {
             score: sql`ryr.score`, averageScore: sql`ryr.average_score`, place: sql`ryr.place`,
             code: sql`r.code`, name: sql`r.name COLLATE az_ci`,
-            // References the `student_count` SELECT alias below (studentCountExpr) — no table
+            // References the `student_count`/`district_count` SELECT aliases below — no table
             // prefix, same technique as participation_count in student.service.pg.ts.
-            studentCount: sql`student_count`,
+            studentCount: sql`student_count`, districtCount: sql`district_count`,
         };
         const orderExpr = sortMap[sortColumn] ?? sql`ryr.average_score`;
         const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
         const studentCountExpr = sql<number>`(SELECT count(*) FROM students st JOIN districts d ON d.id = st.district_id WHERE d.region_id = r.id)`;
+        // Same count region.service.pg.ts's attachExtras() does for the plain regions list —
+        // "Rayon sayı" was in the API response for the list, but never for this ranking query.
+        const districtCountExpr = sql<number>`(SELECT count(*) FROM districts dd WHERE dd.region_id = r.id)`;
 
         const [rows, countRow, scoreRows] = await Promise.all([
             baseQuery()
                 .select(["r.id as id", "r.code as code", "r.name as name", "ryr.score as score", "ryr.average_score as average_score", "ryr.place as place"])
                 .select(studentCountExpr.as("student_count"))
+                .select(districtCountExpr.as("district_count"))
                 // NULLS LAST: регионы без строки в region_year_ratings иначе всплывают в начало при DESC.
                 .orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(size).offset(skip).execute(),
             baseQuery().select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
@@ -663,6 +668,7 @@ export class StatsServicePg {
         const data: RankedEntity[] = rows.map((r) => ({
             id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: r.average_score ?? 0,
             place: r.place, districtPlace: null, studentCount: Number(r.student_count) || 0,
+            districtCount: Number(r.district_count) || 0,
             filterPlace: filterPlaceMap.get(r.id) ?? null,
         }));
 
