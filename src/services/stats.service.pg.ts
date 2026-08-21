@@ -517,7 +517,10 @@ export class StatsServicePg {
         const isSelfView = !!(filters.teacherIds && filters.teacherIds.length > 0);
         const sortMap: Record<string, any> = {
             score: sql`tyr.score`, averageScore: sql`tyr.average_score`, place: sql`tyr.place`,
-            districtPlace: sql`tyr.district_place`, code: sql`t.code`, fullname: sql`t.fullname COLLATE az_ci`,
+            districtPlace: sql`tyr.district_place`, code: sql`t.code`,
+            // "fullName" (capital N) is the persisted frontend column key; "fullname" kept for back-compat.
+            fullname: sql`t.fullname COLLATE az_ci`, fullName: sql`t.fullname COLLATE az_ci`,
+            school: sql`sc.name COLLATE az_ci`, district: sql`d.name COLLATE az_ci`, studentCount: sql`t.student_count`,
         };
         const orderExpr = sortMap[sortColumn] ?? sql`tyr.average_score`;
         const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
@@ -579,6 +582,7 @@ export class StatsServicePg {
         const sortMap: Record<string, any> = {
             score: sql`syr.score`, averageScore: sql`syr.average_score`, place: sql`syr.place`,
             districtPlace: sql`syr.district_place`, code: sql`sc.code`, name: sql`sc.name COLLATE az_ci`,
+            district: sql`d.name COLLATE az_ci`, studentCount: sql`sc.student_count`,
         };
         const orderExpr = sortMap[sortColumn] ?? sql`syr.average_score`;
         const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
@@ -637,6 +641,9 @@ export class StatsServicePg {
         const sortMap: Record<string, any> = {
             score: sql`ryr.score`, averageScore: sql`ryr.average_score`, place: sql`ryr.place`,
             code: sql`r.code`, name: sql`r.name COLLATE az_ci`,
+            // References the `student_count` SELECT alias below (studentCountExpr) — no table
+            // prefix, same technique as participation_count in student.service.pg.ts.
+            studentCount: sql`student_count`,
         };
         const orderExpr = sortMap[sortColumn] ?? sql`ryr.average_score`;
         const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;

@@ -515,6 +515,9 @@ export class StudentServicePg {
         if (column === "averageScore") return { column: "current_average_score", needsRatingJoin: true };
         if (column === "place") return { column: "current_place", needsRatingJoin: true };
         if (column === "districtPlace") return { column: "current_district_place", needsRatingJoin: true };
+        // participation_count is a bare SELECT alias (coalesce(participation.participation_count, 0)),
+        // not a students table column — needs the same unprefixed sql.ref as current_score/current_place.
+        if (column === "participationCount") return { column: "participation_count", needsRatingJoin: true };
         const map: Record<string, string> = {
             code: "code", firstName: "first_name", lastName: "last_name", middleName: "middle_name",
             grade: "grade", status: "status",
