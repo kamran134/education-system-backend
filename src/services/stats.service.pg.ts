@@ -385,7 +385,7 @@ export class StatsServicePg {
                 code: sql`st.code`, lastName: sql`st.last_name COLLATE az_ci`, firstName: sql`st.first_name COLLATE az_ci`,
                 middleName: sql`st.middle_name COLLATE az_ci`, grade: sql`st.grade`,
                 teacher: sql`t.fullname COLLATE az_ci`, school: sql`sc.name COLLATE az_ci`, district: sql`d.name COLLATE az_ci`,
-                totalScore: sql`sr.total_score`, averageScore: sql`syr.average_score`,
+                totalScore: sql`sr.total_score`, averageScore: sql`syr.average_score`, score: sql`sr.score`,
             };
             const orderExpr = columnMap[filters.sortColumn] ?? sql.ref(filters.sortColumn);
             const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
