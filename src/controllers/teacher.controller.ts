@@ -123,9 +123,9 @@ export class TeacherController {
                 return;
             }
 
-            const { biography, pedagogicalStartYear, achievements } = req.body;
+            const { biography, pedagogicalStartYear, achievements, gradeLabel } = req.body;
             const changedByUserId = parseInt(req.user!.userId, 10);
-            const { teacher } = await this.teacherUseCase.updateTeacherProfile(id, { biography, pedagogicalStartYear, achievements }, changedByUserId);
+            const { teacher } = await this.teacherUseCase.updateTeacherProfile(id, { biography, pedagogicalStartYear, achievements, gradeLabel }, changedByUserId);
 
             res.json(ResponseHandler.updated(teacher, 'Profil uğurla yeniləndi'));
         } catch (error) {

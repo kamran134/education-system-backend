@@ -261,6 +261,7 @@ export interface Teachers {
   code: number;
   district_id: number | null;
   fullname: string;
+  grade_label: string | null;
   id: Generated<number>;
   legacy_mongo_id: string | null;
   pedagogical_start_year: number | null;

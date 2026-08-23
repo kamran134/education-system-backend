@@ -50,6 +50,10 @@ export interface Teacher {
     grades?: number[];
     pedagogicalStartYear?: number | null;
     achievements?: string | null;
+    // Ручной ввод (PROFILES_V3_TASK.md §5) — источник значения "Sinfi" на профиле, в отличие
+    // от grades[] (вычисляется из классов учеников, см. attachProfileCounts). Оба поля живут
+    // параллельно: фронт решает, какое показывать, через TEACHER_GRADE_SOURCE.
+    gradeLabel?: string | null;
 }
 
 export interface TeacherCreate {
@@ -64,6 +68,7 @@ export interface TeacherCreate {
     active?: boolean;
     pedagogicalStartYear?: number | null;
     achievements?: string | null;
+    gradeLabel?: string | null;
 }
 
 type TeacherRow = {
@@ -72,6 +77,7 @@ type TeacherRow = {
     student_count: number | null; status: string | null; teacher_of_the_year_score: number | null;
     active: boolean; avatar_url: string | null;
     pedagogical_start_year: number | null; achievements: string | null;
+    grade_label: string | null;
 };
 
 /** Postgres-версия TeacherService. См. district/school.service.pg.ts для общих решений. */
@@ -125,6 +131,7 @@ export class TeacherServicePg {
             ...(data.active !== undefined && { active: data.active }),
             ...(data.pedagogicalStartYear !== undefined && { pedagogical_start_year: data.pedagogicalStartYear }),
             ...(data.achievements !== undefined && { achievements: data.achievements }),
+            ...(data.gradeLabel !== undefined && { grade_label: data.gradeLabel }),
         };
     }
 
@@ -521,6 +528,7 @@ export class TeacherServicePg {
                 place: current?.place ?? null, districtPlace: current?.districtPlace ?? null,
                 ratings,
                 pedagogicalStartYear: row.pedagogical_start_year, achievements: row.achievements,
+                gradeLabel: row.grade_label,
             };
         });
     }

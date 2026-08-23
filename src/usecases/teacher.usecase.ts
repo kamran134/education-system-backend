@@ -111,12 +111,15 @@ export class TeacherUseCase {
      * changedByUserId нужен только на случай сигнатуры teacherService.update, каскад кода не
      * запускается (codeChanging всегда false для этого набора полей).
      */
-    async updateTeacherProfile(id: string, data: { biography?: string | null; pedagogicalStartYear?: number | null; achievements?: string | null }, changedByUserId: number): Promise<{ teacher: Teacher; cascadedStudentsCount: number }> {
+    async updateTeacherProfile(id: string, data: { biography?: string | null; pedagogicalStartYear?: number | null; achievements?: string | null; gradeLabel?: string | null }, changedByUserId: number): Promise<{ teacher: Teacher; cascadedStudentsCount: number }> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Teacher ID'),
             ValidationUtils.validateId(id, 'Teacher ID'),
             data.pedagogicalStartYear != null
                 ? ValidationUtils.validateNumber(data.pedagogicalStartYear, 'Pedaqoji stajın başlanğıc ili', 1950, new Date().getFullYear())
+                : null,
+            data.gradeLabel != null && data.gradeLabel.length > 40
+                ? 'Sinif 40 simvoldan uzun ola bilməz'
                 : null,
         ]);
 
@@ -124,7 +127,14 @@ export class TeacherUseCase {
             throw new Error(validation.errors.join(', '));
         }
 
-        return await this.teacherService.update(parseInt(id, 10), data, changedByUserId);
+        // Пустая строка -> null (PROFILES_V3_TASK.md §5.1) — тримим здесь, а не полагаемся
+        // на CHECK-ограничение колонки, чтобы " " не долетала до БД как "заполненное" значение.
+        const normalized = {
+            ...data,
+            gradeLabel: data.gradeLabel !== undefined ? (data.gradeLabel?.trim() || null) : undefined,
+        };
+
+        return await this.teacherService.update(parseInt(id, 10), normalized, changedByUserId);
     }
 
     async deleteTeacher(id: string): Promise<void> {
