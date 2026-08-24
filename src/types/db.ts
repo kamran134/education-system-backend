@@ -91,6 +91,17 @@ export interface GradePromotionLogs {
   status: Generated<string>;
 }
 
+// Добавлено вручную вслед за миграцией 015_academic_year_closures.sql — перегенерировать через
+// kysely-codegen при следующей возможности подключиться к живой БД и сверить.
+export interface AcademicYearClosures {
+  academic_year: number;
+  checksums: Generated<Json>;
+  closed_at: Generated<Timestamp>;
+  closed_by: number | null;
+  closed_reason: Generated<string>;
+  note: string | null;
+}
+
 // Добавлено вручную вслед за миграцией 011_certificates.sql — перегенерировать через
 // kysely-codegen при следующей возможности подключиться к живой БД и сверить.
 export interface CertificateTemplates {
@@ -409,6 +420,7 @@ export interface VTeacherYearScores {
 }
 
 export interface DB {
+  academic_year_closures: AcademicYearClosures;
   booklets: Booklets;
   certificate_templates: CertificateTemplates;
   code_change_logs: CodeChangeLogs;

@@ -19,7 +19,9 @@ export class StatsController {
             res.status(200).json(ResponseHandler.success({}, 'Statistika uğurla yeniləndi'));
         } catch (error: any) {
             console.error('updateStatistics funksiyasında xəta baş verdi:', error);
-            if (error.message.includes('Nəticə tapılmadı')) {
+            if (error.status === 409) {
+                res.status(409).json(ResponseHandler.conflict(error.message));
+            } else if (error.message.includes('Nəticə tapılmadı')) {
                 res.status(404).json(ResponseHandler.notFound(error.message));
             } else {
                 res.status(500).json(ResponseHandler.internalError('Statistikaların yenilənməsində xəta baş verdi', error));
@@ -33,7 +35,9 @@ export class StatsController {
             res.status(200).json(ResponseHandler.success({}, 'Tədris ili üçün bütün statistikalar uğurla yeniləndi'));
         } catch (error: any) {
             console.error('updateAllStatistics funksiyasında xəta baş verdi:', error);
-            if (error.message.includes('Nəticə tapılmadı')) {
+            if (error.status === 409) {
+                res.status(409).json(ResponseHandler.conflict(error.message));
+            } else if (error.message.includes('Nəticə tapılmadı')) {
                 res.status(404).json(ResponseHandler.notFound(error.message));
             } else {
                 res.status(500).json(ResponseHandler.internalError('Bütün statistikaların yenilənməsində xəta baş verdi', error));

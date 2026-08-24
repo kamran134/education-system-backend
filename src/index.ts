@@ -27,6 +27,7 @@ import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middleware/errorHandler";
 import { startTokenCleanupScheduler } from "./services/token.service.pg";
 import { loadLevelsCache } from "./services/levels.cache";
+import { academicYearClosureServicePg } from "./services/academicYearClosure.service.pg";
 
 dotenv.config();
 
@@ -141,7 +142,18 @@ app.use((req, res, next) => {
 app.use(errorHandler);
 
 loadLevelsCache()
-    .then(() => {
+    .then(async () => {
+        // Авто-закрытие учебных годов (ACADEMIC_YEAR_ARCHIVE_TASK.md §3) — не фатально:
+        // это предохранитель поверх ручного закрытия, не критичная для старта функциональность.
+        try {
+            const closed = await academicYearClosureServicePg.ensureFinishedYearsClosed();
+            if (closed.length > 0) {
+                console.log(`Avtomatik bağlanmış tədris illəri: ${closed.join(", ")}`);
+            }
+        } catch (err) {
+            console.error("Failed to auto-close finished academic years on startup:", err);
+        }
+
         app.listen(PORT, () => {
             console.log(`Server run on port http://localhost:${PORT}`);
         });

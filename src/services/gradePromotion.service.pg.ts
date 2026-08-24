@@ -1,5 +1,6 @@
 import { pg } from "../config/pg";
-import { MAX_STUDENT_GRADE, isGradePromotionWindowOpen, getPromotionTargetAcademicYear } from "../utils/academic-year.util";
+import { MAX_STUDENT_GRADE, isGradePromotionWindowOpen, getPromotionTargetAcademicYear, getCurrentAcademicYear } from "../utils/academic-year.util";
+import { academicYearClosureServicePg } from "./academicYearClosure.service.pg";
 
 export interface GradeBucket {
     grade: number | null;
@@ -14,6 +15,9 @@ export interface GradePromotionPreview {
     byGrade: GradeBucket[];
     promotableCount: number;
     ceilingCount: number;
+    // Правильный порядок (ACADEMIC_YEAR_ARCHIVE_TASK.md §3.2): сначала закрыть уходящий
+    // учебный год, потом повышать классы. false здесь — не запрет, а предупреждение в UI.
+    currentYearClosed: boolean;
 }
 
 export interface GradePromotionResult {
@@ -30,7 +34,7 @@ export class GradePromotionServicePg {
     async preview(): Promise<GradePromotionPreview> {
         const targetAcademicYear = getPromotionTargetAcademicYear();
 
-        const [alreadyPromoted, grouped] = await Promise.all([
+        const [alreadyPromoted, grouped, currentYearClosure] = await Promise.all([
             pg
                 .selectFrom("grade_promotion_logs")
                 .select("id")
@@ -43,6 +47,7 @@ export class GradePromotionServicePg {
                 .groupBy("grade")
                 .orderBy("grade")
                 .execute(),
+            academicYearClosureServicePg.getClosure(getCurrentAcademicYear()),
         ]);
 
         const byGrade: GradeBucket[] = grouped.map((g) => {
@@ -65,6 +70,7 @@ export class GradePromotionServicePg {
             byGrade,
             promotableCount,
             ceilingCount,
+            currentYearClosed: !!currentYearClosure,
         };
     }
 

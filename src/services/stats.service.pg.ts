@@ -4,6 +4,7 @@ import { getCurrentAcademicYear } from "../utils/academic-year.util";
 import { FilterOptionsPg } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
+import { academicYearClosureServicePg } from "./academicYearClosure.service.pg";
 
 export interface StatisticsFilterPg extends FilterOptionsPg {
     month?: string;
@@ -65,6 +66,8 @@ export class StatsServicePg {
         const now = new Date();
         const month = now.getMonth() + 1;
         const year = now.getFullYear();
+        const academicYear = getCurrentAcademicYear();
+        await academicYearClosureServicePg.assertYearNotClosed(academicYear);
 
         const count = await pg
             .selectFrom("student_results")
@@ -74,7 +77,7 @@ export class StatsServicePg {
             .executeTakeFirstOrThrow();
 
         if (Number(count.c) === 0) {
-            await this.recomputeStudentRatings(getCurrentAcademicYear());
+            await this.recomputeStudentRatings(academicYear);
             return 200;
         }
 
@@ -87,7 +90,7 @@ export class StatsServicePg {
 
         await this.awardStudentOfTheMonth(month, year);
         await this.markDevelopingStudents(month, year);
-        await this.recomputeStudentRatings(getCurrentAcademicYear());
+        await this.recomputeStudentRatings(academicYear);
 
         return 200;
     }
@@ -99,6 +102,8 @@ export class StatsServicePg {
         const currentYear = now.getFullYear();
         const academicYearStart = currentMonth >= 9 ? currentYear : currentYear - 1;
         const academicYearEnd = academicYearStart + 1;
+
+        await academicYearClosureServicePg.assertYearNotClosed(academicYearStart);
 
         // Шаг 0: month/year результатов по факту даты экзамена (данные могли устареть после переноса экзамена)
         await sql`
@@ -479,7 +484,7 @@ export class StatsServicePg {
         sortColumn: string,
         sortDirection: string
     ): Promise<{ data: RankedEntity[]; totalCount: number }> {
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
@@ -552,7 +557,7 @@ export class StatsServicePg {
         sortColumn: string,
         sortDirection: string
     ): Promise<{ data: RankedEntity[]; totalCount: number }> {
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
@@ -616,7 +621,7 @@ export class StatsServicePg {
         sortColumn: string,
         sortDirection: string
     ): Promise<{ data: RankedEntity[]; totalCount: number }> {
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;

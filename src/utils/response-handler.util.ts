@@ -55,6 +55,13 @@ export class ResponseHandler {
         };
     }
 
+    static conflict(message = 'Conflict'): ApiResponse {
+        return {
+            success: false,
+            message
+        };
+    }
+
     static internalError(message = 'Internal server error', error?: unknown): ApiResponse {
         return {
             success: false,

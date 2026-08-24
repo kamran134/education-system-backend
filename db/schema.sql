@@ -384,6 +384,22 @@ CREATE TABLE grade_promotion_logs (
     legacy_mongo_id text UNIQUE
 );
 
+-- Реестр закрытых учебных годов (015_academic_year_closures.sql, ACADEMIC_YEAR_ARCHIVE_TASK.md §3).
+-- closed_by NULL = закрыл не человек, а система 1 сентября (closed_reason = 'auto') — тогда
+-- финальный пересчёт НЕ прогоняется (к этому моменту классы уже повышены, живые связи другие,
+-- пересчёт сломал бы то, что замораживаем). Ручное закрытие (июнь-июль) прогоняет пересчёт
+-- перед заморозкой. checksums — count(*)/sum(score) по каждой из пяти *_year_ratings на
+-- момент закрытия, чтобы можно было доказать, что архив не поехал, не имея старого дампа.
+CREATE TABLE academic_year_closures (
+    academic_year int         PRIMARY KEY,
+    closed_at     timestamptz NOT NULL DEFAULT now(),
+    closed_by     bigint      REFERENCES users(id),
+    closed_reason text        NOT NULL DEFAULT 'manual' CHECK (closed_reason IN ('manual','auto')),
+    note          text,
+    checksums     jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    CHECK (closed_reason = 'auto' OR closed_by IS NOT NULL)
+);
+
 -- Журнал каскадных перекодировок (PHASE3 п.4, миграция 004): смена teacher.code/school.code
 -- перезаписывает коды потомков, а не только связи. caused_by_* = NULL — прямая правка (корень
 -- каскада); заполнено — эта строка изменилась потому, что изменился родитель.
