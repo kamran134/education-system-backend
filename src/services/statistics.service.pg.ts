@@ -1,6 +1,7 @@
 import { sql } from "kysely";
 import { pg } from "../config/pg";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { MIN_PARTICIPATIONS_FOR_DEVELOPMENT } from "../config/statistics.config";
 import {
     StatisticsFilterPg,
     YearlyStatistics,
@@ -86,6 +87,53 @@ export class StatisticsServicePg {
         };
     }
 
+    /**
+     * Общая агрегация «сколько участвовал / развился ли» по студенту (BASE_FIXES_TASK.md §4.5) —
+     * используется и getYearlyStatistics() (плитка на профиле, порог фиксирован константой), и
+     * getInkishafStatistics() (блок «İnkişaf» на /statistics, порог — пользовательский селект).
+     * Раньше это было два независимых куска SQL с одинаковой формой — здесь один.
+     */
+    private async countDevelopingWithMinParticipations(
+        filters: StatisticsFilterPg | InkishafFilterPg,
+        start: Date,
+        end: Date,
+        endInclusive: boolean,
+        minParticipations: number
+    ): Promise<{ baseCount: number; developingCount: number; maxParticipations: number }> {
+        let q = pg
+            .selectFrom("student_results as sr")
+            .innerJoin("students as st", "st.id", "sr.student_id")
+            .innerJoin("exams as e", "e.id", "sr.exam_id")
+            .where("e.date", ">=", start)
+            .where("e.date", endInclusive ? "<=" : "<", end);
+        q = this.applyStudentFilters(q as any, "st", filters as StatisticsFilterPg) as any;
+        if (filters.regionIds && filters.regionIds.length > 0) {
+            q = (q as any).innerJoin("districts as d", "d.id", "st.district_id").where("d.region_id", "in", filters.regionIds);
+        }
+
+        const participation = await q
+            .groupBy("sr.student_id")
+            .select(({ fn }) => [
+                "sr.student_id as student_id",
+                fn.countAll().as("participations"),
+                sql<boolean>`bool_or(coalesce(sr.development_score, 0) > 0)`.as("has_development"),
+            ])
+            .execute();
+
+        let maxParticipations = 0;
+        let baseCount = 0;
+        let developingCount = 0;
+        for (const row of participation) {
+            const count = Number(row.participations);
+            if (count > maxParticipations) maxParticipations = count;
+            if (count >= minParticipations) {
+                baseCount++;
+                if (row.has_development) developingCount++;
+            }
+        }
+        return { baseCount, developingCount, maxParticipations };
+    }
+
     async getYearlyStatistics(filters: StatisticsFilterPg = {}): Promise<YearlyStatistics> {
         const academicYear = filters.year || getCurrentAcademicYear();
         const { start, end, endInclusive } = this.resolveExamWindow(filters, academicYear);
@@ -99,7 +147,7 @@ export class StatisticsServicePg {
             studentsBase = (studentsBase as any).where("d.region_id", "in", filters.regionIds);
         }
 
-        const [totalStudentsRow, levelRows, aggRow] = await Promise.all([
+        const [totalStudentsRow, levelRows, aggRow, developing] = await Promise.all([
             studentsBase.select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
             studentsBase.select(["st.max_level as max_level", ({ fn }) => fn.countAll().as("count")]).groupBy("st.max_level").execute(),
             (() => {
@@ -119,10 +167,13 @@ export class StatisticsServicePg {
                         sql<number>`coalesce(sum(sr.score), 0)`.as("total_score"),
                         sql<number>`count(distinct sr.student_id) filter (where sr.student_of_the_month_score > 0)`.as("students_of_month"),
                         sql<number>`count(distinct sr.student_id) filter (where sr.republic_wide_student_of_the_month_score > 0)`.as("republic_students_of_month"),
-                        sql<number>`count(distinct sr.student_id) filter (where sr.development_score > 0)`.as("developing_students"),
                     ])
                     .executeTakeFirst();
             })(),
+            // BASE_FIXES_TASK.md §4.5: развитие считается только среди тех, кто участвовал
+            // минимум MIN_PARTICIPATIONS_FOR_DEVELOPMENT раз — процент от этой же базы, не от
+            // totalStudents (иначе разовый всплеск в апреле завышал бы цифру на плитке).
+            this.countDevelopingWithMinParticipations(filters, start, end, endInclusive, MIN_PARTICIPATIONS_FOR_DEVELOPMENT),
         ]);
 
         const totalStudents = Number(totalStudentsRow.count);
@@ -147,8 +198,8 @@ export class StatisticsServicePg {
                 percentage: this.calculatePercentage(Number(aggRow?.republic_students_of_month ?? 0), totalStudents),
             },
             developingStudents: {
-                count: Number(aggRow?.developing_students ?? 0),
-                percentage: this.calculatePercentage(Number(aggRow?.developing_students ?? 0), totalStudents),
+                count: developing.developingCount,
+                percentage: this.calculatePercentage(developing.developingCount, developing.baseCount),
             },
             averageScore: scoreCount > 0 ? Math.round((totalScore / scoreCount) * 100) / 100 : 0,
             levelStatistics: this.levelCountsToStatistics(levelCounts, totalStudents),
@@ -238,37 +289,9 @@ export class StatisticsServicePg {
         const { startDate, endDate } = this.getAcademicYearDates(academicYear);
         const minParticipations = filters.minParticipations && filters.minParticipations >= 2 ? filters.minParticipations : 2;
 
-        let q = pg
-            .selectFrom("student_results as sr")
-            .innerJoin("students as st", "st.id", "sr.student_id")
-            .innerJoin("exams as e", "e.id", "sr.exam_id")
-            .where("e.date", ">=", startDate)
-            .where("e.date", "<", endDate);
-        q = this.applyStudentFilters(q as any, "st", filters) as any;
-        if (filters.regionIds && filters.regionIds.length > 0) {
-            q = (q as any).innerJoin("districts as d", "d.id", "st.district_id").where("d.region_id", "in", filters.regionIds);
-        }
-
-        const participation = await q
-            .groupBy("sr.student_id")
-            .select(({ fn }) => [
-                "sr.student_id as student_id",
-                fn.countAll().as("participations"),
-                sql<boolean>`bool_or(coalesce(sr.development_score, 0) > 0)`.as("has_development"),
-            ])
-            .execute();
-
-        let maxParticipations = 0;
-        let baseCount = 0;
-        let developingCount = 0;
-        for (const row of participation) {
-            const count = Number(row.participations);
-            if (count > maxParticipations) maxParticipations = count;
-            if (count >= minParticipations) {
-                baseCount++;
-                if (row.has_development) developingCount++;
-            }
-        }
+        const { baseCount, developingCount, maxParticipations } = await this.countDevelopingWithMinParticipations(
+            filters, startDate, endDate, false, minParticipations
+        );
 
         return {
             minParticipations,

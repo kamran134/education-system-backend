@@ -25,8 +25,8 @@ router.route("/:id").get(authMiddleware([]), getStudent) // Allow all authentica
     .put(authMiddleware(["superadmin", "admin", "moderator"]), updateStudent)
     .delete(canDelete, deleteStudent);
 router.route("/:id/avatar")
-    .post(authMiddleware(["superadmin", "admin"]), avatarUpload.single('avatar'), uploadStudentAvatar)
-    .delete(authMiddleware(["superadmin", "admin"]), deleteStudentAvatar);
+    .post(authMiddleware([]), avatarUpload.single('avatar'), uploadStudentAvatar) // owner (teacher/schoolDirector) or admin, checked in controller
+    .delete(authMiddleware([]), deleteStudentAvatar);
 router.route("/bulk-upload/avatars")
     .post(authMiddleware(["superadmin", "admin"]), bulkAvatarUpload.array('avatars', 500), bulkUploadAvatars);
 

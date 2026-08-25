@@ -1,6 +1,7 @@
 import { DistrictServicePg, District, DistrictCreate } from "../services/district.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, FileProcessingResult, BulkOperationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
+import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 
 export class DistrictUseCase {
     constructor(private districtService: DistrictServicePg) {}
@@ -101,6 +102,7 @@ export class DistrictUseCase {
         }
 
         await this.districtService.delete(parseInt(id, 10));
+        await profileChangeRequestServicePg.deleteForEntity('district', parseInt(id, 10));
     }
 
     async deleteDistricts(ids: string[]): Promise<BulkOperationResult> {
@@ -115,7 +117,10 @@ export class DistrictUseCase {
             }
         }
 
-        return await this.districtService.deleteBulk(ids.map((id) => parseInt(id, 10)));
+        const numericIds = ids.map((id) => parseInt(id, 10));
+        const result = await this.districtService.deleteBulk(numericIds);
+        await profileChangeRequestServicePg.deleteForEntities('district', numericIds);
+        return result;
     }
 
     async getFilteredDistricts(

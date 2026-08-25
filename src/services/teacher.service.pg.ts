@@ -49,6 +49,10 @@ export interface Teacher {
     actualStudentCount?: number;
     grades?: number[];
     pedagogicalStartYear?: number | null;
+    // BASE_FIXES_TASK.md §2.3 — заменяет pedagogicalStartYear на профиле: стаж вводится
+    // числом лет, а не годом начала (работал не непрерывно). pedagogicalStartYear в БД
+    // остался, но из UI и всех новых записей убран.
+    pedagogicalExperienceYears?: number | null;
     achievements?: string | null;
     // Ручной ввод (PROFILES_V3_TASK.md §5) — источник значения "Sinfi" на профиле, в отличие
     // от grades[] (вычисляется из классов учеников, см. attachProfileCounts). Оба поля живут
@@ -67,6 +71,7 @@ export interface TeacherCreate {
     teacherOfTheYearScore?: number;
     active?: boolean;
     pedagogicalStartYear?: number | null;
+    pedagogicalExperienceYears?: number | null;
     achievements?: string | null;
     gradeLabel?: string | null;
 }
@@ -76,7 +81,7 @@ type TeacherRow = {
     school_id: number | null; district_id: number | null;
     student_count: number | null; status: string | null; teacher_of_the_year_score: number | null;
     active: boolean; avatar_url: string | null;
-    pedagogical_start_year: number | null; achievements: string | null;
+    pedagogical_start_year: number | null; pedagogical_experience_years: number | null; achievements: string | null;
     grade_label: string | null;
 };
 
@@ -130,6 +135,7 @@ export class TeacherServicePg {
             ...(data.teacherOfTheYearScore !== undefined && { teacher_of_the_year_score: data.teacherOfTheYearScore }),
             ...(data.active !== undefined && { active: data.active }),
             ...(data.pedagogicalStartYear !== undefined && { pedagogical_start_year: data.pedagogicalStartYear }),
+            ...(data.pedagogicalExperienceYears !== undefined && { pedagogical_experience_years: data.pedagogicalExperienceYears }),
             ...(data.achievements !== undefined && { achievements: data.achievements }),
             ...(data.gradeLabel !== undefined && { grade_label: data.gradeLabel }),
         };
@@ -527,7 +533,8 @@ export class TeacherServicePg {
                 score: current?.score ?? null, averageScore: current?.averageScore ?? null,
                 place: current?.place ?? null, districtPlace: current?.districtPlace ?? null,
                 ratings,
-                pedagogicalStartYear: row.pedagogical_start_year, achievements: row.achievements,
+                pedagogicalStartYear: row.pedagogical_start_year, pedagogicalExperienceYears: row.pedagogical_experience_years,
+                achievements: row.achievements,
                 gradeLabel: row.grade_label,
             };
         });

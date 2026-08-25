@@ -7,6 +7,7 @@ import { ResponseHandler } from "../utils/response-handler.util";
 import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity, isAdminLike } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 import { canViewEntity } from "../utils/hierarchy-access.util";
+import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 
 export class DistrictController {
     private districtUseCase: DistrictUseCase;
@@ -103,24 +104,32 @@ export class DistrictController {
 
     /**
      * Редактирование ПРОФИЛЯ района (educationHeadName, PROFILES_TASK.md §2.3) — не полный
-     * updateDistrict. С PROFILES_V2_TASK.md §2.3 владелец (districtRepresenter своего района)
-     * сюда больше не допущен — только admin-подобные роли, как и у полного PUT /:id.
-     * Представителю района остаётся только фото (uploadAvatar/deleteAvatar ниже, там
-     * по-прежнему canManageOwnEntity).
+     * updateDistrict. BASE_FIXES_TASK.md §2.5 вернул сюда владельца (districtRepresenter
+     * своего района), но не напрямую в таблицу: он попадает в очередь модерации
+     * (profile_change_requests). Достижений («Nailiyyətlər») у района, в отличие от school/
+     * teacher, в схеме нет и не было — этого поля в БД просто не существует.
      */
     updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
+            const role = req.user?.role;
 
-            if (!isAdminLike(req.user?.role)) {
-                res.status(403).json(ResponseHandler.error('Bu məlumatları yalnız administrator dəyişə bilər'));
+            if (!canManageOwnEntity(role, req.user?.districtId, id)) {
+                res.status(403).json(ResponseHandler.error('Bu məlumatları dəyişməyə icazəniz yoxdur'));
                 return;
             }
 
             const { educationHeadName } = req.body;
-            const district = await this.districtUseCase.updateDistrictProfile(id, { educationHeadName });
 
-            res.json(ResponseHandler.updated(district, 'Profil uğurla yeniləndi'));
+            if (isAdminLike(role)) {
+                const district = await this.districtUseCase.updateDistrictProfile(id, { educationHeadName });
+                res.json(ResponseHandler.updated(district, 'Profil uğurla yeniləndi'));
+                return;
+            }
+
+            const submittedBy = parseInt(req.user!.userId, 10);
+            const request = await profileChangeRequestServicePg.submit('district', parseInt(id, 10), { educationHeadName }, submittedBy);
+            res.status(202).json(ResponseHandler.success(request, 'Məlumatlar admin təsdiqinə göndərildi'));
         } catch (error) {
             next(error);
         }

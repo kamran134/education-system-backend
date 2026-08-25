@@ -82,20 +82,32 @@ export class AcademicYearClosureServicePg {
      * Ручное закрытие (кнопка в админке) — вызывающий код должен прогнать финальный
      * updateAllStats() ДО этого вызова. PRIMARY KEY на academic_year — защита от повторного/
      * параллельного закрытия, код 23505 → HTTP 409 (тот же приём, что в grade_promotion_logs).
+     *
+     * Инкремент стажа учителей (BASE_FIXES_TASK.md §2.3) — в ОДНОЙ транзакции со вставкой
+     * закрытия: если вставка упадёт на 23505 (год уже закрыт кем-то параллельно), инкремент
+     * должен откатиться вместе с ней, иначе повторный вызов накрутит лишний год всем учителям.
      */
     async closeManually(year: number, closedByUserId: number, note?: string): Promise<void> {
         const checksums = await this.computeChecksums(year);
         try {
-            await pg
-                .insertInto("academic_year_closures")
-                .values({
-                    academic_year: year,
-                    closed_by: closedByUserId,
-                    closed_reason: "manual",
-                    note: note ?? null,
-                    checksums: JSON.stringify(checksums),
-                })
-                .execute();
+            await pg.transaction().execute(async (trx) => {
+                await trx
+                    .insertInto("academic_year_closures")
+                    .values({
+                        academic_year: year,
+                        closed_by: closedByUserId,
+                        closed_reason: "manual",
+                        note: note ?? null,
+                        checksums: JSON.stringify(checksums),
+                    })
+                    .execute();
+
+                await trx
+                    .updateTable("teachers")
+                    .set(({ eb }) => ({ pedagogical_experience_years: eb("pedagogical_experience_years", "+", 1) }))
+                    .where("pedagogical_experience_years", "is not", null)
+                    .execute();
+            });
         } catch (error: any) {
             if (error?.code === "23505") {
                 const err: any = new Error(`${year}/${year + 1} tədris ili artıq bağlanıb`);
@@ -132,16 +144,28 @@ export class AcademicYearClosureServicePg {
         for (const { year } of rows.rows) {
             const checksums = await this.computeChecksums(year);
             try {
-                await pg
-                    .insertInto("academic_year_closures")
-                    .values({
-                        academic_year: year,
-                        closed_by: null,
-                        closed_reason: "auto",
-                        note: null,
-                        checksums: JSON.stringify(checksums),
-                    })
-                    .execute();
+                // Каждый год — своя транзакция: гонка на ОДНОМ годе (23505, кто-то успел
+                // раньше) не должна откатывать уже закрытые в этом же вызове предыдущие годы.
+                // Инкремент стажа учителей — здесь же, чтобы 23505 откатывал и его тоже
+                // (BASE_FIXES_TASK.md §2.3, тот же довод, что в closeManually).
+                await pg.transaction().execute(async (trx) => {
+                    await trx
+                        .insertInto("academic_year_closures")
+                        .values({
+                            academic_year: year,
+                            closed_by: null,
+                            closed_reason: "auto",
+                            note: null,
+                            checksums: JSON.stringify(checksums),
+                        })
+                        .execute();
+
+                    await trx
+                        .updateTable("teachers")
+                        .set(({ eb }) => ({ pedagogical_experience_years: eb("pedagogical_experience_years", "+", 1) }))
+                        .where("pedagogical_experience_years", "is not", null)
+                        .execute();
+                });
                 closed.push(year);
             } catch (error: any) {
                 if (error?.code !== "23505") throw error;

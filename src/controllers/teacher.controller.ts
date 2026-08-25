@@ -4,9 +4,10 @@ import { TeacherUseCase } from "../usecases/teacher.usecase";
 import { TeacherServicePg } from "../services/teacher.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity, isAdminLike } from "../utils/avatar.util";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity, canManageTeacherAvatar, isAdminLike } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 import { canViewEntity } from "../utils/hierarchy-access.util";
+import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 
 export class TeacherController {
     private teacherUseCase: TeacherUseCase;
@@ -109,25 +110,40 @@ export class TeacherController {
 
     /**
      * Редактирование ПРОФИЛЯ учителя (biography, pedaqoji stajın başlanğıc ili, uğurları —
-     * PROFILES_TASK.md §2.3) — не полный updateTeacher. С PROFILES_V2_TASK.md §2.3 владелец
-     * (учитель своей записи) сюда больше не допущен: самостоятельное редактирование убрано,
-     * учителю остаётся только фото (см. uploadAvatar/deleteAvatar ниже — там по-прежнему
-     * canManageOwnEntity). Тело запроса урезается до этих трёх полей на уровне контроллера.
+     * PROFILES_TASK.md §2.3) — не полный updateTeacher. BASE_FIXES_TASK.md §2.5 вернул сюда
+     * владельца (учитель своей записи), но не напрямую в таблицу: он попадает в очередь
+     * модерации (profile_change_requests). biography — старое свободное поле без своего UI у
+     * владельца, в белый список самостоятельной заявки не входит, доступно только admin-подобной
+     * роли, как и раньше.
      */
     updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
+            const role = req.user?.role;
 
-            if (!isAdminLike(req.user?.role)) {
-                res.status(403).json(ResponseHandler.error('Bu məlumatları yalnız administrator dəyişə bilər'));
+            if (!canManageOwnEntity(role, req.user?.teacherId, id)) {
+                res.status(403).json(ResponseHandler.error('Bu məlumatları dəyişməyə icazəniz yoxdur'));
                 return;
             }
 
-            const { biography, pedagogicalStartYear, achievements, gradeLabel } = req.body;
-            const changedByUserId = parseInt(req.user!.userId, 10);
-            const { teacher } = await this.teacherUseCase.updateTeacherProfile(id, { biography, pedagogicalStartYear, achievements, gradeLabel }, changedByUserId);
+            if (isAdminLike(role)) {
+                const { biography, pedagogicalExperienceYears, achievements, gradeLabel } = req.body;
+                const changedByUserId = parseInt(req.user!.userId, 10);
+                const { teacher } = await this.teacherUseCase.updateTeacherProfile(id, { biography, pedagogicalExperienceYears, achievements, gradeLabel }, changedByUserId);
+                res.json(ResponseHandler.updated(teacher, 'Profil uğurla yeniləndi'));
+                return;
+            }
 
-            res.json(ResponseHandler.updated(teacher, 'Profil uğurla yeniləndi'));
+            const { gradeLabel, pedagogicalExperienceYears, achievements } = req.body;
+            const validationError = this.teacherUseCase.validateProfilePayload({ gradeLabel, pedagogicalExperienceYears, achievements });
+            if (validationError) {
+                res.status(400).json(ResponseHandler.badRequest(validationError));
+                return;
+            }
+
+            const submittedBy = parseInt(req.user!.userId, 10);
+            const request = await profileChangeRequestServicePg.submit('teacher', parseInt(id, 10), { gradeLabel, pedagogicalExperienceYears, achievements }, submittedBy);
+            res.status(202).json(ResponseHandler.success(request, 'Məlumatlar admin təsdiqinə göndərildi'));
         } catch (error) {
             next(error);
         }
@@ -232,9 +248,9 @@ export class TeacherController {
         try {
             const { id } = req.params;
 
-            if (!canManageOwnEntity(req.user?.role, req.user?.teacherId, id)) {
+            if (!(await canManageTeacherAvatar(req.user, id))) {
                 if (req.file) fs.unlinkSync(req.file.path);
-                res.status(403).json(ResponseHandler.error('Yalnız öz fotonuzu dəyişə bilərsiniz'));
+                res.status(403).json(ResponseHandler.error('Bu fotonu dəyişməyə icazəniz yoxdur'));
                 return;
             }
 
@@ -260,8 +276,8 @@ export class TeacherController {
         try {
             const { id } = req.params;
 
-            if (!canManageOwnEntity(req.user?.role, req.user?.teacherId, id)) {
-                res.status(403).json(ResponseHandler.error('Yalnız öz fotonuzu dəyişə bilərsiniz'));
+            if (!(await canManageTeacherAvatar(req.user, id))) {
+                res.status(403).json(ResponseHandler.error('Bu fotonu dəyişməyə icazəniz yoxdur'));
                 return;
             }
 

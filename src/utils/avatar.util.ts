@@ -126,3 +126,37 @@ export function canManageOwnEntity(role: string | undefined, ownEntityId: string
 
     return !!ownEntityId && ownEntityId === targetId;
 }
+
+type AvatarActor = { role?: string; teacherId?: string; schoolId?: string };
+
+/**
+ * Фото учителя (BASE_FIXES_TASK.md §3.1) — расширяет canManageOwnEntity: помимо самого
+ * учителя и админа, директор школы этого учителя тоже вправе поставить/убрать фото. Требует
+ * запрос в БД (school_id учителя), поэтому асинхронна и живёт отдельно от синхронного
+ * canManageOwnEntity.
+ */
+export async function canManageTeacherAvatar(user: AvatarActor | undefined, teacherId: string): Promise<boolean> {
+    if (isAdminLike(user?.role)) return true;
+    if (user?.role === 'teacher') return user.teacherId === teacherId;
+    if (user?.role === 'schoolDirector' && user.schoolId) {
+        const teacher = await pg.selectFrom('teachers').select('school_id').where('id', '=', parseInt(teacherId, 10)).executeTakeFirst();
+        return !!teacher?.school_id && String(teacher.school_id) === user.schoolId;
+    }
+    return false;
+}
+
+/**
+ * Фото ученика (BASE_FIXES_TASK.md §3.1) — админ, учитель этого ученика или директор его
+ * школы. Раньше это право было только у админа (жёсткий список ролей на роуте) — теперь
+ * роут открыт всем авторизованным, вся проверка здесь.
+ */
+export async function canManageStudentAvatar(user: AvatarActor | undefined, studentId: string): Promise<boolean> {
+    if (isAdminLike(user?.role)) return true;
+    if (user?.role !== 'teacher' && user?.role !== 'schoolDirector') return false;
+
+    const student = await pg.selectFrom('students').select(['teacher_id', 'school_id']).where('id', '=', parseInt(studentId, 10)).executeTakeFirst();
+    if (!student) return false;
+
+    if (user.role === 'teacher') return !!student.teacher_id && String(student.teacher_id) === user.teacherId;
+    return !!student.school_id && String(student.school_id) === user.schoolId;
+}

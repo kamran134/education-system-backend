@@ -77,5 +77,7 @@ Postgres сам откатит незавершённую транзакцию. 
 | `013_ratings_by_raw_score.sql` | Отмена решения от 04.08.2026: место учителей/школ/районов/регионов (`v_teacher_places`/`v_school_places`/`v_district_places`/`v_region_places`) переключено с `average_score` на сырой `score` — «путь B» был неверным пониманием требования заказчика, не его выбором. Ученики не менялись (уже были на `score`). См. `db/rating-semantics.md` §20.08.2026 |
 | `014_teacher_grade_label.sql` | `teachers.grade_label` — класс учителя вводится вручную текстом (`PROFILES_V3_TASK.md` §2) |
 | `015_academic_year_closures.sql` | `academic_year_closures` — реестр закрытых учебных годов (`ACADEMIC_YEAR_ARCHIVE_TASK.md` §3): закрытый год пересчитывать нельзя, `*_year_ratings` за него становится замороженным архивом |
+| `016_teacher_pedagogical_experience.sql` | `teachers.pedagogical_experience_years` — стаж вводится числом лет, не годом начала (`BASE_FIXES_TASK.md` §2.3); `pedagogical_start_year` не удалён, но из UI и чтений убран |
+| `017_profile_change_requests.sql` | `profile_change_requests` — модерация самостоятельно введённых полей школы/учителя/района (`BASE_FIXES_TASK.md` §2.4): pending-запись невидима никому, кроме владельца и админов |
 
 Обновлять таблицу при добавлении новых файлов.

@@ -4,7 +4,7 @@ import { StudentServicePg } from "../services/student.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { pg } from "../config/pg";
-import { saveEntityAvatarPg, removeEntityAvatarPg } from "../utils/avatar.util";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageStudentAvatar } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 import { canViewEntity } from "../utils/hierarchy-access.util";
 import fs from 'fs';
@@ -189,6 +189,12 @@ export class StudentController {
         try {
             const studentId = parseInt(req.params.id, 10);
 
+            if (!(await canManageStudentAvatar(req.user, req.params.id))) {
+                if (req.file) fs.unlinkSync(req.file.path);
+                res.status(403).json(ResponseHandler.error('Bu fotonu dəyişməyə icazəniz yoxdur'));
+                return;
+            }
+
             if (!req.file) {
                 res.status(400).json(ResponseHandler.badRequest('Fayl yüklənməyib'));
                 return;
@@ -223,6 +229,11 @@ export class StudentController {
     async deleteStudentAvatar(req: Request, res: Response): Promise<void> {
         try {
             const studentId = parseInt(req.params.id, 10);
+
+            if (!(await canManageStudentAvatar(req.user, req.params.id))) {
+                res.status(403).json(ResponseHandler.error('Bu fotonu dəyişməyə icazəniz yoxdur'));
+                return;
+            }
 
             const found = await removeEntityAvatarPg('students', studentId);
 

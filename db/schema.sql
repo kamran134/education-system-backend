@@ -74,7 +74,7 @@ CREATE TABLE teachers (
     code                       bigint  NOT NULL UNIQUE,           -- 7 знаков = school*100 + nn
     fullname                   text    NOT NULL,
     biography                  text,   -- профиль учителя (010_school_teacher_profile_text_fields.sql)
-    pedagogical_start_year     int CHECK (pedagogical_start_year BETWEEN 1950 AND 2100),   -- профиль учителя (012_profile_fields.sql)
+    pedagogical_start_year     int CHECK (pedagogical_start_year BETWEEN 1950 AND 2100),   -- профиль учителя (012_profile_fields.sql). Из UI и всех чтений убран (016), но сам не удалён — вдруг пригодится.
     achievements               text,   -- профиль учителя, то же
     school_id                  bigint  REFERENCES schools(id),    -- NULL допустим: в проде 2 учителя без школы
     district_id                bigint  REFERENCES districts(id),
@@ -83,7 +83,9 @@ CREATE TABLE teachers (
     teacher_of_the_year_score  double precision DEFAULT 0,
     active                     boolean NOT NULL DEFAULT true,
     avatar_url                 text,
-    legacy_mongo_id            text UNIQUE
+    legacy_mongo_id            text UNIQUE,
+    grade_label                text CHECK (grade_label IS NULL OR char_length(btrim(grade_label)) BETWEEN 1 AND 40),  -- 014_teacher_grade_label.sql
+    pedagogical_experience_years int CHECK (pedagogical_experience_years IS NULL OR pedagogical_experience_years BETWEEN 0 AND 70)  -- 016_teacher_pedagogical_experience.sql: стаж вводится числом лет, не годом начала (работал не непрерывно)
 );
 
 CREATE TABLE students (
@@ -416,6 +418,29 @@ CREATE TABLE code_change_logs (
 );
 CREATE INDEX code_change_logs_entity_idx ON code_change_logs (entity_type, entity_id);
 CREATE INDEX code_change_logs_changed_at_idx ON code_change_logs (changed_at);
+
+-- Модерация самостоятельно введённых полей профиля (017_profile_change_requests.sql,
+-- BASE_FIXES_TASK.md §2.4). Полиморфная связь без FK на саму сущность — при удалении
+-- школы/учителя/района заявку подчищает код удаления сущности. Уникальный индекс держит
+-- ровно одну необработанную заявку на сущность: повторное сохранение владельцем
+-- перезаписывает payload, а не плодит очередь.
+CREATE TABLE profile_change_requests (
+    id            bigserial   PRIMARY KEY,
+    entity_type   text        NOT NULL CHECK (entity_type IN ('school','teacher','district')),
+    entity_id     bigint      NOT NULL,
+    payload       jsonb       NOT NULL,
+    status        text        NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+    submitted_by  bigint      NOT NULL REFERENCES users(id),
+    submitted_at  timestamptz NOT NULL DEFAULT now(),
+    reviewed_by   bigint      REFERENCES users(id),
+    reviewed_at   timestamptz,
+    review_note   text
+);
+CREATE UNIQUE INDEX profile_change_requests_one_pending
+    ON profile_change_requests (entity_type, entity_id)
+    WHERE status = 'pending';
+CREATE INDEX profile_change_requests_queue
+    ON profile_change_requests (status, submitted_at DESC);
 
 -- Трекинг для db/migrations/apply-pending.sh (автоприменение на CI/CD, см. migrations/README.md).
 -- На свежей БД, поднятой из этого файла, остаётся пустой — она уже включает миграции 001-004,

@@ -3,6 +3,7 @@ import { TeacherServicePg, Teacher, TeacherCreate } from "../services/teacher.se
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
+import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 
 export class TeacherUseCase {
     constructor(private teacherService: TeacherServicePg) {}
@@ -105,18 +106,34 @@ export class TeacherUseCase {
         return await this.teacherService.update(parseInt(id, 10), updateData, changedByUserId);
     }
 
+    /** Та же проверка, что внутри updateTeacherProfile — отдельно, чтобы владелец получал
+     *  внятную ошибку уже при отправке в модерацию (BASE_FIXES_TASK.md §2.5). */
+    validateProfilePayload(data: { gradeLabel?: string | null; pedagogicalExperienceYears?: number | null; achievements?: string | null }): string | null {
+        const validation = ValidationUtils.combine([
+            data.pedagogicalExperienceYears != null
+                ? ValidationUtils.validateNumber(data.pedagogicalExperienceYears, 'Pedaqoji staj', 0, 70)
+                : null,
+            data.gradeLabel != null && data.gradeLabel.length > 40
+                ? 'Sinif 40 simvoldan uzun ola bilməz'
+                : null,
+        ]);
+        return validation.isValid ? null : validation.errors.join(', ');
+    }
+
     /**
-     * Самостоятельное редактирование профиля (biography/pedagogicalStartYear/achievements) —
-     * PROFILES_TASK.md §2.3. Не проходит через полный updateTeacher: не трогает code, поэтому
-     * changedByUserId нужен только на случай сигнатуры teacherService.update, каскад кода не
-     * запускается (codeChanging всегда false для этого набора полей).
+     * Самостоятельное редактирование профиля (biography/pedagogicalExperienceYears/achievements)
+     * — PROFILES_TASK.md §2.3, стаж переведён на число лет в BASE_FIXES_TASK.md §2.3/§2.5 (сюда
+     * попадает только через модерацию — см. profileChangeRequest.service.pg.ts approve()).
+     * Не проходит через полный updateTeacher: не трогает code, поэтому changedByUserId нужен
+     * только на случай сигнатуры teacherService.update, каскад кода не запускается (codeChanging
+     * всегда false для этого набора полей).
      */
-    async updateTeacherProfile(id: string, data: { biography?: string | null; pedagogicalStartYear?: number | null; achievements?: string | null; gradeLabel?: string | null }, changedByUserId: number): Promise<{ teacher: Teacher; cascadedStudentsCount: number }> {
+    async updateTeacherProfile(id: string, data: { biography?: string | null; pedagogicalExperienceYears?: number | null; achievements?: string | null; gradeLabel?: string | null }, changedByUserId: number): Promise<{ teacher: Teacher; cascadedStudentsCount: number }> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Teacher ID'),
             ValidationUtils.validateId(id, 'Teacher ID'),
-            data.pedagogicalStartYear != null
-                ? ValidationUtils.validateNumber(data.pedagogicalStartYear, 'Pedaqoji stajın başlanğıc ili', 1950, new Date().getFullYear())
+            data.pedagogicalExperienceYears != null
+                ? ValidationUtils.validateNumber(data.pedagogicalExperienceYears, 'Pedaqoji staj', 0, 70)
                 : null,
             data.gradeLabel != null && data.gradeLabel.length > 40
                 ? 'Sinif 40 simvoldan uzun ola bilməz'
@@ -153,6 +170,7 @@ export class TeacherUseCase {
         }
 
         await this.teacherService.delete(parseInt(id, 10));
+        await profileChangeRequestServicePg.deleteForEntity('teacher', parseInt(id, 10));
     }
 
     async deleteTeachers(ids: string[]): Promise<BulkOperationResult> {
@@ -161,7 +179,10 @@ export class TeacherUseCase {
             throw new Error(arrayValidation.errors.join(', '));
         }
 
-        return await this.teacherService.deleteBulk(ids.map((id) => parseInt(id, 10)));
+        const numericIds = ids.map((id) => parseInt(id, 10));
+        const result = await this.teacherService.deleteBulk(numericIds);
+        await profileChangeRequestServicePg.deleteForEntities('teacher', numericIds);
+        return result;
     }
 
     async processTeachersFromFile(filePath: string): Promise<FileProcessingResult<Teacher>> {

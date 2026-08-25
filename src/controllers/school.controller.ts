@@ -7,6 +7,7 @@ import { ResponseHandler } from "../utils/response-handler.util";
 import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity, isAdminLike } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 import { canViewEntity } from "../utils/hierarchy-access.util";
+import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 
 export class SchoolController {
     private schoolUseCase: SchoolUseCase;
@@ -115,28 +116,44 @@ export class SchoolController {
     }
 
     /**
-     * Редактирование ПРОФИЛЯ школы (description/history/directorName/foundedYear/achievements,
-     * PROFILES_TASK.md §2.3) — не полный updateSchool. С PROFILES_V2_TASK.md §2.3 владелец
-     * (schoolDirector своей школы) сюда больше не допущен — только admin-подобные роли, как и
-     * у полного PUT /:id. Директору остаётся только фото (uploadAvatar/deleteAvatar ниже, там
-     * по-прежнему canManageOwnEntity). Контроллер сам вырезает из тела запроса только эти пять
-     * полей — остальные (code/active/districtId/...) молча игнорируются, даже если клиент их
-     * пришлёт, это и есть граница безопасности этого эндпоинта.
+     * Редактирование ПРОФИЛЯ школы — не полный updateSchool. Контроллер сам вырезает из тела
+     * запроса только допустимые поля — остальные (code/active/districtId/...) молча
+     * игнорируются, это и есть граница безопасности этого эндпоинта.
+     *
+     * BASE_FIXES_TASK.md §2.5 вернул сюда владельца (schoolDirector своей школы), но не напрямую
+     * в таблицу: он попадает в очередь модерации (profile_change_requests), а не сохраняется
+     * сразу. description/history — старые свободные поля (010_school_teacher_profile_text_fields.sql)
+     * без собственного UI у владельца, поэтому в белый список самостоятельной заявки они не
+     * входят: их по-прежнему может задать только admin-подобная роль, как и раньше.
      */
     updateProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
+            const role = req.user?.role;
 
-            if (!isAdminLike(req.user?.role)) {
-                res.status(403).json(ResponseHandler.error('Bu məlumatları yalnız administrator dəyişə bilər'));
+            if (!canManageOwnEntity(role, req.user?.schoolId, id)) {
+                res.status(403).json(ResponseHandler.error('Bu məlumatları dəyişməyə icazəniz yoxdur'));
                 return;
             }
 
-            const { description, history, directorName, foundedYear, achievements } = req.body;
-            const changedByUserId = parseInt(req.user!.userId, 10);
-            const { school } = await this.schoolUseCase.updateSchoolProfile(id, { description, history, directorName, foundedYear, achievements }, changedByUserId);
+            if (isAdminLike(role)) {
+                const { description, history, directorName, foundedYear, achievements } = req.body;
+                const changedByUserId = parseInt(req.user!.userId, 10);
+                const { school } = await this.schoolUseCase.updateSchoolProfile(id, { description, history, directorName, foundedYear, achievements }, changedByUserId);
+                res.json(ResponseHandler.updated(school, 'Profil uğurla yeniləndi'));
+                return;
+            }
 
-            res.json(ResponseHandler.updated(school, 'Profil uğurla yeniləndi'));
+            const { directorName, foundedYear, achievements } = req.body;
+            const validationError = this.schoolUseCase.validateProfilePayload({ directorName, foundedYear, achievements });
+            if (validationError) {
+                res.status(400).json(ResponseHandler.badRequest(validationError));
+                return;
+            }
+
+            const submittedBy = parseInt(req.user!.userId, 10);
+            const request = await profileChangeRequestServicePg.submit('school', parseInt(id, 10), { directorName, foundedYear, achievements }, submittedBy);
+            res.status(202).json(ResponseHandler.success(request, 'Məlumatlar admin təsdiqinə göndərildi'));
         } catch (error) {
             next(error);
         }

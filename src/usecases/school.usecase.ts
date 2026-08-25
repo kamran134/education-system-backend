@@ -4,6 +4,7 @@ import { pg } from "../config/pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
+import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 
 export class SchoolUseCase {
     constructor(private schoolService: SchoolServicePg) {}
@@ -133,6 +134,20 @@ export class SchoolUseCase {
      * achievements) — PROFILES_TASK.md §2.3. Не проходит через полный updateSchool: не трогает
      * code, каскад кода не запускается.
      */
+    /**
+     * Та же проверка foundedYear, что и внутри updateSchoolProfile — вынесена отдельно, чтобы
+     * владелец получал внятную ошибку уже при отправке заявки в модерацию (BASE_FIXES_TASK.md
+     * §2.5), а не только когда админ попытается её подтвердить.
+     */
+    validateProfilePayload(data: { directorName?: string | null; foundedYear?: number | null; achievements?: string | null }): string | null {
+        const validation = ValidationUtils.combine([
+            data.foundedYear != null
+                ? ValidationUtils.validateNumber(data.foundedYear, 'Məktəbin yaranma tarixi', 1800, new Date().getFullYear())
+                : null,
+        ]);
+        return validation.isValid ? null : validation.errors.join(', ');
+    }
+
     async updateSchoolProfile(id: string, data: { description?: string | null; history?: string | null; directorName?: string | null; foundedYear?: number | null; achievements?: string | null }, changedByUserId: number): Promise<{ school: School; cascadedTeachersCount: number; cascadedStudentsCount: number }> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'School ID'),
@@ -165,6 +180,9 @@ export class SchoolUseCase {
         }
 
         await this.schoolService.delete(parseInt(id, 10));
+        // Полиморфная связь без FK (BASE_FIXES_TASK.md §2.4) — заявку за удалённую школу
+        // подчищаем явно, иначе она осиротеет в очереди модерации.
+        await profileChangeRequestServicePg.deleteForEntity('school', parseInt(id, 10));
     }
 
     async deleteSchools(ids: string[]): Promise<BulkOperationResult> {
@@ -173,7 +191,10 @@ export class SchoolUseCase {
             throw new Error(arrayValidation.errors.join(', '));
         }
 
-        return await this.schoolService.deleteBulk(ids.map((id) => parseInt(id, 10)));
+        const numericIds = ids.map((id) => parseInt(id, 10));
+        const result = await this.schoolService.deleteBulk(numericIds);
+        await profileChangeRequestServicePg.deleteForEntities('school', numericIds);
+        return result;
     }
 
     async processSchoolsFromFile(filePath: string): Promise<FileProcessingResult<School>> {

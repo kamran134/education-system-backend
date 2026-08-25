@@ -166,6 +166,21 @@ export interface Levels {
   rank: number;
 }
 
+// Добавлено вручную вслед за миграцией 017_profile_change_requests.sql — перегенерировать через
+// kysely-codegen при следующей возможности подключиться к живой БД и сверить.
+export interface ProfileChangeRequests {
+  entity_id: number;
+  entity_type: string;
+  id: Generated<number>;
+  payload: Json;
+  review_note: string | null;
+  reviewed_at: Timestamp | null;
+  reviewed_by: number | null;
+  status: Generated<string>;
+  submitted_at: Generated<Timestamp>;
+  submitted_by: number;
+}
+
 export interface Schools {
   achievements: string | null;
   active: Generated<boolean>;
@@ -275,6 +290,7 @@ export interface Teachers {
   grade_label: string | null;
   id: Generated<number>;
   legacy_mongo_id: string | null;
+  pedagogical_experience_years: number | null;
   pedagogical_start_year: number | null;
   school_id: number | null;
   status: string | null;
@@ -430,6 +446,7 @@ export interface DB {
   grade_promotion_logs: GradePromotionLogs;
   issued_certificates: IssuedCertificates;
   levels: Levels;
+  profile_change_requests: ProfileChangeRequests;
   region_year_ratings: RegionYearRatings;
   regions: Regions;
   schema_migrations: SchemaMigrations;
