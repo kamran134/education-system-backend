@@ -2,10 +2,16 @@ import { Request } from "express";
 import { PaginationOptions, FilterOptions, FilterOptionsPg, SortOptions } from "../types/common.types";
 import { Types } from "mongoose";
 
+/** Потолок size. 1000 не хватало на выгрузку в Excel «İlin şagirdləri» и т.п. — фронт просит
+ *  100000 (TABLE_EXPORT_PAGE_SIZE), и запрос молча обрезался (26.08.2026, п.5). Эти эндпоинты
+ *  все за авторизацией и скоупингом по иерархии, так что большой size — осознанный экспорт,
+ *  не открытая дыра. */
+const MAX_PAGE_SIZE = 100000;
+
 export class RequestParser {
     static parsePagination(req: Request): PaginationOptions {
         const page = Math.max(1, parseInt(req.query.page as string) || 1);
-        const size = Math.max(1, Math.min(1000, parseInt(req.query.size as string) || 100));
+        const size = Math.max(1, Math.min(MAX_PAGE_SIZE, parseInt(req.query.size as string) || 100));
         const skip = (page - 1) * size;
 
         return { page, size, skip };
