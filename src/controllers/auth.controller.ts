@@ -274,6 +274,53 @@ export const me = async (req: Request, res: Response) => {
     }
 };
 
+/** Самостоятельная смена пароля с /profile — раньше такого эндпоинта не было вообще,
+ *  фронт просто показывал успех через setTimeout ничего не отправляя. PUT /users/:id/password
+ *  (user.controller.ts) для этого не годится: он только для админа, меняющего чужой пароль,
+ *  и не проверяет текущий пароль — здесь наоборот, currentPassword обязателен. */
+export const changeOwnPassword = async (req: Request, res: Response) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 6) {
+            res.status(400).json({
+                success: false,
+                message: "Yeni şifrə ən az 6 simvol olmalıdır"
+            });
+            return;
+        }
+
+        const userId = req.user?.userId ? parseInt(req.user.userId, 10) : NaN;
+        const user = await userServicePg.findById(userId);
+        if (!user) {
+            res.status(404).json({
+                success: false,
+                message: "İstifadəçi tapılmadı!"
+            });
+            return;
+        }
+
+        if (!currentPassword || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+            res.status(400).json({
+                success: false,
+                message: "Cari şifrə yanlışdır"
+            });
+            return;
+        }
+
+        await userServicePg.changePassword(userId, newPassword);
+        res.json({
+            success: true,
+            message: "Şifrə uğurla dəyişdirildi"
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: "Serverdə xəta!"
+        });
+    }
+};
+
 export const register = async (req: Request, res: Response) => {
     const { email, password, role } = req.body;
     const errors = validationResult(req);

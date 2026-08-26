@@ -1,6 +1,6 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
-import { login, register, approveUser, logout, checkRole, refreshToken, me, logoutFromAllDevices, getActiveSessions, getTokenStatistics, forceCleanupTokens } from "../controllers/auth.controller";
+import { login, register, approveUser, logout, checkRole, refreshToken, me, changeOwnPassword, logoutFromAllDevices, getActiveSessions, getTokenStatistics, forceCleanupTokens } from "../controllers/auth.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 
 const router = express.Router();
@@ -23,6 +23,7 @@ router.post("/logout", logout);
 router.post("/logout-all", authMiddleware([]), logoutFromAllDevices);
 router.post("/refresh", refreshToken);
 router.get("/me", authMiddleware([]), me);
+router.put("/change-password", authMiddleware([]), changeOwnPassword);
 router.get("/sessions", authMiddleware([]), getActiveSessions);
 router.get("/debug-cookies", authMiddleware(["superadmin"]), (req, res) => {
     console.log('[DEBUG] All cookies:', req.cookies);
