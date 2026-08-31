@@ -63,8 +63,10 @@ export interface DistrictCreate {
  *     ссылкой, как это происходило в Mongo (см. находки шага 3 — 5 таких пользователей уже были в проде).
  *     Это сознательное улучшение, не regression — если понадобится откатить, оборачивать в try/catch
  *     с понятным сообщением, а не убирать constraint.
- *   - filters.districtIds/schoolIds/... не используются при листинге районов — Mongo-версия (buildCommonFilter)
- *     тоже их не использовала (район не фильтруется "по району"), поведение сохранено как есть.
+ *   - filters.districtIds/regionIds ЧИТАЮТСЯ в applyFilter (граница безопасности для
+ *     districtRepresenter/regionRepresenter, см. district.controller.ts). В Mongo-версии
+ *     (buildCommonFilter) они игнорировались; этот комментарий долго утверждал то же самое
+ *     уже после того, как поведение исправили, — не верить ему было правильно.
  */
 export class DistrictServicePg {
     async updateDistrictsStats(): Promise<void> {
@@ -327,6 +329,12 @@ export class DistrictServicePg {
                 : Promise.resolve(undefined),
         ]);
 
+        // Плоские поля текущего года — паритет со School/Teacher (attachExtras там их отдаёт).
+        // Без них список районов на профиле РТИ не показывал бейдж рейтингового балла на карточках:
+        // фронт читает d.score, а приходил только ratings[] (П.2).
+        const currentYear = getCurrentAcademicYear();
+        const current = ratingRows.find((r) => r.year === currentYear);
+
         return {
             id: row.id,
             code: row.code,
@@ -340,6 +348,9 @@ export class DistrictServicePg {
             avatarUrl: row.avatar_url,
             educationHeadName: row.education_head_name,
             ratings: ratingRows.map((r) => ({ year: r.year, score: r.score, averageScore: r.average_score, place: r.place })),
+            score: current?.score ?? null,
+            averageScore: current?.average_score ?? null,
+            place: current?.place ?? null,
         };
     }
 
