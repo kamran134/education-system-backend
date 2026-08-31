@@ -31,8 +31,9 @@ export class DistrictController {
             const filters = RequestParser.parseFilterOptionsPg(req);
             const sort = RequestParser.parseSorting(req, 'name', 'asc');
 
-            // Role-based filtering: сохранено 1:1 из Mongo-версии, включая то, что buildFilter
-            // districtIds не читает (см. комментарий в district.service.pg.ts) — не менять молча.
+            // Role-based filtering — граница безопасности для districtRepresenter/regionRepresenter.
+            // (Раньше здесь стоял комментарий, что applyFilter districtIds игнорирует — это давно
+            //  не так, см. district.service.pg.ts::applyFilter.)
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
                 filters.districtIds = [parseInt(req.user.districtId, 10)];
             } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
@@ -53,6 +54,15 @@ export class DistrictController {
     getDistrictsForFilter = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const filters = RequestParser.parseFilterOptionsPg(req);
+
+            // Ролевое сужение — тот же блок, что в getDistricts выше. В *ForFilter его раньше не было:
+            // districtRepresenter/regionRepresenter мог перечислить все районы республики через /districts/filter.
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+            }
+
             const districts = await this.districtUseCase.getDistrictsForFilter(filters);
 
             res.json(ResponseHandler.success(districts, 'Filtr üçün məlumatlar uğurla alındı'));

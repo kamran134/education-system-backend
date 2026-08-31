@@ -53,6 +53,23 @@ export class SchoolController {
     getSchoolsForFilter = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const filters = RequestParser.parseFilterOptionsPg(req);
+
+            // Ролевое сужение — тот же блок, что в getSchools выше. В *ForFilter его раньше не было:
+            // districtRepresenter/schoolDirector мог перечислить все школы республики через /schools/filter.
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
+            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+            }
+
+            // active — это флаг «Məktəbi reytinqlərdə göstər»: скрытые школы видит только тот,
+            // кто ими управляет. Неадминским ролям в фильтре отдаём только активные (П.6, 6a/6b).
+            if (!isAdminLike(req.user?.role)) {
+                filters.active = true;
+            }
+
             const schools = await this.schoolUseCase.getSchoolsForFilter(filters);
 
             res.json(ResponseHandler.success(schools, 'Filtr üçün məlumatlar uğurla alındı'));

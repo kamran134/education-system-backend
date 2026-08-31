@@ -55,6 +55,24 @@ export class TeacherController {
     getTeachersForFilter = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const filters = RequestParser.parseFilterOptionsPg(req);
+
+            // Ролевое сужение — тот же блок, что в getTeachers выше. В *ForFilter его раньше не было:
+            // districtRepresenter/schoolDirector мог перечислить всех учителей республики через /teachers/filter.
+            if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+                filters.districtIds = [parseInt(req.user.districtId, 10)];
+            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+            } else if (req.user?.role === 'teacher' && req.user.teacherId) {
+                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
+            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+            }
+
+            // active — флаг «reytinqlərdə göstər» у учителя: скрытых видит только управляющая роль.
+            if (!isAdminLike(req.user?.role)) {
+                filters.active = true;
+            }
+
             const teachers = await this.teacherUseCase.getTeachersForFilter(filters);
 
             res.json(ResponseHandler.success(teachers, 'Filtr üçün məlumatlar uğurla alındı'));

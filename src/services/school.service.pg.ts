@@ -438,6 +438,11 @@ export class SchoolServicePg {
         if (filters.districtIds && filters.districtIds.length > 0) {
             q = q.where("schools.district_id" as any, "in", filters.districtIds);
         }
+        // schoolIds раньше не читался — из-за этого ролевое сужение по schoolDirector (в getSchools
+        // и getSchoolsForFilter) молча не срабатывало: filters.schoolIds выставлялся, но фильтр его игнорировал.
+        if (filters.schoolIds && filters.schoolIds.length > 0) {
+            q = q.where("schools.id" as any, "in", filters.schoolIds);
+        }
         return q;
     }
 

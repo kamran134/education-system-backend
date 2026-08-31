@@ -476,6 +476,11 @@ export class TeacherServicePg {
         if (filters.active !== undefined) {
             q = q.where("teachers.active" as any, "=", filters.active);
         }
+        // teacherIds раньше не читался — из-за этого ролевое сужение по роли teacher (в getTeachers
+        // и getTeachersForFilter) молча не срабатывало: filters.teacherIds выставлялся, но фильтр его игнорировал.
+        if (filters.teacherIds && filters.teacherIds.length > 0) {
+            q = q.where("teachers.id" as any, "in", filters.teacherIds);
+        }
         // Приоритет как в Mongo-версии: schoolIds важнее districtIds (не оба сразу).
         if (filters.schoolIds && filters.schoolIds.length > 0) {
             q = q.where("teachers.school_id" as any, "in", filters.schoolIds);
