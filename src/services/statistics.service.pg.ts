@@ -1,4 +1,4 @@
-import { sql } from "kysely";
+import { sql, Expression } from "kysely";
 import { pg } from "../config/pg";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
 import { MIN_PARTICIPATIONS_FOR_DEVELOPMENT } from "../config/statistics.config";
@@ -49,8 +49,16 @@ export class StatisticsServicePg {
      *  regionIds здесь НЕ обрабатывается: у students нет колонки region_id, регион достаётся
      *  только через districts.region_id. Все четыре вызывающих метода сами джойнят districts
      *  и вешают where d.region_id in (...) при непустом regionIds — эта ветка была копипастой
-     *  несуществующей колонки и роняла запрос в 500 (PROFILES_V2_TASK.md §4.3). */
-    private applyStudentFilters<Q extends { where: any }>(query: Q, alias: string, filters: StatisticsFilterPg): Q {
+     *  несуществующей колонки и роняла запрос в 500 (PROFILES_V2_TASK.md §4.3).
+     *
+     *  gradeExpr — выражение «класс ученика в том году/месяце, за который считается статистика».
+     *  Параметр обязательный и без дефолта намеренно: живой `st.grade` здесь подставляется только
+     *  для ТЕКУЩЕГО учебного года, во всех остальных случаях он врёт задним числом после
+     *  ежегодного повышения классов (SINIF_TARIXCESI_TASK.md). Каждый вызывающий обязан сказать,
+     *  что у него в области видимости: `sr.grade` (класс на момент результата) там, где запрос
+     *  идёт по student_results, и `sgh.grade` из student_grade_history там, где считаются сами
+     *  ученики за прошлый год. */
+    private applyStudentFilters<Q extends { where: any }>(query: Q, alias: string, filters: StatisticsFilterPg, gradeExpr: Expression<number | null>): Q {
         let q = query;
         if (filters.districtIds && filters.districtIds.length > 0) {
             q = q.where(`${alias}.district_id` as any, "in", filters.districtIds);
@@ -62,9 +70,20 @@ export class StatisticsServicePg {
             q = q.where(`${alias}.teacher_id` as any, "in", filters.teacherIds);
         }
         if (filters.grades && filters.grades.length > 0) {
-            q = q.where(`${alias}.grade` as any, "in", filters.grades);
+            q = q.where(gradeExpr as any, "in", filters.grades);
         }
         return q;
+    }
+
+    /** Класс ученика за выбранный учебный год для запросов, где student_results нет в области
+     *  видимости (считаются сами ученики, а не результаты). Правило то же, что в
+     *  student.service.pg.ts: текущий год — живой students.grade, прошлый — только история;
+     *  ученики без строки в student_grade_history за тот год из выборки с фильтром по классу
+     *  выпадают — показать их в произвольном классе было бы хуже. */
+    private studentGradeExpr(academicYear: number, alias: string): Expression<number | null> {
+        return academicYear === getCurrentAcademicYear()
+            ? sql<number | null>`${sql.ref(`${alias}.grade`)}`
+            : sql<number | null>`sgh.grade`;
     }
 
     private calculatePercentage(count: number, total: number): number {
@@ -106,7 +125,9 @@ export class StatisticsServicePg {
             .innerJoin("exams as e", "e.id", "sr.exam_id")
             .where("e.date", ">=", start)
             .where("e.date", endInclusive ? "<=" : "<", end);
-        q = this.applyStudentFilters(q as any, "st", filters as StatisticsFilterPg) as any;
+        // Фильтр по классу — по sr.grade (класс на момент результата), а не по живому st.grade:
+        // запрос и так идёт по student_results в окне дат конкретного года.
+        q = this.applyStudentFilters(q as any, "st", filters as StatisticsFilterPg, sql<number | null>`sr.grade`) as any;
         if (filters.regionIds && filters.regionIds.length > 0) {
             q = (q as any).innerJoin("districts as d", "d.id", "st.district_id").where("d.region_id", "in", filters.regionIds);
         }
@@ -139,10 +160,16 @@ export class StatisticsServicePg {
         const { start, end, endInclusive } = this.resolveExamWindow(filters, academicYear);
 
         // Регион у района, а не у студента напрямую — джойн districts нужен только для regionIds.
+        // student_grade_history — только для фильтра по классу за ПРОШЕДШИЙ год: student_results
+        // в этом запросе нет (считаются сами ученики), взять исторический класс больше неоткуда.
+        // LEFT JOIN по PK (student_id, academic_year) строк не размножает — count остаётся верным.
         let studentsBase = pg
             .selectFrom("students as st")
-            .leftJoin("districts as d", "d.id", "st.district_id");
-        studentsBase = this.applyStudentFilters(studentsBase as any, "st", filters) as any;
+            .leftJoin("districts as d", "d.id", "st.district_id")
+            .leftJoin("student_grade_history as sgh", (join) =>
+                join.onRef("sgh.student_id", "=", "st.id").on("sgh.academic_year", "=", academicYear)
+            );
+        studentsBase = this.applyStudentFilters(studentsBase as any, "st", filters, this.studentGradeExpr(academicYear, "st")) as any;
         if (filters.regionIds && filters.regionIds.length > 0) {
             studentsBase = (studentsBase as any).where("d.region_id", "in", filters.regionIds);
         }
@@ -157,7 +184,7 @@ export class StatisticsServicePg {
                     .leftJoin("exams as e", "e.id", "sr.exam_id")
                     .where("e.date", ">=", start)
                     .where("e.date", endInclusive ? "<=" : "<", end);
-                q = this.applyStudentFilters(q as any, "st", filters) as any;
+                q = this.applyStudentFilters(q as any, "st", filters, sql<number | null>`sr.grade`) as any;
                 if (filters.regionIds && filters.regionIds.length > 0) {
                     q = (q as any).innerJoin("districts as d2", "d2.id", "st.district_id").where("d2.region_id", "in", filters.regionIds);
                 }
@@ -216,7 +243,7 @@ export class StatisticsServicePg {
             .innerJoin("exams as e", "e.id", "sr.exam_id")
             .where("e.date", ">=", start)
             .where("e.date", endInclusive ? "<=" : "<", end);
-        q = this.applyStudentFilters(q as any, "st", filters) as any;
+        q = this.applyStudentFilters(q as any, "st", filters, sql<number | null>`sr.grade`) as any;
         if (filters.regionIds && filters.regionIds.length > 0) {
             q = (q as any).innerJoin("districts as d", "d.id", "st.district_id").where("d.region_id", "in", filters.regionIds);
         }

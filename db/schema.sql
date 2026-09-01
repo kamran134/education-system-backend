@@ -282,6 +282,19 @@ CREATE TABLE student_year_ratings (
     PRIMARY KEY (student_id, year)
 );
 
+-- Исторический класс ученика по учебным годам (018_student_grade_history.sql,
+-- SINIF_TARIXCESI_TASK.md). students.grade — живое поле, раз в год перезаписывается
+-- повышением классов; всё, что показывает класс ученика в разрезе КОНКРЕТНОГО прошедшего
+-- учебного года, должно читать эту таблицу, а не students.grade. Пишет её только повышение
+-- классов (gradePromotion.service.pg.ts) — снимок уходящего и нового года при каждом запуске;
+-- прошлое до введения таблицы восстановлено бэкфиллом из v_student_year_scores.
+CREATE TABLE student_grade_history (
+    student_id    bigint NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    academic_year int    NOT NULL,   -- год НАЧАЛА учебного года, как везде в схеме
+    grade         int    NOT NULL,
+    PRIMARY KEY (student_id, academic_year)
+);
+
 CREATE TABLE teacher_year_ratings (
     teacher_id     bigint NOT NULL REFERENCES teachers(id) ON DELETE CASCADE,
     year           int    NOT NULL,

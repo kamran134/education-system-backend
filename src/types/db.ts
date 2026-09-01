@@ -268,6 +268,14 @@ export interface StudentYearRatings {
   year: number;
 }
 
+// Добавлено вручную вслед за миграцией 018_student_grade_history.sql — перегенерировать через
+// kysely-codegen при следующей возможности подключиться к живой БД и сверить.
+export interface StudentGradeHistory {
+  academic_year: number;
+  grade: number;
+  student_id: number;
+}
+
 export interface Subjects {
   active: Generated<boolean>;
   code: string;
@@ -452,6 +460,7 @@ export interface DB {
   schema_migrations: SchemaMigrations;
   school_year_ratings: SchoolYearRatings;
   schools: Schools;
+  student_grade_history: StudentGradeHistory;
   student_results: StudentResults;
   student_year_ratings: StudentYearRatings;
   students: Students;

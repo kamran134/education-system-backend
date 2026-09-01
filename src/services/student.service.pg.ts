@@ -1,4 +1,4 @@
-import { sql, ExpressionBuilder } from "kysely";
+import { sql, ExpressionBuilder, Expression } from "kysely";
 import { pg } from "../config/pg";
 import { DB } from "../types/db";
 import { PaginationOptions, FilterOptionsPg, SortOptions, BulkOperationResult } from "../types/common.types";
@@ -50,6 +50,9 @@ export interface Student {
     filterPlace: number | null;
     participationCount: number;
     ratings: YearRatingRow[];
+    /** Класс ученика в ЗАПРОШЕННОМ учебном году (см. student_grade_history). null = за тот год
+     *  класс неизвестен. `grade` рядом остаётся живым классом из реестра — их нельзя путать. */
+    yearGrade: number | null;
 }
 
 export interface StudentCreate {
@@ -242,6 +245,19 @@ export class StudentServicePg {
         sort: SortOptions
     ): Promise<{ data: Student[]; totalCount: number }> {
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
+        const isCurrentYear = currentYear === getCurrentAcademicYear();
+
+        // Класс ученика ЗА ВЫБРАННЫЙ ГОД — единственное выражение, используемое везде ниже без
+        // вариаций (filterPlace, отбор по фильтру класса, сортировка, колонка в ответе).
+        // Правило простое: ТЕКУЩИЙ год — это живой students.grade (реестр и есть истина, пока год
+        // идёт: ученика могли завести или поправить ему класс вчера, а student_grade_history за
+        // текущий год обновляется только на повышении). ПРОШЛЫЙ год — только история; живой класс
+        // там — ровно то враньё задним числом, из-за которого заведена задача
+        // (SINIF_TARIXCESI_TASK.md). Отсутствие строки в истории за прошлый год показываем как
+        // "нет данных", а не как правдоподобное, но неверное число.
+        const yearGradeExpr = isCurrentYear
+            ? sql<number | null>`students.grade`
+            : sql<number | null>`sgh.grade`;
 
         // filterPlace: dense rank by score within the current filter scope (region/district/school/
         // teacher/grade), excluding code/search — text search must not reshuffle rankings — partitioned
@@ -252,11 +268,18 @@ export class StudentServicePg {
             pg.selectFrom("students")
                 .leftJoin("student_year_ratings", (join) =>
                     join.onRef("student_year_ratings.student_id", "=", "students.id").on("student_year_ratings.year", "=", currentYear)
+                )
+                .leftJoin("student_grade_history as sgh", (join) =>
+                    join.onRef("sgh.student_id", "=", "students.id").on("sgh.academic_year", "=", currentYear)
                 ),
-            rankFilterOptions
+            rankFilterOptions,
+            yearGradeExpr
         ).select([
             "students.id as student_id",
-            sql<number>`DENSE_RANK() OVER (PARTITION BY coalesce(students.grade, 0) ORDER BY coalesce(student_year_ratings.score, 0) DESC)`.as("filter_place"),
+            // "место в рамках фильтра" считается внутри того класса, который показан в строке
+            // (year_grade), а не живого students.grade — иначе после повышения место "уезжает"
+            // в чужой класс вместе со строкой.
+            sql<number>`DENSE_RANK() OVER (PARTITION BY coalesce(${yearGradeExpr}, 0) ORDER BY coalesce(student_year_ratings.score, 0) DESC)`.as("filter_place"),
         ]);
 
         // participationCount — теперь просто COUNT по academic_year (generated column), без ручного $or по месяцам.
@@ -264,6 +287,9 @@ export class StudentServicePg {
             .selectFrom("students")
             .leftJoin("student_year_ratings", (join) =>
                 join.onRef("student_year_ratings.student_id", "=", "students.id").on("student_year_ratings.year", "=", currentYear)
+            )
+            .leftJoin("student_grade_history as sgh", (join) =>
+                join.onRef("sgh.student_id", "=", "students.id").on("sgh.academic_year", "=", currentYear)
             )
             .leftJoin(
                 pg.selectFrom("student_results")
@@ -287,8 +313,9 @@ export class StudentServicePg {
                 "student_year_ratings.district_place as current_district_place",
                 sql<number>`coalesce(participation.participation_count, 0)`.as("participation_count"),
                 "fp.filter_place as filter_place",
+                yearGradeExpr.as("year_grade"),
             ]);
-        base = this.applyFilter(base, filters);
+        base = this.applyFilter(base, filters, yearGradeExpr);
 
         // "teacher"/"school"/"district" are the literal sortColumn keys students-year-tab sends
         // (TableColumn.key there, e.g. teacher's field is 'teacher.fullname' but the sort key is
@@ -314,7 +341,17 @@ export class StudentServicePg {
 
         const [rows, countRow] = await Promise.all([
             query.execute(),
-            this.applyFilter(pg.selectFrom("students"), filters)
+            this.applyFilter(
+                // Join нужен только затем, чтобы applyFilter мог фильтровать по тому же
+                // "классу за год" (grades), что и основной запрос — иначе count разойдётся с
+                // фактическим числом строк на странице.
+                pg.selectFrom("students")
+                    .leftJoin("student_grade_history as sgh", (join) =>
+                        join.onRef("sgh.student_id", "=", "students.id").on("sgh.academic_year", "=", currentYear)
+                    ),
+                filters,
+                yearGradeExpr
+            )
                 .select(({ fn }) => [fn.countAll().as("count")])
                 .executeTakeFirstOrThrow(),
         ]);
@@ -469,7 +506,11 @@ export class StudentServicePg {
         return q;
     }
 
-    private applyFilter<Q extends { where: any }>(query: Q, filters: FilterOptionsPg): Q {
+    // gradeExpr — выражение "класс ученика за выбранный год" (см. getFilteredStudents:
+    // yearGradeExpr). Все три места, откуда сейчас зовётся applyFilter, добавляют join на
+    // student_grade_history и передают его явно; дефолт на живой students.grade — только
+    // подстраховка на случай нового вызова без join (сегодня такого нет).
+    private applyFilter<Q extends { where: any }>(query: Q, filters: FilterOptionsPg, gradeExpr: Expression<number | null> = sql.ref("students.grade")): Q {
         let q = query;
         // Приоритет как в Mongo-версии: teacherIds > schoolIds > districtIds — только самый специфичный.
         if (filters.teacherIds && filters.teacherIds.length > 0) {
@@ -481,7 +522,11 @@ export class StudentServicePg {
         }
 
         if (filters.grades && filters.grades.length > 0) {
-            q = q.where("students.grade" as any, "in", filters.grades);
+            // Фильтр — по классу ЗА ВЫБРАННЫЙ ГОД (gradeExpr), не по живому students.grade.
+            // Побочный эффект, задуманный: при выборе прошлого года + фильтра по классу ученики,
+            // у которых класс за тот год неизвестен (нет строки в student_grade_history),
+            // из выдачи выпадают — показать их в произвольном классе было бы хуже.
+            q = q.where(gradeExpr, "in", filters.grades);
         }
 
         if (filters.code) {
@@ -522,14 +567,17 @@ export class StudentServicePg {
         if (column === "participationCount") return { column: "participation_count", needsRatingJoin: true };
         // Same for filter_place — a DENSE_RANK() window function result joined in from a derived table.
         if (column === "filterPlace") return { column: "filter_place", needsRatingJoin: true };
+        // grade — сортировка по классу ЗА ВЫБРАННЫЙ ГОД (year_grade, алиас select-а в base), а не
+        // по живому students.grade: иначе после повышения сортировка расходится с показанным столбцом.
+        if (column === "grade") return { column: "year_grade", needsRatingJoin: true };
         const map: Record<string, string> = {
             code: "code", firstName: "first_name", lastName: "last_name", middleName: "middle_name",
-            grade: "grade", status: "status",
+            status: "status",
         };
         return { column: map[column] ?? "last_name", needsRatingJoin: false };
     }
 
-    private async attachExtras(rows: (StudentRow & Partial<{ current_score: number | null; current_average_score: number | null; current_place: number | null; current_district_place: number | null; participation_count: number; filter_place: number | null }>)[]): Promise<Student[]> {
+    private async attachExtras(rows: (StudentRow & Partial<{ current_score: number | null; current_average_score: number | null; current_place: number | null; current_district_place: number | null; participation_count: number; filter_place: number | null; year_grade: number | null }>)[]): Promise<Student[]> {
         if (rows.length === 0) return [];
         const studentIds = rows.map((r) => r.id);
         const teacherIds = [...new Set(rows.map((r) => r.teacher_id).filter((id): id is number => id !== null))];
@@ -539,6 +587,16 @@ export class StudentServicePg {
 
         const needsRatingsQuery = rows.some((r) => r.current_score === undefined);
         const needsParticipationQuery = rows.some((r) => r.participation_count === undefined);
+        // year_grade приходит уже посчитанным из getFilteredStudents (см. yearGradeExpr там).
+        // Одиночные пути (getById/findByCode/search) года не выбирают — для них "запрошенный год"
+        // это всегда текущий, а класс за текущий год по тому же правилу равен живому row.grade.
+        // Запрос к student_grade_history тут поэтому не нужен: единственный потребитель
+        // прошлогоднего класса — /stats, а он всегда идёт через getFilteredStudents.
+        //
+        // Именно поэтому create()/update()/importLegacyStudents() историю НЕ пишут (это осознанно,
+        // а не забытый случай): пока год текущий, истина — живой students.grade, а в историю
+        // ученик попадёт снимком уходящего года на ближайшем повышении классов
+        // (GradePromotionServicePg — единственное место, где класс меняется массово).
 
         const [ratingsRows, teacherRows, schoolRows, districtRows, participationRows] = await Promise.all([
             pg.selectFrom("student_year_ratings").select(["student_id", "year", "score", "average_score", "place", "district_place"]).where("student_id", "in", studentIds).orderBy("year").execute(),
@@ -566,6 +624,7 @@ export class StudentServicePg {
             const teacher = row.teacher_id !== null ? teacherById.get(row.teacher_id) : undefined;
             const school = row.school_id !== null ? schoolById.get(row.school_id) : undefined;
             const district = row.district_id !== null ? districtById.get(row.district_id) : undefined;
+            const yearGrade = row.year_grade !== undefined ? row.year_grade : row.grade;
 
             return {
                 id: row.id, code: row.code, lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name,
@@ -581,6 +640,7 @@ export class StudentServicePg {
                 filterPlace: row.filter_place ?? null,
                 participationCount: (row.participation_count ?? participationById.get(row.id)) ?? 0,
                 ratings,
+                yearGrade: yearGrade ?? null,
             };
         });
     }

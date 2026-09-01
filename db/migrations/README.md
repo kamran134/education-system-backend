@@ -79,5 +79,6 @@ Postgres сам откатит незавершённую транзакцию. 
 | `015_academic_year_closures.sql` | `academic_year_closures` — реестр закрытых учебных годов (`ACADEMIC_YEAR_ARCHIVE_TASK.md` §3): закрытый год пересчитывать нельзя, `*_year_ratings` за него становится замороженным архивом |
 | `016_teacher_pedagogical_experience.sql` | `teachers.pedagogical_experience_years` — стаж вводится числом лет, не годом начала (`BASE_FIXES_TASK.md` §2.3); `pedagogical_start_year` не удалён, но из UI и чтений убран |
 | `017_profile_change_requests.sql` | `profile_change_requests` — модерация самостоятельно введённых полей школы/учителя/района (`BASE_FIXES_TASK.md` §2.4): pending-запись невидима никому, кроме владельца и админов |
+| `018_student_grade_history.sql` | `student_grade_history (student_id, academic_year, grade)` — исторический класс ученика по годам (`SINIF_TARIXCESI_TASK.md`): `students.grade` живое поле, после ежегодного повышения врёт задним числом там, где показывает класс в разрезе конкретного учебного года. Пишет её повышение классов, бэкфилл прошлого — из `v_student_year_scores`, текущего 2026/2027 — из живого `students.grade` |
 
 Обновлять таблицу при добавлении новых файлов.

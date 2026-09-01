@@ -326,8 +326,6 @@ export class StatsServicePg {
     }
 
     private async queryStudentResultStats(filters: StatisticsFilterPg, examIds: number[]): Promise<StudentResultStatRow[]> {
-        const currentYear = getCurrentAcademicYear();
-
         let query = pg
             .selectFrom("student_results as sr")
             .innerJoin("students as st", "st.id", "sr.student_id")
@@ -335,8 +333,13 @@ export class StatsServicePg {
             .leftJoin("schools as sc", "sc.id", "st.school_id")
             .leftJoin("districts as d", "d.id", "st.district_id")
             .leftJoin("exams as e", "e.id", "sr.exam_id")
+            // syr.year = sr.academic_year (не всегда currentYear!) — строки student_year_ratings
+            // это результаты КОНКРЕТНОГО месяца, возможно прошлогоднего: месячные вкладки статистики
+            // показывают историю, а не только текущий учебный год. Раньше join был на currentYear —
+            // из-за этого в сентябре 2026 "Orta reytinq xalı" на всех прошлых месяцах был пустым
+            // (SINIF_TARIXCESI_TASK.md §2.6). sr.academic_year — generated-колонка student_results.
             .leftJoin("student_year_ratings as syr", (join) =>
-                join.onRef("syr.student_id", "=", "st.id").on("syr.year", "=", currentYear)
+                join.onRef("syr.student_id", "=", "st.id").onRef("syr.year", "=", "sr.academic_year")
             )
             .leftJoin("levels as lvl", "lvl.code", "sr.level")
             .where("sr.exam_id", "in", examIds)
@@ -388,7 +391,9 @@ export class StatsServicePg {
                 // Порядок силы уровня — из справочника levels (E=1..Lisey=6), а не из хардкода.
                 level: sql`lvl.rank`,
                 code: sql`st.code`, lastName: sql`st.last_name COLLATE az_ci`, firstName: sql`st.first_name COLLATE az_ci`,
-                middleName: sql`st.middle_name COLLATE az_ci`, grade: sql`st.grade`,
+                // sr.grade (класс на момент результата), не st.grade (живой) — сортировка должна
+                // идти по тому же классу, который показан в колонке (см. r.grade в маппинге ниже).
+                middleName: sql`st.middle_name COLLATE az_ci`, grade: sql`sr.grade`,
                 teacher: sql`t.fullname COLLATE az_ci`, school: sql`sc.name COLLATE az_ci`, district: sql`d.name COLLATE az_ci`,
                 totalScore: sql`sr.total_score`, averageScore: sql`syr.average_score`, score: sql`sr.score`,
             };
