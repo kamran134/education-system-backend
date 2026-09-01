@@ -6,8 +6,8 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_DIVISORS } from "../utils/entity-codes.const";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
 import { cascadeTeacherCodeToStudents } from "../utils/code-cascade.util";
+import { resolveRatingYear } from "./ratingYear.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -271,7 +271,10 @@ export class TeacherServicePg {
         filters: FilterOptionsPg,
         sort: SortOptions
     ): Promise<{ data: Teacher[]; totalCount: number }> {
-        const currentYear = getCurrentAcademicYear();
+        // Год не выбирается на этой странице явно (в отличие от /stats) — берём резолвер:
+        // последний год, за который реально есть рейтинги, либо текущий, если админ включил
+        // его тумблером «Yeni tədris ili» (REYTINQ_ILI_TASK.md §3).
+        const currentYear = await resolveRatingYear();
 
         let base = pg
             .selectFrom("teachers")
@@ -507,7 +510,7 @@ export class TeacherServicePg {
         const teacherIds = rows.map((r) => r.id);
         const schoolIds = [...new Set(rows.map((r) => r.school_id).filter((id): id is number => id !== null))];
         const districtIds = [...new Set(rows.map((r) => r.district_id).filter((id): id is number => id !== null))];
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = await resolveRatingYear();
 
         const [ratingsRows, schoolRows, districtRows] = await Promise.all([
             pg.selectFrom("teacher_year_ratings").select(["teacher_id", "year", "score", "average_score", "place", "district_place"]).where("teacher_id", "in", teacherIds).orderBy("year").execute(),

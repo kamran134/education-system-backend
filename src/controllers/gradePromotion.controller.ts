@@ -3,6 +3,7 @@ import { GradePromotionUseCase } from "../usecases/gradePromotion.usecase";
 import { GradePromotionServicePg } from "../services/gradePromotion.service.pg";
 import { academicYearClosureServicePg } from "../services/academicYearClosure.service.pg";
 import { statsServicePg } from "../services/stats.service.pg";
+import { setRatingYearActivated } from "../services/ratingYear.service.pg";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 
@@ -83,6 +84,23 @@ export class GradePromotionController {
             next(error);
         }
     }
+
+    /**
+     * REYTINQ_ILI_TASK.md §7 — тумблер «Yeni tədris ili» страницы: ручное включение/выключение
+     * показа текущего учебного года рейтингов на главных. Не автоматически по первому файлу
+     * результатов — иначе первая же залитая школа переворачивает главные всем при пустых баллах
+     * у остальных.
+     */
+    putRatingYear = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const activated = !!req.body?.activated;
+            const userId = parseInt(req.user!.userId, 10);
+            await setRatingYearActivated(activated, userId);
+            res.json(ResponseHandler.success({ activated }));
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 const gradePromotionController = new GradePromotionController();
@@ -91,3 +109,4 @@ export const previewGradePromotion = gradePromotionController.preview;
 export const executeGradePromotion = gradePromotionController.execute;
 export const previewClosure = gradePromotionController.previewClosure;
 export const executeClosure = gradePromotionController.executeClosure;
+export const putRatingYear = gradePromotionController.putRatingYear;

@@ -6,6 +6,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_DIVISORS } from "../utils/entity-codes.const";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { resolveRatingYear } from "./ratingYear.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -247,6 +248,14 @@ export class StudentServicePg {
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const isCurrentYear = currentYear === getCurrentAcademicYear();
 
+        // Год явных БАЛЛОВ (student_year_ratings), отдельный от currentYear (года КЛАССА, см.
+        // yearGradeExpr ниже) — REYTINQ_ILI_TASK.md §5. Явный filters.academicYear (/stats)
+        // побеждает резолвер и тут, и там, оба совпадают — резолвер вступает только когда год
+        // не выбран (реестр учеников): тогда балл берётся за последний год, за который рейтинги
+        // реально есть, а класс — за живой текущий (иначе повторили бы баг из
+        // SINIF_TARIXCESI_TASK.md — класс "уезжал" бы в прошлый год вместе с баллом).
+        const ratingYear = filters.academicYear ?? (await resolveRatingYear());
+
         // Класс ученика ЗА ВЫБРАННЫЙ ГОД — единственное выражение, используемое везде ниже без
         // вариаций (filterPlace, отбор по фильтру класса, сортировка, колонка в ответе).
         // Правило простое: ТЕКУЩИЙ год — это живой students.grade (реестр и есть истина, пока год
@@ -266,8 +275,11 @@ export class StudentServicePg {
         const rankFilterOptions = { ...filters, code: undefined, search: undefined };
         const filterPlaceSubquery = this.applyFilter(
             pg.selectFrom("students")
+                // Балл — за ratingYear (не currentYear): "место в рамках фильтра" ранжирует
+                // по баллу того года, что реально показан на карточке/в колонке, а не по баллу
+                // текущего года, где может не быть ни одного результата.
                 .leftJoin("student_year_ratings", (join) =>
-                    join.onRef("student_year_ratings.student_id", "=", "students.id").on("student_year_ratings.year", "=", currentYear)
+                    join.onRef("student_year_ratings.student_id", "=", "students.id").on("student_year_ratings.year", "=", ratingYear)
                 )
                 .leftJoin("student_grade_history as sgh", (join) =>
                     join.onRef("sgh.student_id", "=", "students.id").on("sgh.academic_year", "=", currentYear)
@@ -285,8 +297,10 @@ export class StudentServicePg {
         // participationCount — теперь просто COUNT по academic_year (generated column), без ручного $or по месяцам.
         let base = pg
             .selectFrom("students")
+            // Балл — за ratingYear, класс (ниже, sgh) — за currentYear. Разные годы намеренно:
+            // REYTINQ_ILI_TASK.md §5.
             .leftJoin("student_year_ratings", (join) =>
-                join.onRef("student_year_ratings.student_id", "=", "students.id").on("student_year_ratings.year", "=", currentYear)
+                join.onRef("student_year_ratings.student_id", "=", "students.id").on("student_year_ratings.year", "=", ratingYear)
             )
             .leftJoin("student_grade_history as sgh", (join) =>
                 join.onRef("sgh.student_id", "=", "students.id").on("sgh.academic_year", "=", currentYear)
@@ -584,6 +598,12 @@ export class StudentServicePg {
         const schoolIds = [...new Set(rows.map((r) => r.school_id).filter((id): id is number => id !== null))];
         const districtIds = [...new Set(rows.map((r) => r.district_id).filter((id): id is number => id !== null))];
         const currentYear = getCurrentAcademicYear();
+        // Только для одиночных путей (getById/findByCode/search, см. комментарий ниже) — там
+        // строки приходят без current_score из SQL, и "current" нужно искать по резолверу, а не
+        // по currentYear (REYTINQ_ILI_TASK.md §5). Для списочного пути (getFilteredStudents)
+        // это не читается вовсе: row.current_score уже посчитан там правильно (за ratingYear
+        // с учётом filters.academicYear) и имеет приоритет в маппинге ниже.
+        const ratingYear = await resolveRatingYear();
 
         const needsRatingsQuery = rows.some((r) => r.current_score === undefined);
         const needsParticipationQuery = rows.some((r) => r.participation_count === undefined);
@@ -620,7 +640,7 @@ export class StudentServicePg {
 
         return rows.map((row) => {
             const ratings = ratingsByStudent.get(row.id) ?? [];
-            const current = ratings.find((r) => r.year === currentYear);
+            const current = ratings.find((r) => r.year === ratingYear);
             const teacher = row.teacher_id !== null ? teacherById.get(row.teacher_id) : undefined;
             const school = row.school_id !== null ? schoolById.get(row.school_id) : undefined;
             const district = row.district_id !== null ? districtById.get(row.district_id) : undefined;

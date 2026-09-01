@@ -6,8 +6,8 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_RANGES, CODE_DIVISORS } from "../utils/entity-codes.const";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
 import { cascadeSchoolCodeToTeachers } from "../utils/code-cascade.util";
+import { resolveRatingYear } from "./ratingYear.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -228,7 +228,8 @@ export class SchoolServicePg {
         filters: FilterOptionsPg,
         sort: SortOptions
     ): Promise<{ data: School[]; totalCount: number }> {
-        const currentYear = getCurrentAcademicYear();
+        // Резолвер вместо жёсткого текущего года — REYTINQ_ILI_TASK.md §3/§5.
+        const currentYear = await resolveRatingYear();
 
         let base = pg
             .selectFrom("schools")
@@ -460,7 +461,7 @@ export class SchoolServicePg {
         if (rows.length === 0) return [];
         const schoolIds = rows.map((r) => r.id);
         const districtIds = [...new Set(rows.map((r) => r.district_id))];
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = await resolveRatingYear();
 
         const [ratingsRows, districtRows] = await Promise.all([
             pg.selectFrom("school_year_ratings").select(["school_id", "year", "score", "average_score", "place", "district_place"]).where("school_id", "in", schoolIds).orderBy("year").execute(),

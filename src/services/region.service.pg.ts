@@ -3,7 +3,7 @@ import { pg } from "../config/pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, BulkOperationResult } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { resolveRatingYear } from "./ratingYear.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -124,7 +124,8 @@ export class RegionServicePg {
         filters: FilterOptionsPg,
         sort: SortOptions
     ): Promise<{ data: Region[]; totalCount: number }> {
-        const currentYear = getCurrentAcademicYear();
+        // Резолвер вместо жёсткого текущего года — REYTINQ_ILI_TASK.md §3/§5.
+        const currentYear = await resolveRatingYear();
 
         let query = pg
             .selectFrom("regions")
@@ -229,7 +230,7 @@ export class RegionServicePg {
      * так же как studentCount в attachExtras.
      */
     private async attachProfileCounts(region: Region): Promise<Region> {
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = await resolveRatingYear();
         const current = region.ratings.find((r) => r.year === currentYear);
 
         const [schoolCountRow, teacherCountRow] = await Promise.all([

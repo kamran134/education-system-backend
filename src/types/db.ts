@@ -102,6 +102,15 @@ export interface AcademicYearClosures {
   note: string | null;
 }
 
+// Добавлено вручную вслед за миграцией 019_app_settings.sql — перегенерировать через
+// kysely-codegen при следующей возможности подключиться к живой БД и сверить.
+export interface AppSettings {
+  key: string;
+  value: Json;
+  updated_at: Generated<Timestamp>;
+  updated_by: number | null;
+}
+
 // Добавлено вручную вслед за миграцией 011_certificates.sql — перегенерировать через
 // kysely-codegen при следующей возможности подключиться к живой БД и сверить.
 export interface CertificateTemplates {
@@ -445,6 +454,7 @@ export interface VTeacherYearScores {
 
 export interface DB {
   academic_year_closures: AcademicYearClosures;
+  app_settings: AppSettings;
   booklets: Booklets;
   certificate_templates: CertificateTemplates;
   code_change_logs: CodeChangeLogs;

@@ -5,7 +5,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { resolveRatingYear } from "./ratingYear.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -172,7 +172,8 @@ export class DistrictServicePg {
         filters: FilterOptionsPg,
         sort: SortOptions
     ): Promise<{ data: District[]; totalCount: number }> {
-        const currentYear = getCurrentAcademicYear();
+        // Резолвер вместо жёсткого текущего года — REYTINQ_ILI_TASK.md §3/§5.
+        const currentYear = await resolveRatingYear();
 
         // score/averageScore/place не хранятся на districts — джойн с district_year_ratings
         // за текущий год нужен только для ORDER BY (сама запись в ответе собирается заново
@@ -332,7 +333,7 @@ export class DistrictServicePg {
         // Плоские поля текущего года — паритет со School/Teacher (attachExtras там их отдаёт).
         // Без них список районов на профиле РТИ не показывал бейдж рейтингового балла на карточках:
         // фронт читает d.score, а приходил только ratings[] (П.2).
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = await resolveRatingYear();
         const current = ratingRows.find((r) => r.year === currentYear);
 
         return {
@@ -361,7 +362,7 @@ export class DistrictServicePg {
      * года — паритет с Teacher/School, там эти плоские поля уже есть.
      */
     private async attachProfileCounts(district: District): Promise<District> {
-        const currentYear = getCurrentAcademicYear();
+        const currentYear = await resolveRatingYear();
         const current = district.ratings.find((r) => r.year === currentYear);
 
         const [schoolCountRow, teacherCountRow, studentCountRow] = await Promise.all([

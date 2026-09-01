@@ -415,6 +415,17 @@ CREATE TABLE academic_year_closures (
     CHECK (closed_reason = 'auto' OR closed_by IS NOT NULL)
 );
 
+-- Универсальная key/value таблица настроек, меняемых админом из UI без релиза
+-- (019_app_settings.sql, REYTINQ_ILI_TASK.md). Первый ключ — 'ratings.activated_academic_year',
+-- value = {"academicYear": <год>} — ручной тумблер "показывать новый учебный год рейтингов
+-- на главных". Отсутствие строки = новый год не активирован.
+CREATE TABLE app_settings (
+    key        text        PRIMARY KEY,
+    value      jsonb       NOT NULL,
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    updated_by bigint      REFERENCES users(id)
+);
+
 -- Журнал каскадных перекодировок (PHASE3 п.4, миграция 004): смена teacher.code/school.code
 -- перезаписывает коды потомков, а не только связи. caused_by_* = NULL — прямая правка (корень
 -- каскада); заполнено — эта строка изменилась потому, что изменился родитель.

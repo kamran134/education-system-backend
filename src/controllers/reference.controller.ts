@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { pg } from "../config/pg";
 import { getLevelsCache } from "../services/levels.cache";
+import { getRatingYearState } from "../services/ratingYear.service.pg";
 import { ResponseHandler } from "../utils/response-handler.util";
 
 export const getLevelsReference = async (req: Request, res: Response): Promise<void> => {
@@ -40,5 +41,19 @@ export const getSubjectsReference = async (req: Request, res: Response): Promise
         res.status(200).json(ResponseHandler.success(subjects));
     } catch (error) {
         res.status(500).json(ResponseHandler.internalError("Error fetching subjects reference", error));
+    }
+};
+
+/**
+ * REYTINQ_ILI_TASK.md §4 — год, за который сейчас показываются баллы на главных, нужен всем
+ * ролям (подпись на профильных страницах), поэтому роль здесь пустая, как у /levels и /subjects.
+ * Переключение доступно только админам — см. PUT /api/academic-year/rating-year.
+ */
+export const getRatingYearReference = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const state = await getRatingYearState();
+        res.status(200).json(ResponseHandler.success(state));
+    } catch (error) {
+        res.status(500).json(ResponseHandler.internalError("Error fetching rating year reference", error));
     }
 };
