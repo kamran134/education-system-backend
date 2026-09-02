@@ -91,6 +91,11 @@ export interface StudentResultRow {
     totalScore: number; score: number; level: string; status: string | null;
     participationScore: number; developmentScore: number | null;
     studentOfTheMonthScore: number | null; republicWideStudentOfTheMonthScore: number | null;
+    /** Рейтинговый балл, набранный ЭТИМ результатом = сумма тех же четырёх слагаемых, из которых
+     *  v_student_year_scores складывает годовой рейтинг. Не путать со `score`: та колонка в БД
+     *  жёстко равна 1 у каждого результата (см. studentResult.service.pg.ts — «одно участие»),
+     *  и именно её экспорт выводил как «Reytinq xalı», из-за чего в Excel везде стояла единица. */
+    ratingScore: number;
     month: number; year: number;
     /** Учебный год результата — generated-колонка student_results.academic_year (сентябрь-декабрь
      *  → year, январь-июнь → year - 1, июль-август → null). Отдавать её обязательно: `year` — это
@@ -162,6 +167,8 @@ export class StudentServicePg {
             participationScore: r.participation_score, developmentScore: r.development_score,
             studentOfTheMonthScore: r.student_of_the_month_score,
             republicWideStudentOfTheMonthScore: r.republic_wide_student_of_the_month_score,
+            ratingScore: (r.participation_score ?? 0) + (r.development_score ?? 0)
+                + (r.student_of_the_month_score ?? 0) + (r.republic_wide_student_of_the_month_score ?? 0),
             month: r.month, year: r.year, academicYear: r.academic_year,
         }));
     }

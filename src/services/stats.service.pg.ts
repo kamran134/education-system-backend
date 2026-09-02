@@ -349,6 +349,14 @@ export class StatsServicePg {
                 "sr.student_of_the_month_score as student_of_the_month_score",
                 "sr.republic_wide_student_of_the_month_score as republic_wide_student_of_the_month_score",
                 "sr.month as month", "sr.year as year",
+                // Рейтинговый балл ЭТОГО результата — те же четыре слагаемых, из которых
+                // v_student_year_scores складывает годовой рейтинг. Колонка sr.score для этого
+                // не годится: у каждого результата она жёстко равна 1 («одно участие»,
+                // studentResult.service.pg.ts), и колонка «Reytinq xalı» на месячных вкладках
+                // из-за этого не показывала ничего осмысленного.
+                sql<number>`coalesce(sr.participation_score, 0) + coalesce(sr.development_score, 0)
+                    + coalesce(sr.student_of_the_month_score, 0)
+                    + coalesce(sr.republic_wide_student_of_the_month_score, 0)`.as("rating_score"),
                 "st.id as student_id", "st.code as student_code", "st.last_name as student_last_name",
                 "st.first_name as student_first_name", "st.middle_name as student_middle_name", "st.grade as student_grade",
                 "st.avatar_url as student_avatar_url",
@@ -395,7 +403,10 @@ export class StatsServicePg {
                 // идти по тому же классу, который показан в колонке (см. r.grade в маппинге ниже).
                 middleName: sql`st.middle_name COLLATE az_ci`, grade: sql`sr.grade`,
                 teacher: sql`t.fullname COLLATE az_ci`, school: sql`sc.name COLLATE az_ci`, district: sql`d.name COLLATE az_ci`,
-                totalScore: sql`sr.total_score`, averageScore: sql`syr.average_score`, score: sql`sr.score`,
+                totalScore: sql`sr.total_score`, averageScore: sql`syr.average_score`,
+                score: sql`coalesce(sr.participation_score, 0) + coalesce(sr.development_score, 0)
+                    + coalesce(sr.student_of_the_month_score, 0)
+                    + coalesce(sr.republic_wide_student_of_the_month_score, 0)`,
             };
             const orderExpr = columnMap[filters.sortColumn] ?? sql.ref(filters.sortColumn);
             const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
@@ -408,7 +419,7 @@ export class StatsServicePg {
             id: r.id, examId: r.exam_id, grade: r.grade, totalScore: r.total_score, level: r.level, status: r.status,
             developmentScore: r.development_score, studentOfTheMonthScore: r.student_of_the_month_score,
             republicWideStudentOfTheMonthScore: r.republic_wide_student_of_the_month_score,
-            month: r.month, year: r.year,
+            month: r.month, year: r.year, score: Number(r.rating_score ?? 0),
             studentData: {
                 id: r.student_id, code: r.student_code, lastName: r.student_last_name, firstName: r.student_first_name,
                 middleName: r.student_middle_name, grade: r.student_grade, averageScore: r.student_average_score,
