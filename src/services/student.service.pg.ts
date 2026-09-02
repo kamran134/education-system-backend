@@ -92,6 +92,10 @@ export interface StudentResultRow {
     participationScore: number; developmentScore: number | null;
     studentOfTheMonthScore: number | null; republicWideStudentOfTheMonthScore: number | null;
     month: number; year: number;
+    /** Учебный год результата — generated-колонка student_results.academic_year (сентябрь-декабрь
+     *  → year, январь-июнь → year - 1, июль-август → null). Отдавать её обязательно: `year` — это
+     *  КАЛЕНДАРНЫЙ год, и фронт, вычисляя учебный год из него сам, ошибался на весенних месяцах. */
+    academicYear: number | null;
 }
 
 type StudentRow = {
@@ -158,7 +162,7 @@ export class StudentServicePg {
             participationScore: r.participation_score, developmentScore: r.development_score,
             studentOfTheMonthScore: r.student_of_the_month_score,
             republicWideStudentOfTheMonthScore: r.republic_wide_student_of_the_month_score,
-            month: r.month, year: r.year,
+            month: r.month, year: r.year, academicYear: r.academic_year,
         }));
     }
 
