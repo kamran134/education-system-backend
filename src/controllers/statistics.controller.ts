@@ -3,12 +3,7 @@ import { StatisticsServicePg } from '../services/statistics.service.pg';
 import { StatisticsFilterPg, InkishafFilterPg } from '../types/statistics.types';
 import { ResponseHandler } from '../utils/response-handler.util';
 import { districtIdsOfRegion } from '../utils/region-scope.util';
-
-/** Текущий учебный год (начало, напр. 2025 для 2025/2026) */
-function getCurrentAcademicYear(): number {
-    const now = new Date();
-    return now.getMonth() + 1 >= 9 ? now.getFullYear() : now.getFullYear() - 1;
-}
+import { resolveRatingYear } from '../services/ratingYear.service.pg';
 
 /**
  * Применяет RBAC: перезаписывает фильтры на основе роли JWT-пользователя.
@@ -31,9 +26,13 @@ async function applyRbacFilters(req: Request, filters: StatisticsFilterPg): Prom
     const adminRoles = ['admin', 'superadmin'];
     if (adminRoles.includes(user.role)) return; // admins see everything
 
-    // Все не-админы видят только текущий учебный год
+    // Не-админы год не выбирают — он навязывается здесь. Берём тот же, что показывают карточки
+    // на главных (REYTINQ_ILI_TASK.md §3), а не календарный текущий: иначе с 1 сентября и до
+    // первого экзамена у всех неадминов дашборд пустой, а у админов — нет. Локальная копия
+    // getCurrentAcademicYear() здесь же убрана: правило учебного года живёт в одном месте
+    // (utils/academic-year.util.ts), а резолвер — в ratingYear.service.pg.ts.
     if (!filters.year) {
-        filters.year = getCurrentAcademicYear();
+        filters.year = await resolveRatingYear();
     }
 
     if (user.role === 'teacher' && user.teacherId) {

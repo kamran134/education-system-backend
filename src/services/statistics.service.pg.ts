@@ -1,6 +1,7 @@
 import { sql, Expression } from "kysely";
 import { pg } from "../config/pg";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { resolveRatingYear } from "./ratingYear.service.pg";
 import { MIN_PARTICIPATIONS_FOR_DEVELOPMENT } from "../config/statistics.config";
 import {
     StatisticsFilterPg,
@@ -156,7 +157,10 @@ export class StatisticsServicePg {
     }
 
     async getYearlyStatistics(filters: StatisticsFilterPg = {}): Promise<YearlyStatistics> {
-        const academicYear = filters.year || getCurrentAcademicYear();
+        // Год не выбран явно — тот же резолвер, что у карточек на главных (REYTINQ_ILI_TASK.md §3):
+        // последний учебный год, за который есть данные, либо текущий, если админ включил его
+        // тумблером. Иначе с 1 сентября и до первого экзамена дашборд стоял пустой.
+        const academicYear = filters.year || (await resolveRatingYear());
         const { start, end, endInclusive } = this.resolveExamWindow(filters, academicYear);
 
         // Регион у района, а не у студента напрямую — джойн districts нужен только для regionIds.
@@ -234,7 +238,10 @@ export class StatisticsServicePg {
     }
 
     async getMonthlyStatistics(filters: StatisticsFilterPg = {}): Promise<MonthlyStatistics[]> {
-        const academicYear = filters.year || getCurrentAcademicYear();
+        // Год не выбран явно — тот же резолвер, что у карточек на главных (REYTINQ_ILI_TASK.md §3):
+        // последний учебный год, за который есть данные, либо текущий, если админ включил его
+        // тумблером. Иначе с 1 сентября и до первого экзамена дашборд стоял пустой.
+        const academicYear = filters.year || (await resolveRatingYear());
         const { start, end, endInclusive } = this.resolveExamWindow(filters, academicYear);
 
         let q = pg
@@ -312,7 +319,10 @@ export class StatisticsServicePg {
 
     /** Не поддерживает filters.month — как и Mongo-версия, всегда считает за весь учебный год. */
     async getInkishafStatistics(filters: InkishafFilterPg = {}): Promise<InkishafStatistics> {
-        const academicYear = filters.year || getCurrentAcademicYear();
+        // Год не выбран явно — тот же резолвер, что у карточек на главных (REYTINQ_ILI_TASK.md §3):
+        // последний учебный год, за который есть данные, либо текущий, если админ включил его
+        // тумблером. Иначе с 1 сентября и до первого экзамена дашборд стоял пустой.
+        const academicYear = filters.year || (await resolveRatingYear());
         const { startDate, endDate } = this.getAcademicYearDates(academicYear);
         const minParticipations = filters.minParticipations && filters.minParticipations >= 2 ? filters.minParticipations : 2;
 
