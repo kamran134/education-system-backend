@@ -644,7 +644,15 @@ export class StudentServicePg {
 
         return rows.map((row) => {
             const ratings = ratingsByStudent.get(row.id) ?? [];
-            const current = ratings.find((r) => r.year === ratingYear);
+            // row.current_score !== undefined = строку отдал СПИСОЧНЫЙ путь (getFilteredStudents):
+            // там рейтинг уже приджойнен за нужный год, и null означает «за этот год рейтинга нет» —
+            // это значимое значение, а не отсутствие данных. Подменять его строкой из ratings[]
+            // нельзя: ratingYear здесь считает резолвер (последний год с рейтингами), и на /stats
+            // с выбранным 2026/2027 вместо честных нулей показывались прошлогодние баллы, причём
+            // сортировка при этом шла по настоящим NULL — то есть список ещё и был в случайном
+            // порядке. `??` этого не ловил: он не отличает null от undefined.
+            const hasJoinedRating = row.current_score !== undefined;
+            const current = hasJoinedRating ? undefined : ratings.find((r) => r.year === ratingYear);
             const teacher = row.teacher_id !== null ? teacherById.get(row.teacher_id) : undefined;
             const school = row.school_id !== null ? schoolById.get(row.school_id) : undefined;
             const district = row.district_id !== null ? districtById.get(row.district_id) : undefined;
@@ -657,10 +665,10 @@ export class StudentServicePg {
                 school: school ? { id: school.id, code: school.code, name: school.name } : null,
                 district: district ? { id: district.id, code: district.code, name: district.name } : null,
                 maxLevel: row.max_level, status: row.status, avatarUrl: row.avatar_url,
-                score: (row.current_score ?? current?.score) ?? null,
-                averageScore: (row.current_average_score ?? current?.averageScore) ?? null,
-                place: (row.current_place ?? current?.place) ?? null,
-                districtPlace: (row.current_district_place ?? current?.districtPlace) ?? null,
+                score: (hasJoinedRating ? row.current_score : current?.score) ?? null,
+                averageScore: (hasJoinedRating ? row.current_average_score : current?.averageScore) ?? null,
+                place: (hasJoinedRating ? row.current_place : current?.place) ?? null,
+                districtPlace: (hasJoinedRating ? row.current_district_place : current?.districtPlace) ?? null,
                 filterPlace: row.filter_place ?? null,
                 participationCount: (row.participation_count ?? participationById.get(row.id)) ?? 0,
                 ratings,
