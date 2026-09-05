@@ -733,6 +733,15 @@ WHERE rs.score > 0;
 -- Копия v_student_year_scores с группировкой по (year, month) вместо academic_year.
 -- grade — исторический, из student_results (как в 008_student_ranking_uses_historical_grade.sql):
 -- массовое повышение класса не должно задним числом менять уже посчитанный месяц.
+--
+-- ВНИМАНИЕ, отличие от годовой вьюхи: grade НЕ входит в GROUP BY, он берётся через min().
+-- В v_student_year_scores он в группировке, и это там безвредно — годовой путь читает не вьюху,
+-- а материализованную student_year_ratings, где строка на (ученик, год) ровно одна. Месячный
+-- путь читает вьюху напрямую и join'ит её к students, поэтому строка обязана быть одна на
+-- (ученик, год, месяц): иначе ученик, у которого в одном календарном месяце два результата с
+-- разным grade (два экзамена в месяц, пересдача, поправленный класс), попадёт в рейтинг дважды
+-- с расщеплённым баллом. Для вопроса «кто набрал больше всех за месяц» правильный ответ —
+-- одна строка с суммой всех результатов месяца.
 CREATE VIEW v_student_month_scores AS
 SELECT sr.student_id,
        sr.year,
@@ -742,9 +751,9 @@ SELECT sr.student_id,
          + coalesce(sr.development_score, 0)
          + coalesce(sr.student_of_the_month_score, 0)
          + coalesce(sr.republic_wide_student_of_the_month_score, 0))    AS score,
-       sr.grade                                                         AS grade
+       min(sr.grade)                                                    AS grade
 FROM student_results sr
-GROUP BY sr.student_id, sr.year, sr.month, sr.grade;
+GROUP BY sr.student_id, sr.year, sr.month;
 
 -- Места учеников — внутри класса, как в v_student_places. Фильтра «score > 0» здесь нет:
 -- у ученика с нулём место есть. Это отличает учеников от остальных уровней, и в годовой
