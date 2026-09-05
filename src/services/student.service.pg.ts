@@ -5,7 +5,7 @@ import { PaginationOptions, FilterOptionsPg, SortOptions, BulkOperationResult } 
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_DIVISORS } from "../utils/entity-codes.const";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { getCurrentAcademicYear, parseMonthFilter } from "../utils/academic-year.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
 
 export interface YearRatingRow {
@@ -273,6 +273,15 @@ export class StudentServicePg {
         filters: FilterOptionsPg,
         sort: SortOptions
     ): Promise<{ data: Student[]; totalCount: number }> {
+        // Месячный режим (п.10 ТЗ 04.09.2026, MONTHLY_RATINGS_TASK.md) — отдельная ветка, не
+        // общий билдер с условными выражениями внутри: годовая ветка ниже должна остаться
+        // нетронутой байт-в-байт. Год здесь пришёл явно вместе с месяцем — resolveRatingYear()
+        // не зовётся вовсе, в отличие от годового пути ниже.
+        const monthFilter = parseMonthFilter(filters.month);
+        if (monthFilter) {
+            return this.getFilteredStudentsByMonth(pagination, filters, sort, monthFilter);
+        }
+
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const isCurrentYear = currentYear === getCurrentAcademicYear();
 
@@ -393,6 +402,103 @@ export class StudentServicePg {
                     ),
                 filters,
                 yearGradeExpr
+            )
+                .select(({ fn }) => [fn.countAll().as("count")])
+                .executeTakeFirstOrThrow(),
+        ]);
+
+        const data = await this.attachExtras(rows);
+        return { data, totalCount: Number(countRow.count) };
+    }
+
+    /**
+     * Месячный срез «İlin şagirdləri» — параллель getFilteredStudents, но читает
+     * v_student_month_scores/v_student_month_places по (student_id, year, month) вместо
+     * student_year_ratings по ratingYear. Класс — исторический из v_student_month_scores.grade
+     * (уже посчитан в самой вьюхе из student_results, см. 021_monthly_rating_views.sql), а не
+     * через yearGradeExpr/student_grade_history: массовое повышение классов не должно задним
+     * числом менять уже посчитанный месяц. averageScore — всегда null, колонки среднего балла
+     * за месяц не существует (см. шапку миграции) — 0 фронт нарисовал бы как настоящий ноль.
+     */
+    private async getFilteredStudentsByMonth(
+        pagination: PaginationOptions,
+        filters: FilterOptionsPg,
+        sort: SortOptions,
+        monthFilter: { year: number; month: number }
+    ): Promise<{ data: Student[]; totalCount: number }> {
+        // Класс ученика ЗА ЭТОТ МЕСЯЦ — единственное выражение для фильтра/сортировки/ответа, как
+        // yearGradeExpr в годовой ветке.
+        const monthGradeExpr = sql<number | null>`sms.grade`;
+
+        // filterPlace: dense rank by score within the current filter scope, excluding code/search —
+        // same reasoning as in getFilteredStudents, partitioned by the month's grade.
+        const rankFilterOptions = { ...filters, code: undefined, search: undefined };
+        const filterPlaceSubquery = this.applyFilter(
+            pg.selectFrom("students")
+                .leftJoin("v_student_month_scores as sms", (join) =>
+                    join.onRef("sms.student_id", "=", "students.id").on("sms.year", "=", monthFilter.year).on("sms.month", "=", monthFilter.month)
+                ),
+            rankFilterOptions,
+            monthGradeExpr
+        ).select([
+            "students.id as student_id",
+            sql<number>`DENSE_RANK() OVER (PARTITION BY coalesce(${monthGradeExpr}, 0) ORDER BY coalesce(sms.score, 0) DESC)`.as("filter_place"),
+        ]);
+
+        let base = pg
+            .selectFrom("students")
+            .leftJoin("v_student_month_scores as sms", (join) =>
+                join.onRef("sms.student_id", "=", "students.id").on("sms.year", "=", monthFilter.year).on("sms.month", "=", monthFilter.month)
+            )
+            .leftJoin("v_student_month_places as smp", (join) =>
+                join.onRef("smp.student_id", "=", "students.id").on("smp.year", "=", monthFilter.year).on("smp.month", "=", monthFilter.month)
+            )
+            .leftJoin(filterPlaceSubquery.as("fp"), (join) => join.onRef("fp.student_id", "=", "students.id"))
+            // Only for the "teacher"/"school"/"district" sort below — same as in getFilteredStudents.
+            .leftJoin("teachers as t", "t.id", "students.teacher_id")
+            .leftJoin("schools as sc", "sc.id", "students.school_id")
+            .leftJoin("districts as d", "d.id", "students.district_id")
+            .selectAll("students")
+            .select([
+                "sms.score as current_score",
+                "smp.place as current_place",
+                "smp.district_place as current_district_place",
+                sql<number>`coalesce(sms.participation_count, 0)`.as("participation_count"),
+                "fp.filter_place as filter_place",
+                sql<number | null>`sms.grade`.as("year_grade"),
+            ]);
+        base = this.applyFilter(base, filters, monthGradeExpr);
+
+        const joinedNameSortColumns: Record<string, any> = {
+            teacher: sql`t.fullname COLLATE az_ci`,
+            school: sql`sc.name COLLATE az_ci`,
+            district: sql`d.name COLLATE az_ci`,
+        };
+        const { column, needsRatingJoin } = this.mapSortColumnMonth(sort.sortColumn);
+        const azCollatedColumns: Record<string, any> = {
+            first_name: sql`students.first_name COLLATE az_ci`,
+            last_name: sql`students.last_name COLLATE az_ci`,
+            middle_name: sql`students.middle_name COLLATE az_ci`,
+        };
+        const orderExpr = joinedNameSortColumns[sort.sortColumn] ?? (needsRatingJoin
+            ? sql.ref(column)
+            : azCollatedColumns[column] ?? sql.ref(`students.${column}`));
+        const dirSql = sort.sortDirection === "asc" ? sql`ASC` : sql`DESC`;
+        // NULLS LAST: ученики без результата в этом месяце иначе всплывают в начало при DESC.
+        const query = base.orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(pagination.size).offset(pagination.skip);
+
+        const [rows, countRow] = await Promise.all([
+            query.execute(),
+            this.applyFilter(
+                // Join нужен только затем, чтобы applyFilter мог фильтровать по тому же "классу за
+                // месяц" (grades), что и основной запрос — иначе count разойдётся с фактическим
+                // числом строк на странице.
+                pg.selectFrom("students")
+                    .leftJoin("v_student_month_scores as sms", (join) =>
+                        join.onRef("sms.student_id", "=", "students.id").on("sms.year", "=", monthFilter.year).on("sms.month", "=", monthFilter.month)
+                    ),
+                filters,
+                monthGradeExpr
             )
                 .select(({ fn }) => [fn.countAll().as("count")])
                 .executeTakeFirstOrThrow(),
@@ -611,6 +717,26 @@ export class StudentServicePg {
         if (column === "filterPlace") return { column: "filter_place", needsRatingJoin: true };
         // grade — сортировка по классу ЗА ВЫБРАННЫЙ ГОД (year_grade, алиас select-а в base), а не
         // по живому students.grade: иначе после повышения сортировка расходится с показанным столбцом.
+        if (column === "grade") return { column: "year_grade", needsRatingJoin: true };
+        const map: Record<string, string> = {
+            code: "code", firstName: "first_name", lastName: "last_name", middleName: "middle_name",
+            status: "status",
+        };
+        return { column: map[column] ?? "last_name", needsRatingJoin: false };
+    }
+
+    /**
+     * Как mapSortColumn, но для месячного среза (getFilteredStudentsByMonth): averageScore не
+     * существует в месячном срезе — сортировка по нему подменяется на score (требование 4
+     * MONTHLY_RATINGS_TASK.md), а не роняет запрос и не молчит, указывая на несуществующую колонку.
+     */
+    private mapSortColumnMonth(column: string): { column: string; needsRatingJoin: boolean } {
+        if (column === "score") return { column: "current_score", needsRatingJoin: true };
+        if (column === "averageScore") return { column: "current_score", needsRatingJoin: true };
+        if (column === "place") return { column: "current_place", needsRatingJoin: true };
+        if (column === "districtPlace") return { column: "current_district_place", needsRatingJoin: true };
+        if (column === "participationCount") return { column: "participation_count", needsRatingJoin: true };
+        if (column === "filterPlace") return { column: "filter_place", needsRatingJoin: true };
         if (column === "grade") return { column: "year_grade", needsRatingJoin: true };
         const map: Record<string, string> = {
             code: "code", firstName: "first_name", lastName: "last_name", middleName: "middle_name",

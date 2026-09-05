@@ -367,6 +367,20 @@ export interface UserSettings {
   user_id: number | null;
 }
 
+export interface VDistrictMonthPlaces {
+  district_id: number | null;
+  month: number | null;
+  place: number | null;
+  year: number | null;
+}
+
+export interface VDistrictMonthScores {
+  district_id: number | null;
+  month: number | null;
+  score: number | null;
+  year: number | null;
+}
+
 export interface VDistrictPlaces {
   academic_year: number | null;
   district_id: number | null;
@@ -378,6 +392,20 @@ export interface VDistrictYearScores {
   average_score: number | null;
   district_id: number | null;
   score: number | null;
+}
+
+export interface VRegionMonthPlaces {
+  month: number | null;
+  place: number | null;
+  region_id: number | null;
+  year: number | null;
+}
+
+export interface VRegionMonthScores {
+  month: number | null;
+  region_id: number | null;
+  score: number | null;
+  year: number | null;
 }
 
 export interface VRegionYearScores {
@@ -394,6 +422,21 @@ export interface VRegionPlaces {
   region_id: number | null;
 }
 
+export interface VSchoolMonthPlaces {
+  district_place: number | null;
+  month: number | null;
+  place: number | null;
+  school_id: number | null;
+  year: number | null;
+}
+
+export interface VSchoolMonthScores {
+  month: number | null;
+  school_id: number | null;
+  score: number | null;
+  year: number | null;
+}
+
 export interface VSchoolPlaces {
   academic_year: number | null;
   district_place: number | null;
@@ -406,6 +449,23 @@ export interface VSchoolYearScores {
   average_score: number | null;
   school_id: number | null;
   score: number | null;
+}
+
+export interface VStudentMonthPlaces {
+  district_place: number | null;
+  month: number | null;
+  place: number | null;
+  student_id: number | null;
+  year: number | null;
+}
+
+export interface VStudentMonthScores {
+  grade: number | null;
+  month: number | null;
+  participation_count: number | null;
+  score: number | null;
+  student_id: number | null;
+  year: number | null;
 }
 
 export interface VStudentPlaces {
@@ -436,6 +496,21 @@ export interface VStudentYearScores {
   score: number | null;
   student_id: number | null;
   student_of_the_month_score: number | null;
+}
+
+export interface VTeacherMonthPlaces {
+  district_place: number | null;
+  month: number | null;
+  place: number | null;
+  teacher_id: number | null;
+  year: number | null;
+}
+
+export interface VTeacherMonthScores {
+  month: number | null;
+  score: number | null;
+  teacher_id: number | null;
+  year: number | null;
 }
 
 export interface VTeacherPlaces {
@@ -480,15 +555,25 @@ export interface DB {
   user_refresh_tokens: UserRefreshTokens;
   user_settings: UserSettings;
   users: Users;
+  v_district_month_places: VDistrictMonthPlaces;
+  v_district_month_scores: VDistrictMonthScores;
   v_district_places: VDistrictPlaces;
   v_district_year_scores: VDistrictYearScores;
+  v_region_month_places: VRegionMonthPlaces;
+  v_region_month_scores: VRegionMonthScores;
   v_region_places: VRegionPlaces;
   v_region_year_scores: VRegionYearScores;
+  v_school_month_places: VSchoolMonthPlaces;
+  v_school_month_scores: VSchoolMonthScores;
   v_school_places: VSchoolPlaces;
   v_school_year_scores: VSchoolYearScores;
+  v_student_month_places: VStudentMonthPlaces;
+  v_student_month_scores: VStudentMonthScores;
   v_student_places: VStudentPlaces;
   v_student_result_subject_scores: VStudentResultSubjectScores;
   v_student_year_scores: VStudentYearScores;
+  v_teacher_month_places: VTeacherMonthPlaces;
+  v_teacher_month_scores: VTeacherMonthScores;
   v_teacher_places: VTeacherPlaces;
   v_teacher_year_scores: VTeacherYearScores;
 }

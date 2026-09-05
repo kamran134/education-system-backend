@@ -1,6 +1,6 @@
 import { sql } from "kysely";
 import { pg } from "../config/pg";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { getCurrentAcademicYear, parseMonthFilter } from "../utils/academic-year.util";
 import { FilterOptionsPg } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
@@ -507,6 +507,13 @@ export class StatsServicePg {
         const dir = sortDirection === "asc" ? "asc" : "desc";
         const regionDistrictIds = await this.resolveRegionDistrictIds(filters.regionIds);
 
+        // Месячный режим (п.10 ТЗ 04.09.2026, MONTHLY_RATINGS_TASK.md) — отдельная ветка, а не
+        // общий билдер с условными выражениями: годовой путь ниже должен остаться нетронутым.
+        const monthFilter = parseMonthFilter(filters.month);
+        if (monthFilter) {
+            return this.getTeacherStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter, regionDistrictIds);
+        }
+
         const baseQuery = () => {
             let q = pg
                 .selectFrom("teachers as t")
@@ -568,6 +575,88 @@ export class StatsServicePg {
         return { data, totalCount: Number(countRow.count) };
     }
 
+    /**
+     * Месячный срез для учителей — параллель getTeacherStatistics, но читает
+     * v_teacher_month_scores/v_teacher_month_places вместо teacher_year_ratings. average_score
+     * колонки в месячном срезе нет вовсе (см. шапку 021_monthly_rating_views.sql) — averageScore
+     * в ответе всегда null, а не 0: 0 фронт нарисовал бы как настоящий ноль.
+     */
+    private async getTeacherStatisticsByMonth(
+        filters: FilterOptionsPg & { page?: number; size?: number },
+        sortColumn: string,
+        sortDirection: string,
+        monthFilter: { year: number; month: number },
+        regionDistrictIds: number[] | null
+    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+        const page = filters.page ?? 1;
+        const size = (filters as any).size ?? 100;
+        const skip = (page - 1) * size;
+        const dir = sortDirection === "asc" ? "asc" : "desc";
+
+        const baseQuery = () => {
+            let q = pg
+                .selectFrom("teachers as t")
+                .leftJoin("v_teacher_month_scores as tms", (join) =>
+                    join.onRef("tms.teacher_id", "=", "t.id").on("tms.year", "=", monthFilter.year).on("tms.month", "=", monthFilter.month)
+                );
+            if (filters.teacherIds && filters.teacherIds.length > 0) {
+                q = q.where("t.id", "in", filters.teacherIds);
+            } else {
+                q = q.where("t.active", "=", true);
+                if (filters.districtIds && filters.districtIds.length > 0) q = q.where("t.district_id", "in", filters.districtIds);
+                if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("t.school_id", "in", filters.schoolIds);
+                if (regionDistrictIds) q = q.where("t.district_id", "in", regionDistrictIds);
+            }
+            return q;
+        };
+
+        const isSelfView = !!(filters.teacherIds && filters.teacherIds.length > 0);
+        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(tms.score, 0) DESC)`;
+        const sortMap: Record<string, any> = {
+            score: sql`tms.score`,
+            // averageScore не существует в месячном срезе — подменяем на score, а не роняем запрос.
+            averageScore: sql`tms.score`,
+            place: sql`tmp.place`, districtPlace: sql`tmp.district_place`, code: sql`t.code`,
+            fullname: sql`t.fullname COLLATE az_ci`, fullName: sql`t.fullname COLLATE az_ci`,
+            school: sql`sc.name COLLATE az_ci`, district: sql`d.name COLLATE az_ci`, studentCount: sql`t.student_count`,
+            filterPlace: sql`filter_place`,
+        };
+        const orderExpr = sortMap[sortColumn] ?? sql`tms.score`;
+        const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
+
+        let rowsQuery = baseQuery()
+            .leftJoin("v_teacher_month_places as tmp", (join) =>
+                join.onRef("tmp.teacher_id", "=", "t.id").on("tmp.year", "=", monthFilter.year).on("tmp.month", "=", monthFilter.month)
+            )
+            .leftJoin("schools as sc", "sc.id", "t.school_id")
+            .leftJoin("districts as d", "d.id", "t.district_id")
+            .select([
+                "t.id as id", "t.code as code", "t.fullname as fullname", "t.student_count as student_count",
+                "tms.score as score", "tmp.place as place", "tmp.district_place as district_place",
+                "sc.id as school_id", "sc.name as school_name",
+                "d.id as teacher_district_id", "d.name as teacher_district_name",
+            ])
+            .select(filterPlaceExpr.as("filter_place"));
+        if (!isSelfView) {
+            // NULLS LAST: учителя без результатов в этом месяце иначе всплывают в начало при DESC.
+            rowsQuery = rowsQuery.orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(size).offset(skip) as typeof rowsQuery;
+        }
+        const [rows, countRow] = await Promise.all([
+            rowsQuery.execute(),
+            baseQuery().select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
+        ]);
+
+        const data: RankedEntity[] = rows.map((r) => ({
+            id: r.id, code: r.code, fullname: r.fullname, score: r.score ?? 0, averageScore: null,
+            place: r.place, districtPlace: r.district_place, studentCount: r.student_count ?? 0,
+            filterPlace: r.filter_place ?? null,
+            school: r.school_id ? { id: r.school_id, name: r.school_name! } : null,
+            district: r.teacher_district_id ? { id: r.teacher_district_id, name: r.teacher_district_name! } : null,
+        }));
+
+        return { data, totalCount: Number(countRow.count) };
+    }
+
     async getSchoolStatistics(
         filters: FilterOptionsPg & { page?: number; size?: number },
         sortColumn: string,
@@ -579,6 +668,12 @@ export class StatsServicePg {
         const skip = (page - 1) * size;
         const dir = sortDirection === "asc" ? "asc" : "desc";
         const regionDistrictIds = await this.resolveRegionDistrictIds(filters.regionIds);
+
+        // Месячный режим — отдельная ветка, см. комментарий в getTeacherStatistics.
+        const monthFilter = parseMonthFilter(filters.month);
+        if (monthFilter) {
+            return this.getSchoolStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter, regionDistrictIds);
+        }
 
         const baseQuery = () => {
             let q = pg
@@ -627,6 +722,74 @@ export class StatsServicePg {
     }
 
     /**
+     * Месячный срез для школ — параллель getSchoolStatistics, читает v_school_month_scores/
+     * v_school_month_places. averageScore — всегда null, см. комментарий в
+     * getTeacherStatisticsByMonth.
+     */
+    private async getSchoolStatisticsByMonth(
+        filters: FilterOptionsPg & { page?: number; size?: number },
+        sortColumn: string,
+        sortDirection: string,
+        monthFilter: { year: number; month: number },
+        regionDistrictIds: number[] | null
+    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+        const page = filters.page ?? 1;
+        const size = (filters as any).size ?? 100;
+        const skip = (page - 1) * size;
+        const dir = sortDirection === "asc" ? "asc" : "desc";
+
+        const baseQuery = () => {
+            let q = pg
+                .selectFrom("schools as sc")
+                .leftJoin("v_school_month_scores as sms", (join) =>
+                    join.onRef("sms.school_id", "=", "sc.id").on("sms.year", "=", monthFilter.year).on("sms.month", "=", monthFilter.month)
+                )
+                .where("sc.active", "=", true);
+            if (filters.districtIds && filters.districtIds.length > 0) q = q.where("sc.district_id", "in", filters.districtIds);
+            if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("sc.id", "in", filters.schoolIds);
+            if (regionDistrictIds) q = q.where("sc.district_id", "in", regionDistrictIds);
+            return q;
+        };
+
+        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(sms.score, 0) DESC)`;
+        const sortMap: Record<string, any> = {
+            score: sql`sms.score`,
+            // averageScore не существует в месячном срезе — подменяем на score.
+            averageScore: sql`sms.score`,
+            place: sql`smp.place`, districtPlace: sql`smp.district_place`, code: sql`sc.code`, name: sql`sc.name COLLATE az_ci`,
+            district: sql`d.name COLLATE az_ci`, studentCount: sql`sc.student_count`, filterPlace: sql`filter_place`,
+        };
+        const orderExpr = sortMap[sortColumn] ?? sql`sms.score`;
+        const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
+
+        const [rows, countRow] = await Promise.all([
+            baseQuery()
+                .leftJoin("v_school_month_places as smp", (join) =>
+                    join.onRef("smp.school_id", "=", "sc.id").on("smp.year", "=", monthFilter.year).on("smp.month", "=", monthFilter.month)
+                )
+                .leftJoin("districts as d", "d.id", "sc.district_id")
+                .select([
+                    "sc.id as id", "sc.code as code", "sc.name as name", "sc.student_count as student_count",
+                    "sms.score as score", "smp.place as place", "smp.district_place as district_place",
+                    "d.id as school_district_id", "d.name as school_district_name",
+                ])
+                .select(filterPlaceExpr.as("filter_place"))
+                // NULLS LAST: школы без результатов в этом месяце иначе всплывают в начало при DESC.
+                .orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(size).offset(skip).execute(),
+            baseQuery().select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
+        ]);
+
+        const data: RankedEntity[] = rows.map((r) => ({
+            id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: null,
+            place: r.place, districtPlace: r.district_place, studentCount: r.student_count ?? 0,
+            filterPlace: r.filter_place ?? null,
+            district: r.school_district_id ? { id: r.school_district_id, name: r.school_district_name! } : null,
+        }));
+
+        return { data, totalCount: Number(countRow.count) };
+    }
+
+    /**
      * Регион (PHASE3 п.1б) — по образцу getSchoolStatistics, НЕ getDistrictStatistics: у региона
      * place берётся из region_year_ratings (записанного пересчётом), место не пересчитывается на
      * лету под колонку сортировки — легаси-поведение района воспроизводить здесь незачем.
@@ -642,6 +805,12 @@ export class StatsServicePg {
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
         const dir = sortDirection === "asc" ? "asc" : "desc";
+
+        // Месячный режим — отдельная ветка, см. комментарий в getTeacherStatistics.
+        const monthFilter = parseMonthFilter(filters.month);
+        if (monthFilter) {
+            return this.getRegionStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter);
+        }
 
         const baseQuery = () => {
             let q = pg
@@ -691,6 +860,70 @@ export class StatsServicePg {
     }
 
     /**
+     * Месячный срез для регионов — параллель getRegionStatistics, читает v_region_month_scores/
+     * v_region_month_places. averageScore — всегда null, см. комментарий в
+     * getTeacherStatisticsByMonth. place — из view (не пересчитывается на лету, как и в годовом пути).
+     */
+    private async getRegionStatisticsByMonth(
+        filters: FilterOptionsPg & { page?: number; size?: number },
+        sortColumn: string,
+        sortDirection: string,
+        monthFilter: { year: number; month: number }
+    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+        const page = filters.page ?? 1;
+        const size = (filters as any).size ?? 100;
+        const skip = (page - 1) * size;
+        const dir = sortDirection === "asc" ? "asc" : "desc";
+
+        const baseQuery = () => {
+            let q = pg
+                .selectFrom("regions as r")
+                .leftJoin("v_region_month_scores as rms", (join) =>
+                    join.onRef("rms.region_id", "=", "r.id").on("rms.year", "=", monthFilter.year).on("rms.month", "=", monthFilter.month)
+                )
+                .where("r.active", "=", true);
+            if (filters.regionIds && filters.regionIds.length > 0) q = q.where("r.id", "in", filters.regionIds);
+            return q;
+        };
+
+        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(rms.score, 0) DESC)`;
+        const sortMap: Record<string, any> = {
+            score: sql`rms.score`,
+            // averageScore не существует в месячном срезе — подменяем на score.
+            averageScore: sql`rms.score`,
+            place: sql`rmp.place`, code: sql`r.code`, name: sql`r.name COLLATE az_ci`,
+            studentCount: sql`student_count`, districtCount: sql`district_count`, filterPlace: sql`filter_place`,
+        };
+        const orderExpr = sortMap[sortColumn] ?? sql`rms.score`;
+        const dirSql = dir === "asc" ? sql`ASC` : sql`DESC`;
+        const studentCountExpr = sql<number>`(SELECT count(*) FROM students st JOIN districts d ON d.id = st.district_id WHERE d.region_id = r.id)`;
+        const districtCountExpr = sql<number>`(SELECT count(*) FROM districts dd WHERE dd.region_id = r.id)`;
+
+        const [rows, countRow] = await Promise.all([
+            baseQuery()
+                .leftJoin("v_region_month_places as rmp", (join) =>
+                    join.onRef("rmp.region_id", "=", "r.id").on("rmp.year", "=", monthFilter.year).on("rmp.month", "=", monthFilter.month)
+                )
+                .select(["r.id as id", "r.code as code", "r.name as name", "rms.score as score", "rmp.place as place"])
+                .select(studentCountExpr.as("student_count"))
+                .select(districtCountExpr.as("district_count"))
+                .select(filterPlaceExpr.as("filter_place"))
+                // NULLS LAST: регионы без результатов в этом месяце иначе всплывают в начало при DESC.
+                .orderBy(sql`${orderExpr} ${dirSql} NULLS LAST`).limit(size).offset(skip).execute(),
+            baseQuery().select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
+        ]);
+
+        const data: RankedEntity[] = rows.map((r) => ({
+            id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: null,
+            place: r.place, districtPlace: null, studentCount: Number(r.student_count) || 0,
+            districtCount: Number(r.district_count) || 0,
+            filterPlace: r.filter_place ?? null,
+        }));
+
+        return { data, totalCount: Number(countRow.count) };
+    }
+
+    /**
      * Район — особый случай: place пересчитывается на лету под выбранную колонку сортировки
      * (score или averageScore), над ВСЕМИ районами в рамках code-фильтра — так было и в Mongo-версии
      * (assignPlaces(allData, sortColumn)), сохранено как есть, а не "исправлено" молча.
@@ -705,6 +938,12 @@ export class StatsServicePg {
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
+
+        // Месячный режим — отдельная ветка, см. комментарий в getTeacherStatistics.
+        const monthFilter = parseMonthFilter(filters.month);
+        if (monthFilter) {
+            return this.getDistrictStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter);
+        }
 
         let query = pg
             .selectFrom("districts as d")
@@ -769,6 +1008,94 @@ export class StatsServicePg {
             // Обе фильтрации, если заданы одновременно, комбинируются через И — на практике не
             // пересекаются (districtIds ставит role-скоуп regionRepresenter/districtRepresenter,
             // regionIds — ручной фильтр в UI), но так корректно в любом случае.
+            data = ordered.filter((d) => {
+                if (districtIdSet && !districtIdSet.has(d.id)) return false;
+                if (regionIdSet) {
+                    const regionId = regionIdById.get(d.id);
+                    if (regionId == null || !regionIdSet.has(regionId)) return false;
+                }
+                return true;
+            });
+            totalCount = data.length;
+        } else {
+            totalCount = ordered.length;
+            data = ordered.slice(skip, skip + size);
+        }
+
+        return { data, totalCount };
+    }
+
+    /**
+     * Месячный срез для районов — параллель getDistrictStatistics (тот же приём "place считается
+     * на лету поверх code-фильтрованной выборки"), читает v_district_month_scores вместо
+     * district_year_ratings. averageScore в месячном срезе не существует: ранг — всегда по
+     * сырому score (не по rankColumn "score"/"average_score", как в годовом пути), и сортировка
+     * по averageScore подменяется на score (требование 4 задачи, а не молчаливая поломка запроса).
+     */
+    private async getDistrictStatisticsByMonth(
+        filters: FilterOptionsPg & { page?: number; size?: number },
+        sortColumn: string,
+        sortDirection: string,
+        monthFilter: { year: number; month: number }
+    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+        const page = filters.page ?? 1;
+        const size = (filters as any).size ?? 100;
+        const skip = (page - 1) * size;
+
+        let query = pg
+            .selectFrom("districts as d")
+            .leftJoin("v_district_month_scores as dms", (join) =>
+                join.onRef("dms.district_id", "=", "d.id").on("dms.year", "=", monthFilter.year).on("dms.month", "=", monthFilter.month)
+            )
+            .select(["d.id as id", "d.code as code", "d.name as name", "d.region_id as region_id", "d.student_count as student_count", "dms.score as score"])
+            .select(sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(dms.score, 0) DESC)`.as("filter_place"))
+            .orderBy(sql`d.name COLLATE az_ci`);
+        if (filters.code) {
+            const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
+            query = query.where("d.code", ">=", parseInt(start)).where("d.code", "<=", parseInt(end));
+        }
+
+        const allData = await query.execute();
+        const regionIdById = new Map(allData.map((r) => [r.id, r.region_id]));
+
+        // Место — dense rank по сырому score за месяц (среднего в месячном срезе нет вовсе, ветвить
+        // по rankColumn, как в годовом пути, здесь незачем).
+        const sorted = [...allData].sort((a, b) => ((b.score ?? 0) as number) - ((a.score ?? 0) as number));
+        const placeById = new Map<number, number>();
+        let place = 1;
+        sorted.forEach((r, i) => {
+            if (i > 0 && ((r.score ?? 0) as number) < ((sorted[i - 1].score ?? 0) as number)) place = i + 1;
+            placeById.set(r.id, place);
+        });
+
+        const withPlace: RankedEntity[] = allData.map((r) => ({
+            id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: null,
+            place: placeById.get(r.id) ?? null, districtPlace: null,
+            filterPlace: r.filter_place ?? null, studentCount: r.student_count ?? 0,
+        }));
+
+        // averageScore недоступен в месячном срезе — сортировка по нему подменяется на score.
+        const effectiveSortColumn = sortColumn === "averageScore" ? "score" : sortColumn;
+        const sortAccessors: Record<string, (r: RankedEntity) => number> = {
+            code: (r) => r.code, studentCount: (r) => r.studentCount ?? 0,
+            place: (r) => r.place ?? 0, filterPlace: (r) => r.filterPlace ?? 0,
+            score: (r) => r.score ?? 0,
+        };
+        const dir = sortDirection === "asc" ? 1 : -1;
+        let ordered: RankedEntity[];
+        if (effectiveSortColumn === "name") {
+            // Already fetched in az_ci order (see query.orderBy above) — just flip it for desc.
+            ordered = sortDirection === "asc" ? withPlace : [...withPlace].reverse();
+        } else {
+            const accessor = sortAccessors[effectiveSortColumn] ?? sortAccessors.score;
+            ordered = [...withPlace].sort((a, b) => dir * (accessor(a) - accessor(b)));
+        }
+
+        let data: RankedEntity[];
+        let totalCount: number;
+        const districtIdSet = filters.districtIds && filters.districtIds.length > 0 ? new Set(filters.districtIds) : null;
+        const regionIdSet = filters.regionIds && filters.regionIds.length > 0 ? new Set(filters.regionIds) : null;
+        if (districtIdSet || regionIdSet) {
             data = ordered.filter((d) => {
                 if (districtIdSet && !districtIdSet.has(d.id)) return false;
                 if (regionIdSet) {
