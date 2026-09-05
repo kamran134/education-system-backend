@@ -28,6 +28,7 @@ export class ExamResultsController {
                 districtIds: req.query.districtIds ? (req.query.districtIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
                 schoolIds: req.query.schoolIds ? (req.query.schoolIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
                 teacherIds: req.query.teacherIds ? (req.query.teacherIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
+                studentIds: undefined as number[] | undefined,
                 grades: req.query.grades ? (req.query.grades as string).split(',').map(g => parseInt(g)) : undefined,
                 sortColumn: sort.sortColumn,
                 sortDirection: sort.sortDirection as 'asc' | 'desc',
@@ -49,6 +50,11 @@ export class ExamResultsController {
                 params.districtIds = params.districtIds
                     ? params.districtIds.filter(id => regionDistrictIds.includes(id))
                     : regionDistrictIds;
+            } else if (req.user?.role === 'student' && req.user.studentId) {
+                // Ученик видит только свои результаты. Без этой ветки роль проваливалась мимо
+                // всех остальных и получала выборку по всей республике: у student нет ни
+                // teacherId, ни schoolId, ни districtId в токене, только studentId.
+                params.studentIds = [parseInt(req.user.studentId, 10)];
             }
 
             const result = await this.examResultsUseCase.getExamResults(params);
@@ -109,6 +115,10 @@ export class ExamResultsController {
         if (role === 'regionRepresenter' && req.user?.regionId) {
             const regionDistrictIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
             return result.studentData.district?.id != null && regionDistrictIds.includes(result.studentData.district.id);
+        }
+
+        if (role === 'student' && req.user?.studentId) {
+            return result.studentData.id === parseInt(req.user.studentId, 10);
         }
 
         return false;

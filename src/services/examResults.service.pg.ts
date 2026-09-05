@@ -11,6 +11,7 @@ export interface ExamResultsFilterPg {
     districtIds?: number[];
     schoolIds?: number[];
     teacherIds?: number[];
+    studentIds?: number[];
     grades?: number[];
 }
 
@@ -173,6 +174,7 @@ export class ExamResultsServicePg {
         if (filters.districtIds && filters.districtIds.length > 0) q = q.where("st.district_id" as any, "in", filters.districtIds);
         if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("st.school_id" as any, "in", filters.schoolIds);
         if (filters.teacherIds && filters.teacherIds.length > 0) q = q.where("st.teacher_id" as any, "in", filters.teacherIds);
+        if (filters.studentIds && filters.studentIds.length > 0) q = q.where("st.id" as any, "in", filters.studentIds);
 
         if (filters.search) {
             const terms = filters.search.trim().split(/\s+/).map(escapeRegex);
