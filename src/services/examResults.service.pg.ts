@@ -30,7 +30,22 @@ export interface ExamResultRow {
         district: { id: number; name: string } | null;
     };
     exam: { id: number; code: number; name: string; date: Date } | null;
+    // Диалог редактирования результата (result-editing-dialog.component.ts) читает именно эти
+    // поля — без них ngModel биндится к undefined и падает. Та же семантика, что в
+    // student.service.pg.ts: отсутствующий предмет (NULL в БД) в объект не попадает вовсе.
+    disciplines: { az?: number; math?: number; lifeKnowledge?: number; logic?: number; english?: number };
+    questionCounts: { az?: number; math?: number; lifeKnowledge?: number; logic?: number; english?: number };
 }
+
+const sparseDisciplines = (az: number | null, math: number | null, lifeKnowledge: number | null, logic: number | null, english: number | null) => {
+    const obj: { az?: number; math?: number; lifeKnowledge?: number; logic?: number; english?: number } = {};
+    if (az !== null) obj.az = az;
+    if (math !== null) obj.math = math;
+    if (lifeKnowledge !== null) obj.lifeKnowledge = lifeKnowledge;
+    if (logic !== null) obj.logic = logic;
+    if (english !== null) obj.english = english;
+    return obj;
+};
 
 /**
  * Postgres-версия ExamResultsService — см. examResults.service.ts (Mongo) для сравнения.
@@ -74,6 +89,9 @@ export class ExamResultsServicePg {
                 "sc.id as school_id", "sc.name as school_name",
                 "d.id as district_id", "d.name as district_name",
                 "e.id as exam_id", "e.code as exam_code", "e.name as exam_name", "e.date as exam_date",
+                "sr.az as az", "sr.math as math", "sr.life_knowledge as life_knowledge", "sr.logic as logic", "sr.english as english",
+                "sr.az_count as az_count", "sr.math_count as math_count", "sr.life_knowledge_count as life_knowledge_count",
+                "sr.logic_count as logic_count", "sr.english_count as english_count",
             ])
             .orderBy(sql`${sortExpr} ${dirSql} NULLS LAST`)
             .limit(size)
@@ -94,6 +112,8 @@ export class ExamResultsServicePg {
                 district: r.district_id != null ? { id: r.district_id, name: r.district_name! } : null,
             },
             exam: r.exam_id != null ? { id: r.exam_id, code: r.exam_code!, name: r.exam_name!, date: r.exam_date! } : null,
+            disciplines: sparseDisciplines(r.az, r.math, r.life_knowledge, r.logic, r.english),
+            questionCounts: sparseDisciplines(r.az_count, r.math_count, r.life_knowledge_count, r.logic_count, r.english_count),
         }));
 
         return { data, totalCount: Number(countRow.count) };
@@ -115,6 +135,9 @@ export class ExamResultsServicePg {
                 "sc.id as school_id", "sc.name as school_name",
                 "d.id as district_id", "d.name as district_name",
                 "e.id as exam_id", "e.code as exam_code", "e.name as exam_name", "e.date as exam_date",
+                "sr.az as az", "sr.math as math", "sr.life_knowledge as life_knowledge", "sr.logic as logic", "sr.english as english",
+                "sr.az_count as az_count", "sr.math_count as math_count", "sr.life_knowledge_count as life_knowledge_count",
+                "sr.logic_count as logic_count", "sr.english_count as english_count",
             ])
             .where("sr.id", "=", id)
             .executeTakeFirst();
@@ -134,6 +157,8 @@ export class ExamResultsServicePg {
                 district: row.district_id != null ? { id: row.district_id, name: row.district_name! } : null,
             },
             exam: row.exam_id != null ? { id: row.exam_id, code: row.exam_code!, name: row.exam_name!, date: row.exam_date! } : null,
+            disciplines: sparseDisciplines(row.az, row.math, row.life_knowledge, row.logic, row.english),
+            questionCounts: sparseDisciplines(row.az_count, row.math_count, row.life_knowledge_count, row.logic_count, row.english_count),
         };
     }
 
