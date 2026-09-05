@@ -160,3 +160,18 @@ export async function canManageStudentAvatar(user: AvatarActor | undefined, stud
     if (user.role === 'teacher') return !!student.teacher_id && String(student.teacher_id) === user.teacherId;
     return !!student.school_id && String(student.school_id) === user.schoolId;
 }
+
+/**
+ * Заявка на правку ФИО ученика (п.3 ТЗ 04.09.2026) — подаёт не сам ученик, а его учитель, поэтому
+ * владение проверяется через teacher_id ученика, а не через поле req.user, как у school/teacher/
+ * district (там сущность подаёт заявку сама на себя). Директор школы сюда намеренно не допущен —
+ * заказчик просил это право только для учителей (согласовано 05.09.2026), в отличие от
+ * canManageStudentAvatar выше, где директор тоже участвует.
+ */
+export async function canRequestStudentProfileChange(user: AvatarActor | undefined, studentId: string): Promise<boolean> {
+    if (isAdminLike(user?.role)) return true;
+    if (user?.role !== 'teacher' || !user.teacherId) return false;
+
+    const student = await pg.selectFrom('students').select('teacher_id').where('id', '=', parseInt(studentId, 10)).executeTakeFirst();
+    return !!student?.teacher_id && String(student.teacher_id) === user.teacherId;
+}

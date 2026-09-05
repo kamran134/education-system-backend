@@ -108,8 +108,9 @@ export class TeacherUseCase {
 
     /** Та же проверка, что внутри updateTeacherProfile — отдельно, чтобы владелец получал
      *  внятную ошибку уже при отправке в модерацию (BASE_FIXES_TASK.md §2.5). */
-    validateProfilePayload(data: { gradeLabel?: string | null; pedagogicalExperienceYears?: number | null; achievements?: string | null }): string | null {
+    validateProfilePayload(data: { fullname?: string | null; gradeLabel?: string | null; pedagogicalExperienceYears?: number | null; achievements?: string | null }): string | null {
         const validation = ValidationUtils.combine([
+            data.fullname !== undefined ? ValidationUtils.validateRequired(data.fullname, 'Ad Soyad') : null,
             data.pedagogicalExperienceYears != null
                 ? ValidationUtils.validateNumber(data.pedagogicalExperienceYears, 'Pedaqoji staj', 0, 70)
                 : null,
@@ -128,10 +129,11 @@ export class TeacherUseCase {
      * только на случай сигнатуры teacherService.update, каскад кода не запускается (codeChanging
      * всегда false для этого набора полей).
      */
-    async updateTeacherProfile(id: string, data: { biography?: string | null; pedagogicalExperienceYears?: number | null; achievements?: string | null; gradeLabel?: string | null }, changedByUserId: number): Promise<{ teacher: Teacher; cascadedStudentsCount: number }> {
+    async updateTeacherProfile(id: string, data: { fullname?: string; biography?: string | null; pedagogicalExperienceYears?: number | null; achievements?: string | null; gradeLabel?: string | null }, changedByUserId: number): Promise<{ teacher: Teacher; cascadedStudentsCount: number }> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Teacher ID'),
             ValidationUtils.validateId(id, 'Teacher ID'),
+            data.fullname !== undefined ? ValidationUtils.validateRequired(data.fullname, 'Ad Soyad') : null,
             data.pedagogicalExperienceYears != null
                 ? ValidationUtils.validateNumber(data.pedagogicalExperienceYears, 'Pedaqoji staj', 0, 70)
                 : null,

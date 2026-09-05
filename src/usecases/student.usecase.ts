@@ -3,6 +3,7 @@ import { StudentServicePg, Student, StudentCreate, StudentResultRow } from "../s
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
+import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 
 export class StudentUseCase {
     constructor(private studentService: StudentServicePg) {}
@@ -101,6 +102,41 @@ export class StudentUseCase {
         return await this.studentService.update(parseInt(id, 10), updateData);
     }
 
+    /** Та же проверка, что внутри updateStudentProfile — отдельно, чтобы учитель получал внятную
+     *  ошибку уже при отправке заявки в модерацию (п.3 ТЗ 04.09.2026), а не только когда админ
+     *  попытается её подтвердить. */
+    validateProfilePayload(data: { lastName?: string | null; firstName?: string; middleName?: string | null }): string | null {
+        const validation = ValidationUtils.combine([
+            ValidationUtils.validateRequired(data.firstName, 'Şagirdin adı'),
+        ]);
+        return validation.isValid ? null : validation.errors.join(', ');
+    }
+
+    /**
+     * Самостоятельное редактирование ФИО ученика учителем (п.3 ТЗ 04.09.2026), через модерацию —
+     * не полный updateStudent: принимает ТОЛЬКО lastName/firstName/middleName, никакие другие
+     * поля (code/teacherId/school/grade и т.д.) сюда не долетают ни при подаче заявки, ни при
+     * подтверждении (см. approve() в profileChange.controller.ts — payload там может прийти из
+     * body admin-запроса «Düzəliş et», и лишние ключи должны молча игнорироваться).
+     */
+    async updateStudentProfile(id: string, data: { lastName?: string | null; firstName?: string; middleName?: string | null }): Promise<Student> {
+        const validation = ValidationUtils.combine([
+            ValidationUtils.validateRequired(id, 'Student ID'),
+            ValidationUtils.validateId(id, 'Student ID'),
+            ValidationUtils.validateRequired(data.firstName, 'Şagirdin adı'),
+        ]);
+
+        if (!validation.isValid) {
+            throw new Error(validation.errors.join(', '));
+        }
+
+        return await this.studentService.updateProfile(parseInt(id, 10), {
+            lastName: data.lastName ?? null,
+            firstName: data.firstName!,
+            middleName: data.middleName ?? null,
+        });
+    }
+
     async deleteStudent(id: string): Promise<void> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Student ID'),
@@ -118,6 +154,9 @@ export class StudentUseCase {
 
         // Каскад в student.service.pg.ts уже удаляет student_results одной транзакцией.
         await this.studentService.delete(parseInt(id, 10));
+        // Полиморфная связь без FK (как у school/teacher/district, profileChangeRequest.service.pg.ts)
+        // — заявку за удалённого ученика подчищаем явно, иначе она осиротеет в очереди модерации.
+        await profileChangeRequestServicePg.deleteForEntity('student', parseInt(id, 10));
     }
 
     async deleteStudents(ids: string[]): Promise<BulkOperationResult> {
@@ -126,7 +165,10 @@ export class StudentUseCase {
             throw new Error(arrayValidation.errors.join(', '));
         }
 
-        return await this.studentService.deleteBulk(ids.map((id) => parseInt(id, 10)));
+        const numericIds = ids.map((id) => parseInt(id, 10));
+        const result = await this.studentService.deleteBulk(numericIds);
+        await profileChangeRequestServicePg.deleteForEntities('student', numericIds);
+        return result;
     }
 
     async searchStudents(searchString: string): Promise<Student[]> {

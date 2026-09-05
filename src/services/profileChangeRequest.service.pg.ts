@@ -1,6 +1,6 @@
 import { pg } from "../config/pg";
 
-export type ProfileChangeEntityType = "school" | "teacher" | "district";
+export type ProfileChangeEntityType = "school" | "teacher" | "district" | "student";
 export type ProfileChangeStatus = "pending" | "approved" | "rejected";
 
 export interface ProfileChangeRequest {
@@ -23,15 +23,20 @@ export interface ProfileChangeQueueRow extends ProfileChangeRequest {
     current: Record<string, any>;
 }
 
-/** Поля профиля, которые фактически редактируются самим владельцем (BASE_FIXES_TASK.md §2.2/§2.5) —
+/** Поля профиля, которые фактически редактируются самим владельцем (BASE_FIXES_TASK.md §2.2/§2.5,
+ *  дополнено п.3 ТЗ от 04.09.2026 — name/fullname/student.* тоже теперь через модерацию, имя это
+ *  то, по чему сущность узнают в рейтингах и сертификатах, тихая правка без следа не годится) —
  *  ровно то же множество, что должно попадать в payload заявки и в сравнение «было → стало».
  *  district.achievements НЕТ: в отличие от school/teacher, у districts такой колонки не существует
  *  (проверено по db/schema.sql) — раздел «Nailiyyətlər» в документе для района был ошибочным
- *  предположением при составлении ТЗ, в коде для района такого блока никогда не было. */
+ *  предположением при составлении ТЗ, в коде для района такого блока никогда не было.
+ *  student — заявку подаёт не сама сущность (ученик), а его учитель; владение проверяется
+ *  отдельно, через teacher_id ученика (см. canRequestStudentProfileChange в avatar.util.ts). */
 const ENTITY_FIELDS: Record<ProfileChangeEntityType, string[]> = {
-    school: ["directorName", "foundedYear", "achievements"],
-    teacher: ["gradeLabel", "pedagogicalExperienceYears", "achievements"],
+    school: ["name", "directorName", "foundedYear", "achievements"],
+    teacher: ["fullname", "gradeLabel", "pedagogicalExperienceYears", "achievements"],
     district: ["educationHeadName"],
+    student: ["lastName", "firstName", "middleName"],
 };
 
 function mapRow(row: any): ProfileChangeRequest {
@@ -215,10 +220,10 @@ export class ProfileChangeRequestServicePg {
 
         if (requests.length === 0) return [];
 
-        const idsByType: Record<ProfileChangeEntityType, number[]> = { school: [], teacher: [], district: [] };
+        const idsByType: Record<ProfileChangeEntityType, number[]> = { school: [], teacher: [], district: [], student: [] };
         for (const r of requests) idsByType[r.entity_type as ProfileChangeEntityType].push(r.entity_id);
 
-        const [schoolRows, teacherRows, districtRows] = await Promise.all([
+        const [schoolRows, teacherRows, districtRows, studentRows] = await Promise.all([
             idsByType.school.length > 0
                 ? pg.selectFrom("schools").select(["id", "name", "director_name", "founded_year", "achievements"]).where("id", "in", idsByType.school).execute()
                 : Promise.resolve([]),
@@ -228,11 +233,15 @@ export class ProfileChangeRequestServicePg {
             idsByType.district.length > 0
                 ? pg.selectFrom("districts").select(["id", "name", "education_head_name"]).where("id", "in", idsByType.district).execute()
                 : Promise.resolve([]),
+            idsByType.student.length > 0
+                ? pg.selectFrom("students").select(["id", "last_name", "first_name", "middle_name"]).where("id", "in", idsByType.student).execute()
+                : Promise.resolve([]),
         ]);
 
         const schoolById = new Map(schoolRows.map((s) => [s.id, s]));
         const teacherById = new Map(teacherRows.map((t) => [t.id, t]));
         const districtById = new Map(districtRows.map((d) => [d.id, d]));
+        const studentById = new Map(studentRows.map((s) => [s.id, s]));
 
         return requests.map((r): ProfileChangeQueueRow => {
             let entityName = "—";
@@ -240,15 +249,19 @@ export class ProfileChangeRequestServicePg {
             if (r.entity_type === "school") {
                 const s = schoolById.get(r.entity_id);
                 entityName = s?.name ?? "—";
-                current = { directorName: s?.director_name ?? null, foundedYear: s?.founded_year ?? null, achievements: s?.achievements ?? null };
+                current = { name: s?.name ?? null, directorName: s?.director_name ?? null, foundedYear: s?.founded_year ?? null, achievements: s?.achievements ?? null };
             } else if (r.entity_type === "teacher") {
                 const t = teacherById.get(r.entity_id);
                 entityName = t?.fullname ?? "—";
-                current = { gradeLabel: t?.grade_label ?? null, pedagogicalExperienceYears: t?.pedagogical_experience_years ?? null, achievements: t?.achievements ?? null };
-            } else {
+                current = { fullname: t?.fullname ?? null, gradeLabel: t?.grade_label ?? null, pedagogicalExperienceYears: t?.pedagogical_experience_years ?? null, achievements: t?.achievements ?? null };
+            } else if (r.entity_type === "district") {
                 const d = districtById.get(r.entity_id);
                 entityName = d?.name ?? "—";
                 current = { educationHeadName: d?.education_head_name ?? null };
+            } else {
+                const s = studentById.get(r.entity_id);
+                entityName = s ? [s.last_name, s.first_name, s.middle_name].filter(Boolean).join(" ") : "—";
+                current = { lastName: s?.last_name ?? null, firstName: s?.first_name ?? null, middleName: s?.middle_name ?? null };
             }
 
             return {

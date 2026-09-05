@@ -145,22 +145,22 @@ export class TeacherController {
             }
 
             if (isAdminLike(role)) {
-                const { biography, pedagogicalExperienceYears, achievements, gradeLabel } = req.body;
+                const { fullname, biography, pedagogicalExperienceYears, achievements, gradeLabel } = req.body;
                 const changedByUserId = parseInt(req.user!.userId, 10);
-                const { teacher } = await this.teacherUseCase.updateTeacherProfile(id, { biography, pedagogicalExperienceYears, achievements, gradeLabel }, changedByUserId);
+                const { teacher } = await this.teacherUseCase.updateTeacherProfile(id, { fullname, biography, pedagogicalExperienceYears, achievements, gradeLabel }, changedByUserId);
                 res.json(ResponseHandler.updated(teacher, 'Profil uğurla yeniləndi'));
                 return;
             }
 
-            const { gradeLabel, pedagogicalExperienceYears, achievements } = req.body;
-            const validationError = this.teacherUseCase.validateProfilePayload({ gradeLabel, pedagogicalExperienceYears, achievements });
+            const { fullname, gradeLabel, pedagogicalExperienceYears, achievements } = req.body;
+            const validationError = this.teacherUseCase.validateProfilePayload({ fullname, gradeLabel, pedagogicalExperienceYears, achievements });
             if (validationError) {
                 res.status(400).json(ResponseHandler.badRequest(validationError));
                 return;
             }
 
             const submittedBy = parseInt(req.user!.userId, 10);
-            const request = await profileChangeRequestServicePg.submit('teacher', parseInt(id, 10), { gradeLabel, pedagogicalExperienceYears, achievements }, submittedBy);
+            const request = await profileChangeRequestServicePg.submit('teacher', parseInt(id, 10), { fullname, gradeLabel, pedagogicalExperienceYears, achievements }, submittedBy);
             res.status(202).json(ResponseHandler.success(request, 'Məlumatlar admin təsdiqinə göndərildi'));
         } catch (error) {
             next(error);

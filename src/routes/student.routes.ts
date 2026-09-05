@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import { getStudents, getStudent, deleteAllStudents, deleteStudent, deleteStudents, searchStudents, repairStudents, updateStudent, createStudent, uploadStudentAvatar, deleteStudentAvatar, bulkUploadAvatars, importLegacyStudents } from "../controllers/student.controller";
+import { getStudents, getStudent, deleteAllStudents, deleteStudent, deleteStudents, searchStudents, repairStudents, updateStudent, updateStudentProfile, createStudent, uploadStudentAvatar, deleteStudentAvatar, bulkUploadAvatars, importLegacyStudents } from "../controllers/student.controller";
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 import { avatarUpload, bulkAvatarUpload } from "../config/multer";
 
@@ -24,6 +24,8 @@ router.route("/delete/:studentIds")
 router.route("/:id").get(authMiddleware([]), getStudent) // Allow all authenticated users
     .put(authMiddleware(["superadmin", "admin", "moderator"]), updateStudent)
     .delete(canDelete, deleteStudent);
+router.route("/:id/profile")
+    .patch(authMiddleware([]), updateStudentProfile); // owner (учитель ученика) or admin, checked in controller
 router.route("/:id/avatar")
     .post(authMiddleware([]), avatarUpload.single('avatar'), uploadStudentAvatar) // owner (teacher/schoolDirector) or admin, checked in controller
     .delete(authMiddleware([]), deleteStudentAvatar);

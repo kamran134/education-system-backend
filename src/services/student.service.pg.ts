@@ -226,6 +226,23 @@ export class StudentServicePg {
         return (await this.attachExtras([row]))[0];
     }
 
+    /**
+     * Применяет ФИО ученика после подтверждения заявки на модерацию (п.3 ТЗ 04.09.2026) —
+     * сознательно НЕ через общий update(): туда не должно долетать ничего, кроме этих трёх
+     * полей, даже если approve() когда-нибудь передаст сюда более широкий объект.
+     */
+    async updateProfile(id: number, data: { lastName: string | null; firstName: string; middleName: string | null }): Promise<Student> {
+        const row = await pg
+            .updateTable("students")
+            .set({ last_name: data.lastName, first_name: data.firstName, middle_name: data.middleName })
+            .where("id", "=", id)
+            .returningAll()
+            .executeTakeFirst();
+
+        if (!row) throw new Error("Student not found");
+        return (await this.attachExtras([row]))[0];
+    }
+
     /** Удаляет ученика вместе с его результатами — одна транзакция (вместо двух вызовов сервисов в Mongo-версии). */
     async delete(id: number): Promise<void> {
         await pg.transaction().execute(async (trx) => {

@@ -139,8 +139,9 @@ export class SchoolUseCase {
      * владелец получал внятную ошибку уже при отправке заявки в модерацию (BASE_FIXES_TASK.md
      * §2.5), а не только когда админ попытается её подтвердить.
      */
-    validateProfilePayload(data: { directorName?: string | null; foundedYear?: number | null; achievements?: string | null }): string | null {
+    validateProfilePayload(data: { name?: string | null; directorName?: string | null; foundedYear?: number | null; achievements?: string | null }): string | null {
         const validation = ValidationUtils.combine([
+            data.name !== undefined ? ValidationUtils.validateRequired(data.name, 'Məktəbin adı') : null,
             data.foundedYear != null
                 ? ValidationUtils.validateNumber(data.foundedYear, 'Məktəbin yaranma tarixi', 1800, new Date().getFullYear())
                 : null,
@@ -148,10 +149,11 @@ export class SchoolUseCase {
         return validation.isValid ? null : validation.errors.join(', ');
     }
 
-    async updateSchoolProfile(id: string, data: { description?: string | null; history?: string | null; directorName?: string | null; foundedYear?: number | null; achievements?: string | null }, changedByUserId: number): Promise<{ school: School; cascadedTeachersCount: number; cascadedStudentsCount: number }> {
+    async updateSchoolProfile(id: string, data: { name?: string; description?: string | null; history?: string | null; directorName?: string | null; foundedYear?: number | null; achievements?: string | null }, changedByUserId: number): Promise<{ school: School; cascadedTeachersCount: number; cascadedStudentsCount: number }> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'School ID'),
             ValidationUtils.validateId(id, 'School ID'),
+            data.name !== undefined ? ValidationUtils.validateRequired(data.name, 'Məktəbin adı') : null,
             data.foundedYear != null
                 ? ValidationUtils.validateNumber(data.foundedYear, 'Məktəbin yaranma tarixi', 1800, new Date().getFullYear())
                 : null,

@@ -154,22 +154,22 @@ export class SchoolController {
             }
 
             if (isAdminLike(role)) {
-                const { description, history, directorName, foundedYear, achievements } = req.body;
+                const { name, description, history, directorName, foundedYear, achievements } = req.body;
                 const changedByUserId = parseInt(req.user!.userId, 10);
-                const { school } = await this.schoolUseCase.updateSchoolProfile(id, { description, history, directorName, foundedYear, achievements }, changedByUserId);
+                const { school } = await this.schoolUseCase.updateSchoolProfile(id, { name, description, history, directorName, foundedYear, achievements }, changedByUserId);
                 res.json(ResponseHandler.updated(school, 'Profil uğurla yeniləndi'));
                 return;
             }
 
-            const { directorName, foundedYear, achievements } = req.body;
-            const validationError = this.schoolUseCase.validateProfilePayload({ directorName, foundedYear, achievements });
+            const { name, directorName, foundedYear, achievements } = req.body;
+            const validationError = this.schoolUseCase.validateProfilePayload({ name, directorName, foundedYear, achievements });
             if (validationError) {
                 res.status(400).json(ResponseHandler.badRequest(validationError));
                 return;
             }
 
             const submittedBy = parseInt(req.user!.userId, 10);
-            const request = await profileChangeRequestServicePg.submit('school', parseInt(id, 10), { directorName, foundedYear, achievements }, submittedBy);
+            const request = await profileChangeRequestServicePg.submit('school', parseInt(id, 10), { name, directorName, foundedYear, achievements }, submittedBy);
             res.status(202).json(ResponseHandler.success(request, 'Məlumatlar admin təsdiqinə göndərildi'));
         } catch (error) {
             next(error);

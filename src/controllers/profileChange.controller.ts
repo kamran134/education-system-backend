@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { profileChangeRequestServicePg, ProfileChangeEntityType, ProfileChangeStatus } from "../services/profileChangeRequest.service.pg";
-import { isAdminLike } from "../utils/avatar.util";
+import { isAdminLike, canRequestStudentProfileChange } from "../utils/avatar.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { SchoolUseCase } from "../usecases/school.usecase";
 import { SchoolServicePg } from "../services/school.service.pg";
@@ -8,20 +8,33 @@ import { TeacherUseCase } from "../usecases/teacher.usecase";
 import { TeacherServicePg } from "../services/teacher.service.pg";
 import { DistrictUseCase } from "../usecases/district.usecase";
 import { DistrictServicePg } from "../services/district.service.pg";
+import { StudentUseCase } from "../usecases/student.usecase";
+import { StudentServicePg } from "../services/student.service.pg";
 
-const VALID_ENTITY_TYPES: ProfileChangeEntityType[] = ["school", "teacher", "district"];
+const VALID_ENTITY_TYPES: ProfileChangeEntityType[] = ["school", "teacher", "district", "student"];
 
-/** entityType сущности → поле req.user, которым владелец подтверждает, что заявка его. */
-function ownEntityIdFor(entityType: ProfileChangeEntityType, user: Request["user"]): string | undefined {
+/** entityType сущности → поле req.user, которым владелец подтверждает, что заявка его.
+ *  Для student не применимо — заявку подаёт не сама сущность (ученик), а его учитель, там
+ *  владение проверяет canRequestStudentProfileChange (требует похода в БД, поэтому асинхронно
+ *  и отдельно, см. isOwner ниже). */
+function ownEntityIdFor(entityType: "school" | "teacher" | "district", user: Request["user"]): string | undefined {
     if (entityType === "school") return user?.schoolId;
     if (entityType === "teacher") return user?.teacherId;
     return user?.districtId;
+}
+
+/** Владелец заявки: для school/teacher/district — сравнение с полем токена, для student —
+ *  поход в БД за teacher_id ученика (см. avatar.util.ts). */
+async function isOwner(entityType: ProfileChangeEntityType, entityId: number, user: Request["user"]): Promise<boolean> {
+    if (entityType === "student") return canRequestStudentProfileChange(user, String(entityId));
+    return ownEntityIdFor(entityType, user) === String(entityId);
 }
 
 export class ProfileChangeController {
     private schoolUseCase = new SchoolUseCase(new SchoolServicePg());
     private teacherUseCase = new TeacherUseCase(new TeacherServicePg());
     private districtUseCase = new DistrictUseCase(new DistrictServicePg());
+    private studentUseCase = new StudentUseCase(new StudentServicePg());
 
     /** Все три — только admin-подобные роли (BASE_FIXES_TASK.md §2.5/§2.7): очередь целиком,
      *  счётчик и список id с pending раскрывают, что изменил владелец, до подтверждения —
@@ -85,8 +98,8 @@ export class ProfileChangeController {
                 return;
             }
 
-            const isOwner = ownEntityIdFor(entityType, req.user) === String(entityId);
-            if (!isAdminLike(req.user?.role) && !isOwner) {
+            const owner = await isOwner(entityType, entityId, req.user);
+            if (!isAdminLike(req.user?.role) && !owner) {
                 res.status(403).json(ResponseHandler.error("Bu məlumatlara icazəniz yoxdur"));
                 return;
             }
@@ -121,8 +134,13 @@ export class ProfileChangeController {
                 await this.schoolUseCase.updateSchoolProfile(String(pending.entityId), finalPayload, adminUserId);
             } else if (pending.entityType === "teacher") {
                 await this.teacherUseCase.updateTeacherProfile(String(pending.entityId), finalPayload, adminUserId);
-            } else {
+            } else if (pending.entityType === "district") {
                 await this.districtUseCase.updateDistrictProfile(String(pending.entityId), finalPayload);
+            } else {
+                // updateStudentProfile сам вырезает лишние поля (lastName/firstName/middleName
+                // только) — даже если finalPayload пришёл из body admin-запроса «Düzəliş et»
+                // с чем-то посторонним, через модерацию не должно проходить ничего, кроме имени.
+                await this.studentUseCase.updateStudentProfile(String(pending.entityId), finalPayload);
             }
 
             const updated = await profileChangeRequestServicePg.markReviewed(id, "approved", adminUserId, null, finalPayload);

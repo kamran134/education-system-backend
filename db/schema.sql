@@ -444,13 +444,15 @@ CREATE INDEX code_change_logs_entity_idx ON code_change_logs (entity_type, entit
 CREATE INDEX code_change_logs_changed_at_idx ON code_change_logs (changed_at);
 
 -- Модерация самостоятельно введённых полей профиля (017_profile_change_requests.sql,
--- BASE_FIXES_TASK.md §2.4). Полиморфная связь без FK на саму сущность — при удалении
--- школы/учителя/района заявку подчищает код удаления сущности. Уникальный индекс держит
+-- BASE_FIXES_TASK.md §2.4; entity_type 'student' добавлен 020_student_profile_change_requests.sql,
+-- п.3 ТЗ 04.09.2026). Полиморфная связь без FK на саму сущность — при удалении
+-- школы/учителя/района/ученика заявку подчищает код удаления сущности. Уникальный индекс держит
 -- ровно одну необработанную заявку на сущность: повторное сохранение владельцем
--- перезаписывает payload, а не плодит очередь.
+-- перезаписывает payload, а не плодит очередь. Для student заявку подаёт не сама сущность
+-- (у ученика нет логина), а его учитель — владение проверяется через students.teacher_id.
 CREATE TABLE profile_change_requests (
     id            bigserial   PRIMARY KEY,
-    entity_type   text        NOT NULL CHECK (entity_type IN ('school','teacher','district')),
+    entity_type   text        NOT NULL CHECK (entity_type IN ('school','teacher','district','student')),
     entity_id     bigint      NOT NULL,
     payload       jsonb       NOT NULL,
     status        text        NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),

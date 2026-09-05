@@ -4,9 +4,10 @@ import { StudentServicePg } from "../services/student.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { pg } from "../config/pg";
-import { saveEntityAvatarPg, removeEntityAvatarPg, canManageStudentAvatar } from "../utils/avatar.util";
+import { saveEntityAvatarPg, removeEntityAvatarPg, canManageStudentAvatar, canRequestStudentProfileChange, isAdminLike } from "../utils/avatar.util";
 import { districtIdsOfRegion } from "../utils/region-scope.util";
 import { canViewEntity } from "../utils/hierarchy-access.util";
+import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 import fs from 'fs';
 import path from 'path';
 import { smartCrop } from '../utils/smart-crop.util';
@@ -113,6 +114,46 @@ export class StudentController {
             } else {
                 res.status(500).json(ResponseHandler.internalError('Error updating student', error));
             }
+        }
+    }
+
+    /**
+     * Заявка на правку ФИО ученика (п.3 ТЗ 04.09.2026) — подаёт учитель этого ученика, идёт
+     * через ту же очередь модерации, что и у school/teacher/district (profile_change_requests):
+     * имя — то, по чему сущность узнают в рейтингах и сертификатах, тихая правка без следа не
+     * годится (согласовано с заказчиком 05.09.2026). НЕ полный updateStudent — только эти три
+     * поля, code/teacher/school/grade сюда не входят. Директор школы намеренно не допущен —
+     * заказчик просил это право только для учителей; canRequestStudentProfileChange проверяет
+     * teacher_id ученика в БД, а не просто роль.
+     */
+    async updateProfile(req: Request, res: Response): Promise<void> {
+        try {
+            const { id } = req.params;
+
+            if (!(await canRequestStudentProfileChange(req.user, id))) {
+                res.status(403).json(ResponseHandler.error('Bu məlumatları dəyişməyə icazəniz yoxdur'));
+                return;
+            }
+
+            const { lastName, firstName, middleName } = req.body;
+            const validationError = this.studentUseCase.validateProfilePayload({ lastName, firstName, middleName });
+            if (validationError) {
+                res.status(400).json(ResponseHandler.badRequest(validationError));
+                return;
+            }
+
+            if (isAdminLike(req.user?.role)) {
+                const student = await this.studentUseCase.updateStudentProfile(id, { lastName, firstName, middleName });
+                res.status(200).json(ResponseHandler.updated(student, 'Profil uğurla yeniləndi'));
+                return;
+            }
+
+            const submittedBy = parseInt(req.user!.userId, 10);
+            const request = await profileChangeRequestServicePg.submit('student', parseInt(id, 10), { lastName, firstName, middleName }, submittedBy);
+            res.status(202).json(ResponseHandler.success(request, 'Məlumatlar admin təsdiqinə göndərildi'));
+        } catch (error: any) {
+            console.error('Error in updateProfile (student):', error);
+            res.status(500).json(ResponseHandler.internalError('Error updating student profile', error));
         }
     }
 
@@ -387,6 +428,7 @@ export const getStudents = (req: Request, res: Response) => studentController.ge
 export const getStudent = (req: Request, res: Response) => studentController.getStudent(req, res);
 export const createStudent = (req: Request, res: Response) => studentController.createStudent(req, res);
 export const updateStudent = (req: Request, res: Response) => studentController.updateStudent(req, res);
+export const updateStudentProfile = (req: Request, res: Response) => studentController.updateProfile(req, res);
 export const deleteStudent = (req: Request, res: Response) => studentController.deleteStudent(req, res);
 export const deleteStudents = (req: Request, res: Response) => studentController.deleteStudents(req, res);
 export const deleteAllStudents = (req: Request, res: Response) => studentController.deleteAllStudents(req, res);
