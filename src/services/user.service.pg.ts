@@ -1,4 +1,5 @@
 import bcrypt from "bcrypt";
+import { sql } from "kysely";
 import { pg } from "../config/pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, BulkOperationResult } from "../types/common.types";
 
@@ -110,25 +111,58 @@ export class UserServicePg {
         filters: FilterOptionsPg,
         sort: SortOptions
     ): Promise<{ data: User[]; totalCount: number }> {
+        // Привязка пользователя к району/школе/учителю зависит от роли и лежит в разных местах:
+        // у директора школа сразу в users.school_id, у учителя — только в teachers.school_id/
+        // district_id (в users эти поля у него обычно пустые), у ученика — в students. Поэтому
+        // фильтруем по «эффективной» привязке через LEFT JOIN + COALESCE, а не по одной колонке
+        // users. Джойны подключаем, только если реально задан хотя бы один из district/school/
+        // teacherIds — остальным запросам (их большинство) лишние JOIN'ы по users не нужны.
+        const needsJoins = !!(filters.districtIds?.length || filters.schoolIds?.length || filters.teacherIds?.length);
+
+        const buildBase = () => {
+            let q = pg.selectFrom("users") as any;
+            if (needsJoins) {
+                q = q
+                    .leftJoin("schools as sc", "sc.id", "users.school_id")
+                    .leftJoin("teachers as t", "t.id", "users.teacher_id")
+                    .leftJoin("students as st", "st.id", "users.student_id");
+            }
+            return q;
+        };
+
         const applyFilter = <Q extends { where: any }>(query: Q): Q => {
             let q = query;
-            if (filters.active !== undefined) q = q.where("is_approved", "=", filters.active);
-            if (filters.role) q = q.where("role", "=", filters.role);
+            if (filters.active !== undefined) q = q.where("users.is_approved" as any, "=", filters.active);
+            if (filters.role) q = q.where("users.role" as any, "=", filters.role);
+            if (needsJoins) {
+                if (filters.districtIds?.length) {
+                    q = q.where(sql`coalesce(users.district_id, sc.district_id, t.district_id, st.district_id)`, "in", filters.districtIds) as Q;
+                }
+                if (filters.schoolIds?.length) {
+                    q = q.where(sql`coalesce(users.school_id, t.school_id, st.school_id)`, "in", filters.schoolIds) as Q;
+                }
+                if (filters.teacherIds?.length) {
+                    q = q.where(sql`coalesce(users.teacher_id, st.teacher_id)`, "in", filters.teacherIds) as Q;
+                }
+            }
             return q;
         };
 
         const sortColumn = this.mapSortColumn(sort.sortColumn);
-        let query = applyFilter(pg.selectFrom("users").selectAll());
+        // selectAll("users") вместо selectAll() — при джойнах голый selectAll() тащит колонки
+        // schools/teachers/students тоже, а у них есть свои "id"/"district_id" и т.п., которые
+        // затирают одноимённые колонки users в результирующей строке, и toUser() получает чужие поля.
+        let query = applyFilter(buildBase().selectAll("users"));
         query = query.orderBy(sortColumn, sort.sortDirection) as typeof query;
 
         const [rows, countRow] = await Promise.all([
             query.limit(pagination.size).offset(pagination.skip).execute(),
-            applyFilter(pg.selectFrom("users"))
-                .select(({ fn }) => [fn.countAll().as("count")])
+            applyFilter(buildBase())
+                .select(({ fn }: any) => [fn.countAll().as("count")])
                 .executeTakeFirstOrThrow(),
         ]);
 
-        return { data: rows.map((r) => this.toUser(r)), totalCount: Number(countRow.count) };
+        return { data: rows.map((r: any) => this.toUser(r)), totalCount: Number(countRow.count) };
     }
 
     async approveUser(id: number): Promise<User> {
