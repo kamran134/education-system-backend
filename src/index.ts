@@ -21,6 +21,7 @@ import referenceRoutes from "./routes/reference.routes";
 import certificateRoutes from "./routes/certificate.routes";
 import publicRoutes from "./routes/public.routes";
 import profileChangeRoutes from "./routes/profileChange.routes";
+import metodikaRoutes from "./routes/metodika.routes";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import helmet from "helmet";
@@ -135,6 +136,7 @@ app.use("/api/reference", referenceRoutes);
 app.use("/api/certificates", certificateRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/profile-changes", profileChangeRoutes);
+app.use("/api/metodika", metodikaRoutes);
 app.use("/api/auth", authLimiter, authRoutes);
 
 app.use((req, res, next) => {
