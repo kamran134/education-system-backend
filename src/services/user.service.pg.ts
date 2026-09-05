@@ -17,6 +17,11 @@ export interface User {
     studentId: number | null;
     createdAt: Date;
     updatedAt: Date;
+    // Название сущности, к которой привязан аккаунт (школа/учитель/ученик/район/регион) —
+    // только для отображения в «İstifadəçilər» (BASE_FIXES / п.9). У admin-подобных ролей
+    // и не имеет смысла: там оба поля остаются undefined.
+    linkedName?: string;
+    linkedType?: 'school' | 'teacher' | 'student' | 'district' | 'region';
 }
 
 export interface UserCreate {
@@ -115,35 +120,32 @@ export class UserServicePg {
         // у директора школа сразу в users.school_id, у учителя — только в teachers.school_id/
         // district_id (в users эти поля у него обычно пустые), у ученика — в students. Поэтому
         // фильтруем по «эффективной» привязке через LEFT JOIN + COALESCE, а не по одной колонке
-        // users. Джойны подключаем, только если реально задан хотя бы один из district/school/
-        // teacherIds — остальным запросам (их большинство) лишние JOIN'ы по users не нужны.
-        const needsJoins = !!(filters.districtIds?.length || filters.schoolIds?.length || filters.teacherIds?.length);
-
-        const buildBase = () => {
-            let q = pg.selectFrom("users") as any;
-            if (needsJoins) {
-                q = q
-                    .leftJoin("schools as sc", "sc.id", "users.school_id")
-                    .leftJoin("teachers as t", "t.id", "users.teacher_id")
-                    .leftJoin("students as st", "st.id", "users.student_id");
-            }
-            return q;
-        };
+        // users.
+        // Раньше эти джойны подключались только когда реально задан district/school/teacherIds
+        // фильтр. С колонкой «Bağlı olduğu» (BASE_FIXES / п.9) джойны на schools/teachers/students
+        // нужны всегда — для названия привязанной сущности в списке, а не только при фильтрации.
+        // Заодно джойним districts/regions — они нужны только для отображения (у districtRepresenter/
+        // regionRepresenter привязка лежит прямо в users, отдельного COALESCE для фильтра не требуют).
+        const buildBase = () => pg
+            .selectFrom("users")
+            .leftJoin("schools as sc", "sc.id", "users.school_id")
+            .leftJoin("teachers as t", "t.id", "users.teacher_id")
+            .leftJoin("students as st", "st.id", "users.student_id")
+            .leftJoin("districts as d", "d.id", "users.district_id")
+            .leftJoin("regions as r", "r.id", "users.region_id");
 
         const applyFilter = <Q extends { where: any }>(query: Q): Q => {
             let q = query;
             if (filters.active !== undefined) q = q.where("users.is_approved" as any, "=", filters.active);
             if (filters.role) q = q.where("users.role" as any, "=", filters.role);
-            if (needsJoins) {
-                if (filters.districtIds?.length) {
-                    q = q.where(sql`coalesce(users.district_id, sc.district_id, t.district_id, st.district_id)`, "in", filters.districtIds) as Q;
-                }
-                if (filters.schoolIds?.length) {
-                    q = q.where(sql`coalesce(users.school_id, t.school_id, st.school_id)`, "in", filters.schoolIds) as Q;
-                }
-                if (filters.teacherIds?.length) {
-                    q = q.where(sql`coalesce(users.teacher_id, st.teacher_id)`, "in", filters.teacherIds) as Q;
-                }
+            if (filters.districtIds?.length) {
+                q = q.where(sql`coalesce(users.district_id, sc.district_id, t.district_id, st.district_id)`, "in", filters.districtIds) as Q;
+            }
+            if (filters.schoolIds?.length) {
+                q = q.where(sql`coalesce(users.school_id, t.school_id, st.school_id)`, "in", filters.schoolIds) as Q;
+            }
+            if (filters.teacherIds?.length) {
+                q = q.where(sql`coalesce(users.teacher_id, st.teacher_id)`, "in", filters.teacherIds) as Q;
             }
             return q;
         };
@@ -152,7 +154,18 @@ export class UserServicePg {
         // selectAll("users") вместо selectAll() — при джойнах голый selectAll() тащит колонки
         // schools/teachers/students тоже, а у них есть свои "id"/"district_id" и т.п., которые
         // затирают одноимённые колонки users в результирующей строке, и toUser() получает чужие поля.
-        let query = applyFilter(buildBase().selectAll("users"));
+        // Названия привязанных сущностей выбираем отдельными полями с алиасами, чтобы не пересекаться.
+        let query = applyFilter(
+            buildBase().selectAll("users").select([
+                "sc.name as linked_school_name",
+                "t.fullname as linked_teacher_name",
+                "st.last_name as linked_student_last_name",
+                "st.first_name as linked_student_first_name",
+                "st.middle_name as linked_student_middle_name",
+                "d.name as linked_district_name",
+                "r.name as linked_region_name",
+            ])
+        );
         query = query.orderBy(sortColumn, sort.sortDirection) as typeof query;
 
         const [rows, countRow] = await Promise.all([
@@ -162,7 +175,50 @@ export class UserServicePg {
                 .executeTakeFirstOrThrow(),
         ]);
 
-        return { data: rows.map((r: any) => this.toUser(r)), totalCount: Number(countRow.count) };
+        return { data: rows.map((r: any) => this.toUserWithLinkedName(r)), totalCount: Number(countRow.count) };
+    }
+
+    /**
+     * toUser() + название привязанной сущности по роли пользователя — используется только в
+     * getFilteredUsers, где строка результата уже несёт джойны на schools/teachers/students/
+     * districts/regions (см. алиасы linked_* выше).
+     */
+    private toUserWithLinkedName(row: Parameters<UserServicePg['toUser']>[0] & {
+        linked_school_name: string | null;
+        linked_teacher_name: string | null;
+        linked_student_last_name: string | null;
+        linked_student_first_name: string | null;
+        linked_student_middle_name: string | null;
+        linked_district_name: string | null;
+        linked_region_name: string | null;
+    }): User {
+        const user = this.toUser(row);
+
+        switch (row.role) {
+            case 'schoolDirector':
+                if (row.linked_school_name) { user.linkedName = row.linked_school_name; user.linkedType = 'school'; }
+                break;
+            case 'teacher':
+                if (row.linked_teacher_name) { user.linkedName = row.linked_teacher_name; user.linkedType = 'teacher'; }
+                break;
+            case 'student':
+                if (row.linked_student_first_name) {
+                    // Порядок «Фамилия Имя Отчество» — тот же, что в certificate-issue.service.ts.
+                    user.linkedName = [row.linked_student_last_name, row.linked_student_first_name, row.linked_student_middle_name].filter(Boolean).join(' ');
+                    user.linkedType = 'student';
+                }
+                break;
+            case 'districtRepresenter':
+                if (row.linked_district_name) { user.linkedName = row.linked_district_name; user.linkedType = 'district'; }
+                break;
+            case 'regionRepresenter':
+                if (row.linked_region_name) { user.linkedName = row.linked_region_name; user.linkedType = 'region'; }
+                break;
+            // admin-подобные роли (superadmin/admin/moderator) ни к чему не привязаны — linkedName
+            // остаётся undefined, фронт покажет прочерк.
+        }
+
+        return user;
     }
 
     async approveUser(id: number): Promise<User> {
