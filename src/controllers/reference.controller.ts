@@ -20,11 +20,17 @@ export const getLevelsReference = async (req: Request, res: Response): Promise<v
     }
 };
 
+/**
+ * result_column/count_column/min_grade/max_grade убраны из subjects миграцией
+ * 023_exam_types_and_level_scales.sql (они описывали колонки student_results, а не сам
+ * предмет) — эти четыре поля больше не отдаются. GET /api/reference/subjects на фронте
+ * никем не вызывается (проверено grep'ом), поэтому сузить ответ безопасно.
+ */
 export const getSubjectsReference = async (req: Request, res: Response): Promise<void> => {
     try {
         const rows = await pg
             .selectFrom("subjects")
-            .select(["code", "name_az", "result_column", "count_column", "min_grade", "max_grade", "sort_order"])
+            .select(["code", "name_az", "sort_order"])
             .where("active", "=", true)
             .orderBy("sort_order", "asc")
             .execute();
@@ -32,10 +38,6 @@ export const getSubjectsReference = async (req: Request, res: Response): Promise
         const subjects = rows.map((r) => ({
             code: r.code,
             nameAz: r.name_az,
-            resultColumn: r.result_column,
-            countColumn: r.count_column,
-            minGrade: r.min_grade,
-            maxGrade: r.max_grade,
             sortOrder: r.sort_order,
         }));
         res.status(200).json(ResponseHandler.success(subjects));

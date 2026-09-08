@@ -14,6 +14,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS btree_gist;   -- EXCLUDE USING gist ниже (level_scale_bands, exam_type_sections)
 
 -- Азербайджанская сортировка. Замена .collation({ locale: 'az', strength: 2 }) из stats.service.ts.
 -- strength: 2 (ICU level 2) = диакритика учитывается, регистр нет → deterministic = false обязателен.
@@ -106,12 +107,76 @@ CREATE TABLE students (
     -- ETL на них упадёт. Это гейт, а не баг: заказчик решает, кому менять код.
 );
 
+-- ============================================================ типы экзаменов и шкалы pillə (023_exam_types_and_level_scales.sql)
+--
+-- Идут раньше exams, потому что exams.exam_type_id на них ссылается (порядок CREATE TABLE
+-- в этом файле = порядок физической зависимости FK, без ALTER TABLE постфактум).
+--
+-- level_scale_bands — набор процентных диапазонов E/D/C/B/A/Lisey. Таблица, а не константа,
+-- чтобы проценты правились и уровни добавлялись без миграции. Диапазоны — ПОЛУИНТЕРВАЛЫ
+-- [min_percent, max_percent): иначе дробный процент (29.5%) не попадает ни в один бэнд.
+-- Верхний бэнд закрывает 100 включительно (max_percent = 100.001 у Lisey).
+CREATE TABLE level_scales (
+    id      bigserial PRIMARY KEY,
+    code    text NOT NULL UNIQUE,
+    name_az text NOT NULL,
+    note    text,
+    active  boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE level_scale_bands (
+    id                  bigserial PRIMARY KEY,
+    scale_id            bigint NOT NULL REFERENCES level_scales(id) ON DELETE CASCADE,
+    code                text   NOT NULL,
+    name_az             text   NOT NULL,
+    rank                int    NOT NULL,
+    participation_score double precision NOT NULL,
+    min_percent         numeric(6,3) NOT NULL,
+    max_percent         numeric(6,3) NOT NULL,
+    UNIQUE (scale_id, code),
+    UNIQUE (scale_id, rank),
+    CHECK (min_percent >= 0 AND max_percent <= 100.001 AND min_percent < max_percent),
+    EXCLUDE USING gist (scale_id WITH =, numrange(min_percent, max_percent) WITH &&)
+);
+
+-- exam_types — то, по чему считается отдельный рейтинг. Все нынешние экзамены — один тип,
+-- is_base = true (единственный тип с этим флагом, см. exam_types_single_base ниже).
+CREATE TABLE exam_types (
+    id                   bigserial PRIMARY KEY,
+    code                 text    NOT NULL UNIQUE,
+    name_az              text    NOT NULL,
+    level_scale_id       bigint  NOT NULL REFERENCES level_scales(id),
+    has_question_counts  boolean NOT NULL DEFAULT true,
+    month_award_min_rank int,          -- NULL = награда месяца не зависит от pillə
+    is_base              boolean NOT NULL DEFAULT false,
+    active               boolean NOT NULL DEFAULT true,
+    sort_order           int     NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX exam_types_single_base ON exam_types (is_base) WHERE is_base;
+
+-- exam_type_sections — группа классов внутри типа со своим набором предметов. У базового
+-- типа две: "1-4 sinif" и "5-11 sinif". exam_type_section_subjects (набор предметов секции,
+-- FK на subjects) идёт ниже, после того как subjects определена в файле.
+CREATE TABLE exam_type_sections (
+    id           bigserial PRIMARY KEY,
+    exam_type_id bigint NOT NULL REFERENCES exam_types(id) ON DELETE CASCADE,
+    name_az      text   NOT NULL,
+    grade_from   int    NOT NULL,
+    grade_to     int    NOT NULL,
+    CHECK (grade_from <= grade_to),
+    -- grade_to + 1: секция трактует свой диапазон классов как ВКЛЮЧАЮЩИЙ (grade_from..grade_to),
+    -- а int4range сам по себе полуоткрытый — без +1 секции "1-4 sinif" (grade_to=4) и
+    -- "5-11 sinif" (grade_from=5) не считались бы корректно соседствующими на границе класса 4/5.
+    EXCLUDE USING gist (exam_type_id WITH =, int4range(grade_from, grade_to + 1) WITH &&)
+);
+
 CREATE TABLE exams (
     id               bigserial PRIMARY KEY,
     code             bigint      NOT NULL UNIQUE,
     name             text        NOT NULL,
     date             timestamptz NOT NULL,
     active           boolean     NOT NULL DEFAULT true,
+    exam_type_id     bigint      NOT NULL REFERENCES exam_types(id),  -- 023_exam_types_and_level_scales.sql
     legacy_mongo_id  text UNIQUE
     -- PHASE3 п.5 добавит include_in_rating boolean NOT NULL DEFAULT true — отдельной миграцией,
     -- вместе с правкой v_student_year_scores (JOIN exams ... WHERE include_in_rating).
@@ -193,54 +258,31 @@ CREATE TABLE booklets (
     legacy_mongo_id  text UNIQUE
 );
 
--- Справочник предметов — единственный дом понятия "предмет", которое иначе размазано по
--- колонкам student_results, ключам booklets.disciplines и позициям в Excel-парсере.
--- Хранение колонками НЕ меняется (осознанное решение заказчика) — это только метаданные +
--- read-only view. См. db/migrations/002_subjects_lookup.sql.
+-- Справочник предметов — единственный дом понятия "предмет". Хранение баллов колонками в
+-- student_results НЕ меняется в этом шаге (024_student_result_subject_scores.sql переносит
+-- их в строки) — subjects сейчас чистый справочник кодов, использующийся набором предметов
+-- секций типов экзаменов (exam_type_section_subjects ниже). См.
+-- db/migrations/002_subjects_lookup.sql (создание) и 023_exam_types_and_level_scales.sql
+-- (result_column/count_column/min_grade/max_grade убраны — они описывали колонки
+-- student_results, а не сам предмет; v_student_result_subject_scores снята здесь же,
+-- пересоздаётся в 024 над новой таблицей).
 CREATE TABLE subjects (
     code          text PRIMARY KEY,          -- 'az','math','lifeKnowledge','logic','english'
     name_az       text NOT NULL,
-    result_column text NOT NULL,              -- имя колонки балла в student_results
-    count_column  text NOT NULL,              -- имя колонки количества вопросов
-    min_grade     int,                        -- с какого класса применяется, NULL = без ограничения снизу
-    max_grade     int,                        -- по какой класс, NULL = без ограничения сверху
     sort_order    int  NOT NULL,
     active        boolean NOT NULL DEFAULT true
 );
 
--- "Развёрнутая" в строки версия колонок student_results — read-only, хранение не меняет.
--- lifeKnowledge/logic/english фильтруются по границе классов из subjects, а не по
--- "колонка не NULL": в проде есть исторический артефакт (~6480 строк) с english=0 в 1-4
--- классах вместо NULL, который иначе попал бы в любой AVG по предмету как реальная попытка.
-CREATE VIEW v_student_result_subject_scores AS
-SELECT sr.id AS result_id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
-       'az'::text AS subject_code, sr.az AS score, sr.az_count AS question_count
-FROM student_results sr
-UNION ALL
-SELECT sr.id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
-       'math', sr.math, sr.math_count
-FROM student_results sr
-UNION ALL
-SELECT sr.id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
-       'lifeKnowledge', sr.life_knowledge, sr.life_knowledge_count
-FROM student_results sr
-JOIN subjects s ON s.code = 'lifeKnowledge'
-WHERE (s.min_grade IS NULL OR sr.grade >= s.min_grade)
-  AND (s.max_grade IS NULL OR sr.grade <= s.max_grade)
-UNION ALL
-SELECT sr.id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
-       'logic', sr.logic, sr.logic_count
-FROM student_results sr
-JOIN subjects s ON s.code = 'logic'
-WHERE (s.min_grade IS NULL OR sr.grade >= s.min_grade)
-  AND (s.max_grade IS NULL OR sr.grade <= s.max_grade)
-UNION ALL
-SELECT sr.id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
-       'english', sr.english, sr.english_count
-FROM student_results sr
-JOIN subjects s ON s.code = 'english'
-WHERE (s.min_grade IS NULL OR sr.grade >= s.min_grade)
-  AND (s.max_grade IS NULL OR sr.grade <= s.max_grade);
+-- Набор предметов секции типа экзамена, с лимитом вопросов по предмету
+-- (023_exam_types_and_level_scales.sql). ГЕЙТ Г1: значения для секции "5-11 sinif" не
+-- досеяны на момент этой миграции, см. её шапку.
+CREATE TABLE exam_type_section_subjects (
+    section_id    bigint NOT NULL REFERENCES exam_type_sections(id) ON DELETE CASCADE,
+    subject_code  text   NOT NULL REFERENCES subjects(code),
+    max_questions int    NOT NULL CHECK (max_questions > 0),
+    sort_order    int    NOT NULL DEFAULT 0,
+    PRIMARY KEY (section_id, subject_code)
+);
 
 -- Защита ключей booklets.disciplines от посторонних кодов предметов (CHECK не может
 -- ссылаться на другую таблицу).

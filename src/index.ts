@@ -8,6 +8,9 @@ import schoolRoutes from "./routes/school.routes";
 import teacherRoutes from "./routes/teacher.routes";
 import bookletRoutes from "./routes/booklet.routes";
 import examRoutes from "./routes/exam.routes";
+import examTypeRoutes from "./routes/examType.routes";
+import subjectRoutes from "./routes/subject.routes";
+import levelScaleRoutes from "./routes/levelScale.routes";
 import studentRoutes from "./routes/student.routes";
 import studentResultRoutes from "./routes/studentResult.routes";
 import statRoutes from "./routes/stat.routes";
@@ -28,7 +31,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middleware/errorHandler";
 import { startTokenCleanupScheduler } from "./services/token.service.pg";
-import { loadLevelsCache } from "./services/levels.cache";
+import { loadLevelsCache, loadLevelScaleBandsCache } from "./services/levels.cache";
 import { academicYearClosureServicePg } from "./services/academicYearClosure.service.pg";
 
 dotenv.config();
@@ -124,6 +127,9 @@ app.use("/api/schools", schoolRoutes);
 app.use("/api/teachers", teacherRoutes);
 app.use("/api/booklets", bookletRoutes);
 app.use("/api/exams", examRoutes);
+app.use("/api/exam-types", examTypeRoutes);
+app.use("/api/subjects", subjectRoutes);
+app.use("/api/level-scales", levelScaleRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/student-results", studentResultRoutes);
 app.use("/api/exam-results", examResultsRoutes);
@@ -145,7 +151,7 @@ app.use((req, res, next) => {
 
 app.use(errorHandler);
 
-loadLevelsCache()
+Promise.all([loadLevelsCache(), loadLevelScaleBandsCache()])
     .then(async () => {
         // Авто-закрытие учебных годов (ACADEMIC_YEAR_ARCHIVE_TASK.md §3) — не фатально:
         // это предохранитель поверх ручного закрытия, не критичная для старта функциональность.
@@ -163,6 +169,6 @@ loadLevelsCache()
         });
     })
     .catch((err) => {
-        console.error("Failed to load levels cache on startup:", err);
+        console.error("Failed to load levels/level-scale-bands cache on startup:", err);
         process.exit(1);
     });

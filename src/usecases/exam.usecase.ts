@@ -34,6 +34,7 @@ export class ExamUseCase {
         ValidationUtils.validateRequired(examData.name, 'Exam name');
         ValidationUtils.validateRequired(examData.code, 'Exam code');
         ValidationUtils.validateRequired(examData.date, 'Exam date');
+        ValidationUtils.validateRequired(examData.examTypeId, 'Exam type');
 
         // Парсим дату как UTC midnight чтобы избежать смещения timezone.
         // Фронт присылает строку "YYYY-MM-DD".

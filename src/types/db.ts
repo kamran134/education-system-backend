@@ -74,6 +74,7 @@ export interface Exams {
   active: Generated<boolean>;
   code: number;
   date: Timestamp;
+  exam_type_id: number;
   id: Generated<number>;
   legacy_mongo_id: string | null;
   name: string;
@@ -288,12 +289,69 @@ export interface StudentGradeHistory {
 export interface Subjects {
   active: Generated<boolean>;
   code: string;
-  count_column: string;
-  max_grade: number | null;
-  min_grade: number | null;
   name_az: string;
-  result_column: string;
   sort_order: number;
+}
+
+// Добавлено вручную вслед за миграцией 023_exam_types_and_level_scales.sql, см.
+// IMTAHAN_NOVLERI_TASK.md — перегенерировать через kysely-codegen при следующей возможности
+// подключиться к живой БД и сверить.
+export interface LevelScales {
+  active: Generated<boolean>;
+  code: string;
+  id: Generated<number>;
+  name_az: string;
+  note: string | null;
+}
+
+// Добавлено вручную вслед за миграцией 023_exam_types_and_level_scales.sql, см.
+// IMTAHAN_NOVLERI_TASK.md — перегенерировать через kysely-codegen при следующей возможности
+// подключиться к живой БД и сверить.
+export interface LevelScaleBands {
+  code: string;
+  id: Generated<number>;
+  max_percent: number;
+  min_percent: number;
+  name_az: string;
+  participation_score: number;
+  rank: number;
+  scale_id: number;
+}
+
+// Добавлено вручную вслед за миграцией 023_exam_types_and_level_scales.sql, см.
+// IMTAHAN_NOVLERI_TASK.md — перегенерировать через kysely-codegen при следующей возможности
+// подключиться к живой БД и сверить.
+export interface ExamTypes {
+  active: Generated<boolean>;
+  code: string;
+  has_question_counts: Generated<boolean>;
+  id: Generated<number>;
+  is_base: Generated<boolean>;
+  level_scale_id: number;
+  month_award_min_rank: number | null;
+  name_az: string;
+  sort_order: Generated<number>;
+}
+
+// Добавлено вручную вслед за миграцией 023_exam_types_and_level_scales.sql, см.
+// IMTAHAN_NOVLERI_TASK.md — перегенерировать через kysely-codegen при следующей возможности
+// подключиться к живой БД и сверить.
+export interface ExamTypeSections {
+  exam_type_id: number;
+  grade_from: number;
+  grade_to: number;
+  id: Generated<number>;
+  name_az: string;
+}
+
+// Добавлено вручную вслед за миграцией 023_exam_types_and_level_scales.sql, см.
+// IMTAHAN_NOVLERI_TASK.md — перегенерировать через kysely-codegen при следующей возможности
+// подключиться к живой БД и сверить.
+export interface ExamTypeSectionSubjects {
+  max_questions: number;
+  section_id: number;
+  sort_order: Generated<number>;
+  subject_code: string;
 }
 
 export interface Teachers {
@@ -535,9 +593,14 @@ export interface DB {
   code_change_logs: CodeChangeLogs;
   district_year_ratings: DistrictYearRatings;
   districts: Districts;
+  exam_type_section_subjects: ExamTypeSectionSubjects;
+  exam_type_sections: ExamTypeSections;
+  exam_types: ExamTypes;
   exams: Exams;
   grade_promotion_logs: GradePromotionLogs;
   issued_certificates: IssuedCertificates;
+  level_scale_bands: LevelScaleBands;
+  level_scales: LevelScales;
   levels: Levels;
   profile_change_requests: ProfileChangeRequests;
   region_year_ratings: RegionYearRatings;
