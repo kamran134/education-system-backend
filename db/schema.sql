@@ -207,23 +207,29 @@ CREATE TABLE student_results (
     exam_id     bigint REFERENCES exams(id),                      -- в Mongo required:false, оставлено nullable
     grade       int    NOT NULL,
 
-    -- disciplines.* — баллы по предметам. Набор фиксирован → столбцы, не JSONB (§2.3)
-    az                 double precision NOT NULL,
-    math               double precision NOT NULL,
+    -- disciplines.* — ЛЕГАСИ, только для истории. С 024_student_result_subject_scores.sql
+    -- баллы новых импортов пишутся в student_result_subject_scores (произвольный набор
+    -- предметов), эти пять колонок больше не заполняются новым кодом и NULL для новых строк.
+    -- az/math/az_count/math_count были NOT NULL — сняты в 024, потому что типы экзамена без
+    -- предметов "az"/"math" (то есть почти любой новый тип) иначе не могли бы вставить строку
+    -- результата вовсе. Удаление самих колонок — миграция 026 (после того как 025 и весь
+    -- код §5/§6 IMTAHAN_NOVLERI_TASK.md прошли прод-проверку).
+    az                 double precision,
+    math               double precision,
     life_knowledge     double precision,
     logic              double precision,
     english            double precision,
 
-    -- questionCounts.* — количество вопросов по тем же предметам
-    az_count             int NOT NULL,
-    math_count           int NOT NULL,
+    -- questionCounts.* — количество вопросов по тем же предметам (легаси, см. выше)
+    az_count             int,
+    math_count           int,
     life_knowledge_count int,
     logic_count          int,
     english_count        int,
 
     total_score  double precision NOT NULL,
     score        double precision NOT NULL,
-    level        text             NOT NULL REFERENCES levels(code), -- E/D/C/B/A/Lisey, см. таблицу levels
+    level        text             NOT NULL,   -- E/D/C/B/A/Lisey — код бэнда шкалы level_scale_id, см. FK ниже
     status       text,
 
     -- четыре слагаемых итогового балла ученика (см. v_student_year_scores)
@@ -243,8 +249,27 @@ CREATE TABLE student_results (
         END
     ) STORED,
 
+    -- Колонки типа экзамена (024_student_result_subject_scores.sql, IMTAHAN_NOVLERI_TASK.md §4).
+    -- exam_type_id NOT NULL: по нему партиционируются все рейтинги и месячные награды (025),
+    -- NULL там означал бы не «неизвестный тип», а результат, молча выпавший из всех рейтингов.
+    -- level_scale_id NOT NULL: композитный FK ниже работает по MATCH SIMPLE, и NULL в этой
+    -- колонке отключил бы проверку level целиком — тише, чем прежний student_results_level_fkey.
+    -- section_id намеренно остаётся nullable: класс вне диапазонов секций (например, grade
+    -- вне 1..11) — законное состояние, а не ошибка.
+    exam_type_id    bigint NOT NULL REFERENCES exam_types(id),
+    section_id      bigint REFERENCES exam_type_sections(id),
+    level_scale_id  bigint NOT NULL REFERENCES level_scales(id),
+    max_questions   int,              -- знаменатель score_percent, справочно для истории (§3 ТЗ)
+    score_percent   numeric(6,3),     -- справочный, NULL допустим у замороженной истории (§2 ТЗ)
+
     legacy_mongo_id text UNIQUE,
-    UNIQUE (student_id, exam_id)
+    UNIQUE (student_id, exam_id),
+    -- Композитный FK вместо простого level -> levels(code) (снят в 024): коды pillə у разных
+    -- шкал разных типов экзаменов могут совпасть при разном смысле, level_scale_id снимает
+    -- неоднозначность. levels(code) как таблица не удалена (снос в 026), но student_results
+    -- на неё больше не ссылается.
+    CONSTRAINT student_results_level_band_fkey
+        FOREIGN KEY (level_scale_id, level) REFERENCES level_scale_bands (scale_id, code)
 );
 
 CREATE TABLE booklets (
@@ -258,14 +283,12 @@ CREATE TABLE booklets (
     legacy_mongo_id  text UNIQUE
 );
 
--- Справочник предметов — единственный дом понятия "предмет". Хранение баллов колонками в
--- student_results НЕ меняется в этом шаге (024_student_result_subject_scores.sql переносит
--- их в строки) — subjects сейчас чистый справочник кодов, использующийся набором предметов
--- секций типов экзаменов (exam_type_section_subjects ниже). См.
--- db/migrations/002_subjects_lookup.sql (создание) и 023_exam_types_and_level_scales.sql
--- (result_column/count_column/min_grade/max_grade убраны — они описывали колонки
--- student_results, а не сам предмет; v_student_result_subject_scores снята здесь же,
--- пересоздаётся в 024 над новой таблицей).
+-- Справочник предметов — единственный дом понятия "предмет". Баллы по предметам хранятся
+-- строками в student_result_subject_scores ниже (024_student_result_subject_scores.sql) —
+-- subjects сам по себе чистый справочник кодов, использующийся набором предметов секций типов
+-- экзаменов (exam_type_section_subjects ниже). См. db/migrations/002_subjects_lookup.sql
+-- (создание) и 023_exam_types_and_level_scales.sql (result_column/count_column/min_grade/
+-- max_grade убраны — они описывали колонки student_results, а не сам предмет).
 CREATE TABLE subjects (
     code          text PRIMARY KEY,          -- 'az','math','lifeKnowledge','logic','english'
     name_az       text NOT NULL,
@@ -274,8 +297,8 @@ CREATE TABLE subjects (
 );
 
 -- Набор предметов секции типа экзамена, с лимитом вопросов по предмету
--- (023_exam_types_and_level_scales.sql). ГЕЙТ Г1: значения для секции "5-11 sinif" не
--- досеяны на момент этой миграции, см. её шапку.
+-- (023_exam_types_and_level_scales.sql). Секция "5-11 sinif" сеется БЕЗ строк здесь —
+-- предметы и max_questions заводит админ в редакторе типов (§3 IMTAHAN_NOVLERI_TASK.md).
 CREATE TABLE exam_type_section_subjects (
     section_id    bigint NOT NULL REFERENCES exam_type_sections(id) ON DELETE CASCADE,
     subject_code  text   NOT NULL REFERENCES subjects(code),
@@ -283,6 +306,31 @@ CREATE TABLE exam_type_section_subjects (
     sort_order    int    NOT NULL DEFAULT 0,
     PRIMARY KEY (section_id, subject_code)
 );
+
+-- Баллы по предметам, по строке на (результат, предмет) — заменяет пять фиксированных колонок
+-- student_results.az/math/life_knowledge/logic/english (024_student_result_subject_scores.sql,
+-- IMTAHAN_NOVLERI_TASK.md §4). Произвольный набор предметов на тип экзамена — то, ради чего
+-- всё затевалось: колонками такое не выразить. question_count nullable — у типов с
+-- has_question_counts=false его просто нет.
+CREATE TABLE student_result_subject_scores (
+    result_id      bigint NOT NULL REFERENCES student_results(id) ON DELETE CASCADE,
+    subject_code   text   NOT NULL REFERENCES subjects(code),
+    score          double precision NOT NULL,
+    question_count int,
+    PRIMARY KEY (result_id, subject_code)
+);
+
+-- Совместимая замена версии над колонками (002_subjects_lookup.sql) — та же форма результата,
+-- чтобы не искать всех читателей в один заход. lifeKnowledge/logic/english в новых строках
+-- этой фильтрацией по классу уже не нуждаются (их просто нет в student_result_subject_scores,
+-- если предмета нет в наборе секции) — фильтр остался только историческим следом того, как
+-- заполнялась старая вьюха; для новых импортов он не действует, потому что строки по предметам
+-- вне секции сюда просто не попадают.
+CREATE VIEW v_student_result_subject_scores AS
+SELECT srs.result_id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
+       srs.subject_code, srs.score, srs.question_count
+FROM student_result_subject_scores srs
+JOIN student_results sr ON sr.id = srs.result_id;
 
 -- Защита ключей booklets.disciplines от посторонних кодов предметов (CHECK не может
 -- ссылаться на другую таблицу).
@@ -321,7 +369,11 @@ CREATE TABLE student_year_ratings (
     average_score  double precision,
     place          int,
     district_place int,
-    PRIMARY KEY (student_id, year)
+    -- exam_type_id (025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3): рейтинги
+    -- дробятся по типу экзамена, очки разных типов не смешиваются (§2 ТЗ). Все существовавшие
+    -- до этой миграции строки принадлежат базовому типу (backfill).
+    exam_type_id   bigint NOT NULL REFERENCES exam_types(id),
+    PRIMARY KEY (student_id, year, exam_type_id)
 );
 
 -- Исторический класс ученика по учебным годам (018_student_grade_history.sql,
@@ -344,7 +396,8 @@ CREATE TABLE teacher_year_ratings (
     average_score  double precision,
     place          int,
     district_place int,
-    PRIMARY KEY (teacher_id, year)
+    exam_type_id   bigint NOT NULL REFERENCES exam_types(id),      -- 025_ratings_by_exam_type.sql
+    PRIMARY KEY (teacher_id, year, exam_type_id)
 );
 
 CREATE TABLE school_year_ratings (
@@ -354,7 +407,8 @@ CREATE TABLE school_year_ratings (
     average_score  double precision,
     place          int,
     district_place int,
-    PRIMARY KEY (school_id, year)
+    exam_type_id   bigint NOT NULL REFERENCES exam_types(id),      -- 025_ratings_by_exam_type.sql
+    PRIMARY KEY (school_id, year, exam_type_id)
 );
 
 CREATE TABLE district_year_ratings (
@@ -363,7 +417,8 @@ CREATE TABLE district_year_ratings (
     score          double precision,
     average_score  double precision,
     place          int,                                           -- district_place у района отсутствует и в Mongo
-    PRIMARY KEY (district_id, year)
+    exam_type_id   bigint NOT NULL REFERENCES exam_types(id),      -- 025_ratings_by_exam_type.sql
+    PRIMARY KEY (district_id, year, exam_type_id)
 );
 
 CREATE TABLE region_year_ratings (
@@ -372,7 +427,8 @@ CREATE TABLE region_year_ratings (
     score          double precision,
     average_score  double precision,
     place          int,                                           -- district_place у региона тоже отсутствует
-    PRIMARY KEY (region_id, year)
+    exam_type_id   bigint NOT NULL REFERENCES exam_types(id),      -- 025_ratings_by_exam_type.sql
+    PRIMARY KEY (region_id, year, exam_type_id)
 );
 
 
@@ -602,9 +658,14 @@ CREATE INDEX schools_name_trgm  ON schools  USING gin (name gin_trgm_ops);
 -- живой students.grade: один и тот же для всех результатов ученика внутри одного academic_year
 -- (класс меняется раз в год, на повышении), поэтому GROUP BY им не размножает строки.
 -- См. 008_student_ranking_uses_historical_grade.sql — почему это важно для v_student_places.
+--
+-- exam_type_id (025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3): вся цепочка
+-- ниже (годовая и месячная) партиционирована по типу экзамена — GROUP BY у *_scores,
+-- PARTITION BY у *_places. Очки разных типов не смешиваются (§2 ТЗ, решение 6).
 CREATE VIEW v_student_year_scores AS
 SELECT sr.student_id,
        sr.academic_year,
+       sr.exam_type_id,
        count(*)::int                                                    AS participation_count,
        sum(coalesce(sr.participation_score, 0))                         AS participation_score,
        sum(coalesce(sr.development_score, 0))                           AS development_score,
@@ -623,11 +684,11 @@ SELECT sr.student_id,
        sr.grade                                                         AS grade
 FROM student_results sr
 WHERE sr.academic_year IS NOT NULL
-GROUP BY sr.student_id, sr.academic_year, sr.grade;
+GROUP BY sr.student_id, sr.academic_year, sr.exam_type_id, sr.grade;
 
 -- Ученик: места. stats.service.ts:1312 updateStudentPlaces
--- Ранг по score (НЕ по average_score), внутри класса; district_place — внутри класса и района.
--- Фильтра «> 0» здесь нет: у ученика с нулём место есть. Это отличает учеников от остальных уровней.
+-- Ранг по score (НЕ по average_score), внутри класса И типа экзамена; district_place — внутри
+-- класса, типа и района. Фильтра «> 0» здесь нет: у ученика с нулём место есть.
 -- ВАЖНО: класс берётся из v_student_year_scores.grade (исторический, student_results.grade),
 -- а не из живого students.grade — иначе массовое повышение класса (Yeni tədris ili) задним
 -- числом ломает уже посчитанные места за прошедший учебный год (найдено и исправлено 14.08.2026,
@@ -635,26 +696,28 @@ GROUP BY sr.student_id, sr.academic_year, sr.grade;
 CREATE VIEW v_student_places AS
 SELECT sc.student_id,
        sc.academic_year,
-       dense_rank() OVER (PARTITION BY sc.academic_year, sc.grade
+       sc.exam_type_id,
+       dense_rank() OVER (PARTITION BY sc.academic_year, sc.exam_type_id, sc.grade
                           ORDER BY sc.score DESC)                AS place,
-       dense_rank() OVER (PARTITION BY sc.academic_year, sc.grade, s.district_id
+       dense_rank() OVER (PARTITION BY sc.academic_year, sc.exam_type_id, sc.grade, s.district_id
                           ORDER BY sc.score DESC)                AS district_place
 FROM v_student_year_scores sc
 JOIN students s ON s.id = sc.student_id;
 
--- Учитель: сумма баллов его учеников, делённая на СОХРАНЁННЫЙ student_count.
+-- Учитель: сумма баллов его учеников (по типу экзамена), делённая на СОХРАНЁННЫЙ student_count.
 -- stats.service.ts:1403. Делить на count(s.id) было бы «правильнее», но это другие цифры
 -- у всех учителей сразу — менять только по решению заказчика (MONGO_TO_POSTGRES.md §3.4).
 -- Учителя без набравших баллы учеников строки не имеют — в API подставлять 0 через coalesce.
 CREATE VIEW v_teacher_year_scores AS
 SELECT t.id AS teacher_id,
        sc.academic_year,
+       sc.exam_type_id,
        sum(sc.score) AS score,
        CASE WHEN t.student_count > 0 THEN sum(sc.score) / t.student_count ELSE 0 END AS average_score
 FROM teachers t
 JOIN students s               ON s.teacher_id = t.id
 JOIN v_student_year_scores sc ON sc.student_id = s.id
-GROUP BY t.id, t.student_count, sc.academic_year;
+GROUP BY t.id, t.student_count, sc.academic_year, sc.exam_type_id;
 
 -- Учитель: места. Решение заказчика 04.08.2026 (гейт 2, db/rating-semantics.md) заменено
 -- решением 20.08.2026: заказчик имел в виду места по СЫРОМУ score (как у учеников), а не по
@@ -662,39 +725,43 @@ GROUP BY t.id, t.student_count, sc.academic_year;
 -- по score, entities с score = 0 в ранжировании не участвуют (получают place = NULL, а не
 -- место в хвосте — это отдельное, не пересмотренное сейчас решение). district_place —
 -- та же dense_rank-логика, что и у учеников (v_student_places), просто без grade в PARTITION BY.
--- См. 013_ratings_by_raw_score.sql.
+-- См. 013_ratings_by_raw_score.sql, 025_ratings_by_exam_type.sql (exam_type_id в PARTITION BY).
 CREATE VIEW v_teacher_places AS
 SELECT ts.teacher_id,
        ts.academic_year,
-       dense_rank() OVER (PARTITION BY ts.academic_year ORDER BY ts.score DESC) AS place,
-       dense_rank() OVER (PARTITION BY ts.academic_year, t.district_id ORDER BY ts.score DESC) AS district_place
+       ts.exam_type_id,
+       dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id ORDER BY ts.score DESC) AS place,
+       dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id, t.district_id ORDER BY ts.score DESC) AS district_place
 FROM v_teacher_year_scores ts
 JOIN teachers t ON t.id = ts.teacher_id
 WHERE ts.score > 0;
 
--- Школа: сумма баллов её учителей / сохранённый student_count школы. stats.service.ts:1556
+-- Школа: сумма баллов её учителей (по типу экзамена) / сохранённый student_count школы.
+-- stats.service.ts:1556
 CREATE VIEW v_school_year_scores AS
 SELECT sch.id AS school_id,
        ts.academic_year,
+       ts.exam_type_id,
        sum(ts.score) AS score,
        CASE WHEN sch.student_count > 0 THEN sum(ts.score) / sch.student_count ELSE 0 END AS average_score
 FROM schools sch
 JOIN teachers t                ON t.school_id = sch.id
 JOIN v_teacher_year_scores ts  ON ts.teacher_id = t.id
-GROUP BY sch.id, sch.student_count, ts.academic_year;
+GROUP BY sch.id, sch.student_count, ts.academic_year, ts.exam_type_id;
 
 -- Школа: места. По score — та же логика, что и у учителя (см. комментарий у v_teacher_places).
--- См. 013_ratings_by_raw_score.sql.
+-- См. 013_ratings_by_raw_score.sql, 025_ratings_by_exam_type.sql.
 CREATE VIEW v_school_places AS
 SELECT ss.school_id,
        ss.academic_year,
-       dense_rank() OVER (PARTITION BY ss.academic_year ORDER BY ss.score DESC) AS place,
-       dense_rank() OVER (PARTITION BY ss.academic_year, sc.district_id ORDER BY ss.score DESC) AS district_place
+       ss.exam_type_id,
+       dense_rank() OVER (PARTITION BY ss.academic_year, ss.exam_type_id ORDER BY ss.score DESC) AS place,
+       dense_rank() OVER (PARTITION BY ss.academic_year, ss.exam_type_id, sc.district_id ORDER BY ss.score DESC) AS district_place
 FROM v_school_year_scores ss
 JOIN schools sc ON sc.id = ss.school_id
 WHERE ss.score > 0;
 
--- Район: сумма баллов его школ. stats.service.ts:1723
+-- Район: сумма баллов его школ (по типу экзамена). stats.service.ts:1723
 --
 -- ⚠️ Делитель воспроизводит текущее поведение ДОСЛОВНО, включая ошибку.
 -- В Mongo пайплайн идёт по школам, для каждой школы делает lookup ВСЕХ учеников района
@@ -702,10 +769,13 @@ WHERE ss.score > 0;
 -- а не числу учеников. Средний балл районов из-за этого занижен в «число школ» раз.
 -- Места районов от этого не зависят (они по score), но цифра average_score показывается в UI.
 -- Правильный вариант — деление на students_in_district — ниже закомментирован.
--- НЕ подменять молча: это решение заказчика, см. db/rating-semantics.md.
+-- НЕ подменять молча: это решение заказчика, см. db/rating-semantics.md. Делитель НЕ зависит
+-- от типа экзамена (чистый count() учеников/школ района) — 025_ratings_by_exam_type.sql его
+-- не трогает, партиционируется только сумма баллов сверху.
 CREATE VIEW v_district_year_scores AS
 SELECT d.id AS district_id,
        ss.academic_year,
+       ss.exam_type_id,
        sum(ss.score) AS score,
        CASE WHEN cnt.legacy_divisor > 0 THEN sum(ss.score) / cnt.legacy_divisor ELSE 0 END AS average_score
        -- корректный вариант:
@@ -720,19 +790,20 @@ CROSS JOIN LATERAL (
     FROM (SELECT count(*) AS students_in_district FROM students  WHERE district_id = d.id) st,
          (SELECT count(*) AS schools_in_district  FROM schools   WHERE district_id = d.id) sc2
 ) cnt
-GROUP BY d.id, ss.academic_year, cnt.legacy_divisor, cnt.students_in_district;
+GROUP BY d.id, ss.academic_year, ss.exam_type_id, cnt.legacy_divisor, cnt.students_in_district;
 
 -- Район: места. По score, та же логика. district_place у района не существовал ни в одном из путей.
--- См. 013_ratings_by_raw_score.sql.
+-- См. 013_ratings_by_raw_score.sql, 025_ratings_by_exam_type.sql.
 CREATE VIEW v_district_places AS
 SELECT ds.district_id,
        ds.academic_year,
-       dense_rank() OVER (PARTITION BY ds.academic_year ORDER BY ds.score DESC) AS place
+       ds.exam_type_id,
+       dense_rank() OVER (PARTITION BY ds.academic_year, ds.exam_type_id ORDER BY ds.score DESC) AS place
 FROM v_district_year_scores ds
 WHERE ds.score > 0;
 
--- Регион (PHASE3 п.1б, 005_regions.sql): сумма баллов его районов. Делитель — ЖИВОЕ число
--- учеников региона, а не денормализованное поле — решение пользователя 08.08.2026.
+-- Регион (PHASE3 п.1б, 005_regions.sql): сумма баллов его районов (по типу экзамена). Делитель —
+-- ЖИВОЕ число учеников региона, а не денормализованное поле — решение пользователя 08.08.2026.
 -- Легаси-ошибка делителя из v_district_year_scores (ученики_района × школы_района) сюда
 -- СОЗНАТЕЛЬНО не переносится: это отдельная сущность, не обязана повторять баг района.
 -- Пока район не привязан ни к одному региону (region_id IS NULL) — регион просто не
@@ -740,6 +811,7 @@ WHERE ds.score > 0;
 CREATE VIEW v_region_year_scores AS
 SELECT r.id AS region_id,
        ds.academic_year,
+       ds.exam_type_id,
        sum(ds.score) AS score,
        CASE WHEN cnt.students_in_region > 0
             THEN sum(ds.score) / cnt.students_in_region ELSE 0 END AS average_score,
@@ -753,13 +825,15 @@ CROSS JOIN LATERAL (
     JOIN districts d2 ON d2.id = st.district_id
     WHERE d2.region_id = r.id
 ) cnt
-GROUP BY r.id, ds.academic_year, cnt.students_in_region;
+GROUP BY r.id, ds.academic_year, ds.exam_type_id, cnt.students_in_region;
 
--- Регион: места. По score — та же логика, что и у района/школы/учителя. См. 013_ratings_by_raw_score.sql.
+-- Регион: места. По score — та же логика, что и у района/школы/учителя.
+-- См. 013_ratings_by_raw_score.sql, 025_ratings_by_exam_type.sql.
 CREATE VIEW v_region_places AS
 SELECT rs.region_id,
        rs.academic_year,
-       dense_rank() OVER (PARTITION BY rs.academic_year ORDER BY rs.score DESC) AS place
+       rs.exam_type_id,
+       dense_rank() OVER (PARTITION BY rs.academic_year, rs.exam_type_id ORDER BY rs.score DESC) AS place
 FROM v_region_year_scores rs
 WHERE rs.score > 0;
 
@@ -769,26 +843,29 @@ WHERE rs.score > 0;
 -- 021_monthly_rating_views.sql, п.10 ТЗ от 04.09.2026 (MONTHLY_RATINGS_TASK.md).
 -- Параллель годовой цепочки выше, но с группировкой по календарной паре (year, month).
 -- Годовые вьюхи не затронуты; среднего балла в месячном срезе нет ни на одном уровне.
+-- exam_type_id (025_ratings_by_exam_type.sql) добавлен во всю цепочку ниже, как и в годовой.
 
 -- ============================================================ ученик
 
--- Копия v_student_year_scores с группировкой по (year, month) вместо academic_year.
+-- Копия v_student_year_scores с группировкой по (year, month, exam_type_id) вместо academic_year.
 -- grade — исторический, из student_results (как в 008_student_ranking_uses_historical_grade.sql):
 -- массовое повышение класса не должно задним числом менять уже посчитанный месяц.
 --
 -- ВНИМАНИЕ, отличие от годовой вьюхи: grade НЕ входит в GROUP BY, он берётся через min()
 -- (исправлено в 022_student_month_scores_one_row.sql; в 021 он ошибочно был в группировке).
 -- В v_student_year_scores он в группировке, и это там безвредно — годовой путь читает не вьюху,
--- а материализованную student_year_ratings, где строка на (ученик, год) ровно одна. Месячный
+-- а материализованную student_year_ratings, где строка на (ученик, год, тип) ровно одна. Месячный
 -- путь читает вьюху напрямую и join'ит её к students, поэтому строка обязана быть одна на
--- (ученик, год, месяц): иначе ученик, у которого в одном календарном месяце два результата с
--- разным grade (два экзамена в месяц, пересдача, поправленный класс), попадёт в рейтинг дважды
--- с расщеплённым баллом. Для вопроса «кто набрал больше всех за месяц» правильный ответ —
--- одна строка с суммой всех результатов месяца.
+-- (ученик, год, месяц, тип экзамена): иначе ученик, у которого в одном календарном месяце два
+-- результата с разным grade (два экзамена в месяц, пересдача, поправленный класс), попадёт в
+-- рейтинг дважды с расщеплённым баллом. exam_type_id, в отличие от grade, ДОБАВЛЕН в
+-- группировку (025_ratings_by_exam_type.sql) — это сама ось партиционирования, а не атрибут
+-- ученика, поэтому запрет на расширение группировки на него не распространяется.
 CREATE VIEW v_student_month_scores AS
 SELECT sr.student_id,
        sr.year,
        sr.month,
+       sr.exam_type_id,
        count(*)::int                                                    AS participation_count,
        sum(coalesce(sr.participation_score, 0)
          + coalesce(sr.development_score, 0)
@@ -796,41 +873,44 @@ SELECT sr.student_id,
          + coalesce(sr.republic_wide_student_of_the_month_score, 0))    AS score,
        min(sr.grade)                                                    AS grade
 FROM student_results sr
-GROUP BY sr.student_id, sr.year, sr.month;
+GROUP BY sr.student_id, sr.year, sr.month, sr.exam_type_id;
 
--- Места учеников — внутри класса, как в v_student_places. Фильтра «score > 0» здесь нет:
--- у ученика с нулём место есть. Это отличает учеников от остальных уровней, и в годовой
--- версии ровно так же.
+-- Места учеников — внутри класса и типа экзамена, как в v_student_places. Фильтра «score > 0»
+-- здесь нет: у ученика с нулём место есть. Это отличает учеников от остальных уровней, и в
+-- годовой версии ровно так же.
 CREATE VIEW v_student_month_places AS
 SELECT sc.student_id,
        sc.year,
        sc.month,
-       dense_rank() OVER (PARTITION BY sc.year, sc.month, sc.grade
+       sc.exam_type_id,
+       dense_rank() OVER (PARTITION BY sc.year, sc.month, sc.exam_type_id, sc.grade
                           ORDER BY sc.score DESC)                       AS place,
-       dense_rank() OVER (PARTITION BY sc.year, sc.month, sc.grade, s.district_id
+       dense_rank() OVER (PARTITION BY sc.year, sc.month, sc.exam_type_id, sc.grade, s.district_id
                           ORDER BY sc.score DESC)                       AS district_place
 FROM v_student_month_scores sc
 JOIN students s ON s.id = sc.student_id;
 
 -- ============================================================ учитель
 
--- Сумма баллов учеников учителя за месяц. Без average_score — см. шапку файла.
+-- Сумма баллов учеников учителя за месяц (по типу экзамена). Без average_score — см. шапку файла.
 CREATE VIEW v_teacher_month_scores AS
 SELECT t.id AS teacher_id,
        sc.year,
        sc.month,
+       sc.exam_type_id,
        sum(sc.score) AS score
 FROM teachers t
 JOIN students s                ON s.teacher_id = t.id
 JOIN v_student_month_scores sc ON sc.student_id = s.id
-GROUP BY t.id, sc.year, sc.month;
+GROUP BY t.id, sc.year, sc.month, sc.exam_type_id;
 
 CREATE VIEW v_teacher_month_places AS
 SELECT ts.teacher_id,
        ts.year,
        ts.month,
-       dense_rank() OVER (PARTITION BY ts.year, ts.month ORDER BY ts.score DESC)                   AS place,
-       dense_rank() OVER (PARTITION BY ts.year, ts.month, t.district_id ORDER BY ts.score DESC)    AS district_place
+       ts.exam_type_id,
+       dense_rank() OVER (PARTITION BY ts.year, ts.month, ts.exam_type_id ORDER BY ts.score DESC)                   AS place,
+       dense_rank() OVER (PARTITION BY ts.year, ts.month, ts.exam_type_id, t.district_id ORDER BY ts.score DESC)    AS district_place
 FROM v_teacher_month_scores ts
 JOIN teachers t ON t.id = ts.teacher_id
 WHERE ts.score > 0;
@@ -841,43 +921,47 @@ CREATE VIEW v_school_month_scores AS
 SELECT sch.id AS school_id,
        ts.year,
        ts.month,
+       ts.exam_type_id,
        sum(ts.score) AS score
 FROM schools sch
 JOIN teachers t                 ON t.school_id = sch.id
 JOIN v_teacher_month_scores ts  ON ts.teacher_id = t.id
-GROUP BY sch.id, ts.year, ts.month;
+GROUP BY sch.id, ts.year, ts.month, ts.exam_type_id;
 
 CREATE VIEW v_school_month_places AS
 SELECT ss.school_id,
        ss.year,
        ss.month,
-       dense_rank() OVER (PARTITION BY ss.year, ss.month ORDER BY ss.score DESC)                    AS place,
-       dense_rank() OVER (PARTITION BY ss.year, ss.month, sc.district_id ORDER BY ss.score DESC)    AS district_place
+       ss.exam_type_id,
+       dense_rank() OVER (PARTITION BY ss.year, ss.month, ss.exam_type_id ORDER BY ss.score DESC)                    AS place,
+       dense_rank() OVER (PARTITION BY ss.year, ss.month, ss.exam_type_id, sc.district_id ORDER BY ss.score DESC)    AS district_place
 FROM v_school_month_scores ss
 JOIN schools sc ON sc.id = ss.school_id
 WHERE ss.score > 0;
 
 -- ============================================================ район (təhsil sektoru)
 
--- Сумма баллов школ района. Легаси-делитель среднего балла (ученики_района × школы_района),
--- который дословно воспроизведён в v_district_year_scores, сюда НЕ переносится — среднего
--- балла в месячном срезе нет вовсе, переносить нечего.
+-- Сумма баллов школ района за месяц (по типу экзамена). Легаси-делитель среднего балла
+-- (ученики_района × школы_района), который дословно воспроизведён в v_district_year_scores,
+-- сюда НЕ переносится — среднего балла в месячном срезе нет вовсе, переносить нечего.
 CREATE VIEW v_district_month_scores AS
 SELECT d.id AS district_id,
        ss.year,
        ss.month,
+       ss.exam_type_id,
        sum(ss.score) AS score
 FROM districts d
 JOIN schools sch                ON sch.district_id = d.id
 JOIN v_school_month_scores ss   ON ss.school_id = sch.id
-GROUP BY d.id, ss.year, ss.month;
+GROUP BY d.id, ss.year, ss.month, ss.exam_type_id;
 
 -- district_place у района не существует ни в одном из путей — как и в v_district_places.
 CREATE VIEW v_district_month_places AS
 SELECT ds.district_id,
        ds.year,
        ds.month,
-       dense_rank() OVER (PARTITION BY ds.year, ds.month ORDER BY ds.score DESC) AS place
+       ds.exam_type_id,
+       dense_rank() OVER (PARTITION BY ds.year, ds.month, ds.exam_type_id ORDER BY ds.score DESC) AS place
 FROM v_district_month_scores ds
 WHERE ds.score > 0;
 
@@ -889,17 +973,19 @@ CREATE VIEW v_region_month_scores AS
 SELECT r.id AS region_id,
        ds.year,
        ds.month,
+       ds.exam_type_id,
        sum(ds.score) AS score
 FROM regions r
 JOIN districts d                 ON d.region_id = r.id
 JOIN v_district_month_scores ds  ON ds.district_id = d.id
-GROUP BY r.id, ds.year, ds.month;
+GROUP BY r.id, ds.year, ds.month, ds.exam_type_id;
 
 CREATE VIEW v_region_month_places AS
 SELECT rs.region_id,
        rs.year,
        rs.month,
-       dense_rank() OVER (PARTITION BY rs.year, rs.month ORDER BY rs.score DESC) AS place
+       rs.exam_type_id,
+       dense_rank() OVER (PARTITION BY rs.year, rs.month, rs.exam_type_id ORDER BY rs.score DESC) AS place
 FROM v_region_month_scores rs
 WHERE rs.score > 0;
 

@@ -1,19 +1,34 @@
 import fs from "fs";
-import { sql } from "kysely";
+import { Transaction } from "kysely";
 import { pg } from "../config/pg";
+import { DB } from "../types/db";
 import { studentServicePg, StudentCreate } from "./student.service.pg";
+import { examTypeServicePg } from "./examType.service.pg";
+import { levelScaleServicePg } from "./levelScale.service.pg";
+import { subjectServicePg } from "./subject.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions } from "../types/common.types";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
-import { calculateParticipationScore } from "../types/participation.types";
-import { CODE_DIVISORS, CODE_RANGES } from "../utils/entity-codes.const";
+import { CODE_RANGES } from "../utils/entity-codes.const";
 
-export interface StudentResultDisciplines {
-    az: number;
-    math: number;
-    lifeKnowledge?: number | null;
-    logic?: number | null;
-    english?: number | null;
+/**
+ * Баллы по одному предмету одного результата. Заменяет пятиколоночный StudentResultDisciplines
+ * (IMTAHAN_NOVLERI_TASK.md §4-§7, шаг 2): произвольный набор предметов на тип экзамена, столбцами
+ * такое не выразить. maxQuestions — не хранится на строке, а подтягивается из конфига секции
+ * (exam_type_section_subjects) на чтении — тот же предмет в другой секции может иметь другой лимит.
+ */
+export interface StudentResultSubjectScoreInput {
+    subjectCode: string;
+    score: number;
+    questionCount?: number | null;
+}
+
+export interface StudentResultSubjectScoreRow {
+    subjectCode: string;
+    nameAz: string;
+    score: number;
+    questionCount: number | null;
+    maxQuestions: number | null;
 }
 
 export interface StudentRef {
@@ -35,10 +50,14 @@ export interface StudentResult {
     id: number;
     studentId: number;
     examId: number | null;
+    examTypeId: number | null;
+    sectionId: number | null;
+    levelScaleId: number | null;
     grade: number;
-    disciplines: StudentResultDisciplines;
-    questionCounts: StudentResultDisciplines;
+    disciplines: StudentResultSubjectScoreRow[];
     totalScore: number;
+    maxQuestions: number | null;
+    scorePercent: number | null;
     level: string;
     score: number;
     participationScore: number;
@@ -52,16 +71,17 @@ export interface StudentResult {
     exam?: ExamRef | null;
 }
 
+/**
+ * Вход ручного создания/правки результата (result-editing-dialog на фронте). `disciplines` —
+ * баллы по предметам; total_score/score_percent/level/participation_score сервер считает сам
+ * из конфига секции экзамена и шкалы типа (§5 ТЗ: "расчёт... на бэке" — единственный источник
+ * истины, тот же путь, что использует парсер Excel ниже).
+ */
 export interface StudentResultCreate {
     studentId: number;
     examId?: number | null;
     grade: number;
-    disciplines: StudentResultDisciplines;
-    questionCounts: StudentResultDisciplines;
-    totalScore: number;
-    level: string;
-    participationScore: number;
-    score: number;
+    disciplines: StudentResultSubjectScoreInput[];
     status?: string | null;
     month: number;
     year: number;
@@ -69,30 +89,34 @@ export interface StudentResultCreate {
 
 type StudentResultRowRaw = {
     id: number; student_id: number; exam_id: number | null; grade: number;
-    az: number; math: number; life_knowledge: number | null; logic: number | null; english: number | null;
-    az_count: number; math_count: number; life_knowledge_count: number | null; logic_count: number | null; english_count: number | null;
+    exam_type_id: number | null; section_id: number | null; level_scale_id: number | null;
+    max_questions: number | null; score_percent: number | null;
     total_score: number; level: string; score: number; participation_score: number;
     development_score: number | null; student_of_the_month_score: number | null; republic_wide_student_of_the_month_score: number | null;
     status: string | null; month: number; year: number;
 };
 
+interface SectionConfig {
+    sectionId: number;
+    subjects: Map<string, { maxQuestions: number; nameAz: string; sortOrder: number }>;
+    totalMaxQuestions: number;
+}
+
 /**
  * Postgres-версия StudentResultService — см. studentResult.service.ts (Mongo) для сравнения.
  *
  * **Не перенесены (мёртвый код, подтверждено grep 04.08.2026):** `markAllDevelopingStudents`,
- * `markTopStudents`, `markTopStudentsRepublic` — вызывались только из `StatsService.updateStatsOld()`/
- * `resetStats()`, которые сами уже подтверждены мёртвыми при переносе stats.service.ts (шаг 8).
- * `markDevelopingStudents(month,year)` — единственная из этой группы, что реально вызывается
- * (из живого `StatsService.updateStats()`/`updateAllStats()`) — уже перенесена как приватный метод
- * прямо внутри `stats.service.pg.ts` (та же SQL-логика, проверена дифференциальным тестом на шаге 9).
- * `createBulk` и 4 отдельных экспорта `deleteStudentResultsBy*` — не вызываются из usecase/controller
- * ни в Mongo-, ни в Postgres-версии (их место занято collision-safe транзакциями внутри
- * exam.service.pg.ts/student.service.pg.ts).
+ * `markTopStudents`, `markTopStudentsRepublic` — см. историю до шага 2, не изменилось.
+ * `createBulk` и 4 отдельных экспорта `deleteStudentResultsBy*` — по-прежнему не вызываются.
  *
- * **Мелкая находка внутри `processStudentResultsFromExcel`:** валидация кодов учителей/школ/районов
- * (invalidTeacherCodes/invalidSchoolCodes/invalidDistrictCodes) считалась в Mongo-версии, но НИКОГДА
- * не попадала в возвращаемый результат (ни в лог, ни в ответ) — мёртвые вычисления без наблюдаемого
- * эффекта. Не перенесены — 3 запроса к БД без всякого следа в поведении.
+ * **Шаг 2 (IMTAHAN_NOVLERI_TASK.md §4-§7):** позиционный парсер Excel с веткой по классу
+ * (`row[7]`/`row[8]`, `grade >= 5`) заменён парсером по заголовкам — предмет опознаётся по
+ * `subjects.name_az`, набор предметов и лимиты берутся из `exam_type_section_subjects` секции,
+ * в которую попадает класс строки. `total_score`/`score_percent`/`level`/`participation_score`
+ * считаются здесь же, единым путём для ручного создания/правки результата (`create`/`update`)
+ * и для массового импорта (`processStudentResultsFromExcel`) — `computeScoreSummary` ниже.
+ * Баллы по предметам хранятся в `student_result_subject_scores`, а не в пяти колонках
+ * `student_results` (те остаются NULL у всех новых строк — легаси, снос в 026).
  */
 export class StudentResultServicePg {
     async findById(id: number): Promise<StudentResult | null> {
@@ -112,26 +136,90 @@ export class StudentResultServicePg {
     }
 
     async create(data: StudentResultCreate): Promise<StudentResult> {
-        const row = await pg
-            .insertInto("student_results")
-            .values(this.toColumns(data) as any)
-            .returningAll()
-            .executeTakeFirstOrThrow();
+        const examTypeId = await this.resolveExamTypeId(data.examId);
+        const summary = await this.computeScoreSummary(examTypeId, data.grade, data.disciplines);
+
+        const row = await pg.transaction().execute(async (trx) => {
+            const inserted = await trx
+                .insertInto("student_results")
+                .values({
+                    student_id: data.studentId,
+                    exam_id: data.examId ?? null,
+                    grade: data.grade,
+                    exam_type_id: examTypeId,
+                    section_id: summary.sectionId,
+                    level_scale_id: summary.levelScaleId,
+                    max_questions: summary.maxQuestions,
+                    score_percent: summary.scorePercent,
+                    total_score: summary.totalScore,
+                    level: summary.level,
+                    participation_score: summary.participationScore,
+                    score: 1,
+                    status: data.status ?? null,
+                    month: data.month,
+                    year: data.year,
+                })
+                .returningAll()
+                .executeTakeFirstOrThrow();
+
+            await this.replaceSubjectScores(trx, inserted.id, summary.subjectRows);
+            return inserted;
+        });
+
         return (await this.attachRefs([row]))[0];
     }
 
     async update(id: number, data: Partial<StudentResultCreate>): Promise<StudentResult> {
-        const row = await pg
-            .updateTable("student_results")
-            .set(this.toColumns(data))
-            .where("id", "=", id)
-            .returningAll()
-            .executeTakeFirst();
+        const current = await pg.selectFrom("student_results").selectAll().where("id", "=", id).executeTakeFirst();
+        if (!current) throw new Error("Student result not found");
 
-        if (!row) throw new Error("Student result not found");
+        const grade = data.grade ?? current.grade;
+        const examId = data.examId !== undefined ? data.examId : current.exam_id;
+
+        let scoreFields: Record<string, any> = {};
+        let subjectRows: Array<{ subjectCode: string; score: number; questionCount: number | null }> | null = null;
+
+        if (data.disciplines !== undefined) {
+            const examTypeId = await this.resolveExamTypeId(examId);
+            const summary = await this.computeScoreSummary(examTypeId, grade, data.disciplines);
+            scoreFields = {
+                exam_type_id: examTypeId,
+                section_id: summary.sectionId,
+                level_scale_id: summary.levelScaleId,
+                max_questions: summary.maxQuestions,
+                score_percent: summary.scorePercent,
+                total_score: summary.totalScore,
+                level: summary.level,
+                participation_score: summary.participationScore,
+            };
+            subjectRows = summary.subjectRows;
+        }
+
+        const row = await pg.transaction().execute(async (trx) => {
+            const updated = await trx
+                .updateTable("student_results")
+                .set({
+                    ...(data.studentId !== undefined && { student_id: data.studentId }),
+                    ...(data.examId !== undefined && { exam_id: data.examId }),
+                    ...(data.grade !== undefined && { grade: data.grade }),
+                    ...scoreFields,
+                    ...(data.status !== undefined && { status: data.status }),
+                    ...(data.month !== undefined && { month: data.month }),
+                    ...(data.year !== undefined && { year: data.year }),
+                })
+                .where("id", "=", id)
+                .returningAll()
+                .executeTakeFirst();
+
+            if (!updated) throw new Error("Student result not found");
+            if (subjectRows) await this.replaceSubjectScores(trx, id, subjectRows);
+            return updated;
+        });
+
         return (await this.attachRefs([row]))[0];
     }
 
+    /** ON DELETE CASCADE (student_result_subject_scores.result_id) убирает баллы по предметам сам. */
     async delete(id: number): Promise<void> {
         const result = await pg.deleteFrom("student_results").where("id", "=", id).executeTakeFirst();
         if (Number(result.numDeletedRows) === 0) throw new Error("Student result not found");
@@ -161,11 +249,11 @@ export class StudentResultServicePg {
     }
 
     /**
-     * Импорт результатов экзамена из Excel — тот же формат файла и та же логика, что в Mongo-версии
-     * (см. комментарий в studentResult.service.ts): строки 4+ содержат данные, колонки определяются
-     * позиционно, с ветвлением по классу (5+ vs младше). Не меняно ни на йоту — включая тот факт,
-     * что вычисление maxLevel для НОВЫХ студентов использует `grade === 5` (не `>= 5`, как всё
-     * остальное) — существующая особенность исходного кода, сохранена как есть.
+     * Импорт результатов экзамена из Excel (IMTAHAN_NOVLERI_TASK.md §7). Формат: строка 1 —
+     * заголовки (`Şagird kodu | Sinif | Soyad | Ad | Ata adı | <Predmet> | <Predmet> (sual sayı) | ...`,
+     * ровно то, что генерирует `GET /exams/:id/results-template.xlsx`), данные — со строки 2.
+     * Предмет опознаётся по `name_az`, набор и лимиты — из секции, в которую попадает класс
+     * строки. total_score/score_percent/level/participation_score считает сервер.
      */
     async processStudentResultsFromExcel(filePath: string, examId: number): Promise<{
         processedData: StudentResult[];
@@ -175,136 +263,180 @@ export class StudentResultServicePg {
     }> {
         try {
             const rows: any[] = readExcel(filePath);
-
             if (rows.length < 2) {
-                throw new Error("Faylda kifayət qədər sətr yoxdur!");
+                throw this.importError("Faylda kifayət qədər sətr yoxdur!");
             }
 
-            const exam = await pg.selectFrom("exams").select(["id", "date"]).where("id", "=", examId).executeTakeFirst();
-            if (!exam) {
-                throw new Error("İmtahan tapılmadı!");
-            }
+            const exam = await pg.selectFrom("exams").select(["id", "date", "exam_type_id"]).where("id", "=", examId).executeTakeFirst();
+            if (!exam) throw this.importError("İmtahan tapılmadı!");
+
+            const examType = await examTypeServicePg.findById(exam.exam_type_id);
+            if (!examType) throw this.importError("İmtahan növü tapılmadı!");
 
             const examDate = new Date(exam.date);
             const month = examDate.getUTCMonth() + 1;
             const year = examDate.getUTCFullYear();
 
-            const resultReadedData = rows.slice(3).map((row) => ({
-                grade: Number(row[2]),
-                studentCode: Number(row[3]),
-                az: Number(row[2]) >= 5 ? Number(row[8]) : Number(row[7]),
-                math: Number(row[2]) >= 5 ? Number(row[10]) : Number(row[8]),
-                lifeKnowledge: Number(row[2]) >= 5 ? undefined : Number(row[9]),
-                logic: Number(row[2]) >= 5 ? undefined : Number(row[10]),
-                english: Number(row[2]) >= 5 ? Number(row[12]) : undefined,
-                azCount: Number(row[2]) >= 5 ? Number(row[7]) : undefined,
-                mathCount: Number(row[2]) >= 5 ? Number(row[9]) : undefined,
-                englishCount: Number(row[2]) >= 5 ? Number(row[11]) : undefined,
-                totalScore: Number(row[2]) >= 5 ? Number(row[13]) : Number(row[11]),
-                level: Number(row[2]) >= 5 ? String(row[14]) : String(row[12]),
-            }));
+            const subjects = await subjectServicePg.findAll();
+            const headerRow: any[] = Array.isArray(rows[0]) ? rows[0] : [];
+            const subjectColumns = this.parseHeaderColumns(headerRow, subjects);
+            if (subjectColumns.filter((c) => !c.isCount).length === 0) {
+                throw this.importError("Fayl başlıqlarında fənn sütunları tapılmadı");
+            }
+            const countColByCode = new Map(subjectColumns.filter((c) => c.isCount).map((c) => [c.subjectCode, c.colIdx]));
+            const scoreColumns = subjectColumns.filter((c) => !c.isCount);
 
-            const studentDataToInsert = rows.slice(3).map((row) => ({
-                code: Number(row[3]),
-                lastName: String(row[4]),
-                firstName: String(row[5]),
-                middleName: String(row[6]),
-                grade: Number(row[2]),
-                maxLevel: calculateParticipationScore(Number(row[2]) === 5 ? String(row[11]) : String(row[12])),
-            }));
+            const dataRows = rows.slice(1);
+            const sectionConfigByGrade = new Map<number, SectionConfig | null>();
 
-            const correctStudentDataToInsert = studentDataToInsert.filter((d) => d.code >= CODE_RANGES.STUDENT_MIN && d.code <= CODE_RANGES.STUDENT_MAX);
-            const invalidStudentCodes = studentDataToInsert
-                .filter((d) => d.code < CODE_RANGES.STUDENT_MIN || d.code > CODE_RANGES.STUDENT_MAX)
-                .map((d) => d.code);
+            const invalidStudentCodes: number[] = [];
+            const studentsWithIncorrectResults: Array<{ code: number; reason: string }> = [];
+            const parsedRows: Array<{
+                grade: number; studentCode: number; lastName: string; firstName: string; middleName: string;
+                subjectScores: Array<{ subjectCode: string; score: number; questionCount: number | null }>;
+                totalScore: number; sectionId: number; maxQuestions: number;
+            }> = [];
 
-            const { students, studentsWithoutTeacher } = await this.processStudentResults(correctStudentDataToInsert);
-            const studentByCode = new Map(students.map((s) => [s.code, s]));
+            for (const row of dataRows) {
+                if (!Array.isArray(row) || row.every((c) => c == null || String(c).trim() === "")) continue;
 
-            const filtredResults = resultReadedData.filter(
-                (result) =>
-                    studentByCode.has(result.studentCode) &&
-                    result.totalScore === (result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0)) &&
-                    result.totalScore > 0
-            );
+                const code = Number(row[0]);
+                const grade = Number(row[1]);
 
-            const studentsWithIncorrectResults = resultReadedData
-                .filter((result) => {
-                    if (!studentByCode.has(result.studentCode)) return false;
-                    const calculatedTotal = result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0);
-                    return result.totalScore !== calculatedTotal || result.totalScore <= 0;
-                })
-                .map((result) => {
-                    const calculatedTotal = result.az + result.math + (result.lifeKnowledge || 0) + (result.logic || 0) + (result.english || 0);
-                    return {
-                        code: result.studentCode,
-                        reason:
-                            result.totalScore <= 0
-                                ? `Sıfır xal: şagird heç bir sual cavablandırmayıb`
-                                : `Səhv cəm: ${calculatedTotal}, Faylda: ${result.totalScore}`,
-                    };
-                });
-
-            const studentMaxLevelUpdates: Array<{ id: number; maxLevel: number }> = [];
-
-            const resultsToInsert = filtredResults.map((result) => {
-                const student = studentByCode.get(result.studentCode)!;
-                const currentLevelScore = calculateParticipationScore(result.level);
-                let developmentScore = 0;
-
-                if (student.maxLevel !== undefined && student.maxLevel !== null) {
-                    if (currentLevelScore > student.maxLevel) {
-                        developmentScore = 10;
-                        studentMaxLevelUpdates.push({ id: student.id, maxLevel: currentLevelScore });
-                    }
-                } else {
-                    studentMaxLevelUpdates.push({ id: student.id, maxLevel: currentLevelScore });
+                if (!code || isNaN(code) || code < CODE_RANGES.STUDENT_MIN || code > CODE_RANGES.STUDENT_MAX) {
+                    invalidStudentCodes.push(code);
+                    continue;
+                }
+                if (!grade || isNaN(grade)) {
+                    studentsWithIncorrectResults.push({ code, reason: "Sinif düzgün deyil" });
+                    continue;
                 }
 
-                return {
-                    studentId: student.id,
-                    examId,
-                    grade: result.grade,
-                    disciplines: {
-                        az: Number(result.az) || 0,
-                        math: Number(result.math) || 0,
-                        lifeKnowledge: Number(result.lifeKnowledge) || undefined,
-                        logic: Number(result.logic) || undefined,
-                        english: Number(result.english) || undefined,
-                    },
-                    questionCounts: {
-                        az: Number(result.azCount) || 0,
-                        math: Number(result.mathCount) || 0,
-                        english: Number(result.englishCount) || 0,
-                    },
-                    totalScore: result.totalScore,
-                    level: result.level,
-                    score: 1,
-                    participationScore: currentLevelScore,
-                    developmentScore,
-                    month,
-                    year,
-                } as StudentResultCreate & { developmentScore: number };
-            });
+                let config = sectionConfigByGrade.get(grade);
+                if (config === undefined) {
+                    config = await this.resolveSectionConfig(exam.exam_type_id, grade);
+                    sectionConfigByGrade.set(grade, config);
+                }
+                if (config === null) {
+                    studentsWithIncorrectResults.push({ code, reason: `${grade}-ci sinif üçün bu imtahan növündə bölmə tapılmadı` });
+                    continue;
+                }
+
+                let hasError = false;
+                let totalScore = 0;
+                const subjectScores: Array<{ subjectCode: string; score: number; questionCount: number | null }> = [];
+
+                for (const col of scoreColumns) {
+                    const cfg = config.subjects.get(col.subjectCode);
+                    if (!cfg) {
+                        // Структурное несоответствие шаблона и конфига секции — не за что зацепиться
+                        // построчно, весь импорт останавливается (§7 ТЗ).
+                        throw this.importError(`"${col.nameAz}" fənni ${grade}-ci sinif bölməsinin tərkibinə daxil deyil`);
+                    }
+
+                    const rawScore = row[col.colIdx];
+                    const score = rawScore == null || String(rawScore).trim() === "" ? 0 : Number(rawScore);
+                    if (isNaN(score)) {
+                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: bal ədəd deyil ("${rawScore}")` });
+                        hasError = true;
+                        break;
+                    }
+                    if (score > cfg.maxQuestions) {
+                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: bal (${score}) sual sayından (${cfg.maxQuestions}) çoxdur` });
+                        hasError = true;
+                        break;
+                    }
+
+                    const countColIdx = countColByCode.get(col.subjectCode);
+                    const rawCount = countColIdx !== undefined ? row[countColIdx] : null;
+                    const questionCount = rawCount != null && String(rawCount).trim() !== "" ? Number(rawCount) : null;
+
+                    totalScore += score;
+                    subjectScores.push({ subjectCode: col.subjectCode, score, questionCount });
+                }
+
+                if (hasError) continue;
+
+                if (totalScore <= 0) {
+                    studentsWithIncorrectResults.push({ code, reason: "Sıfır xal: şagird heç bir sual cavablandırmayıb" });
+                    continue;
+                }
+
+                parsedRows.push({
+                    grade,
+                    studentCode: code,
+                    lastName: String(row[2] ?? "").trim(),
+                    firstName: String(row[3] ?? "").trim(),
+                    middleName: String(row[4] ?? "").trim(),
+                    subjectScores,
+                    totalScore,
+                    sectionId: config.sectionId,
+                    maxQuestions: config.totalMaxQuestions,
+                });
+            }
+
+            const studentDataToInsert = parsedRows.map((r) => ({
+                code: r.studentCode, lastName: r.lastName, firstName: r.firstName, middleName: r.middleName,
+                grade: r.grade, maxLevel: null as number | null,
+            }));
+            const { students, studentsWithoutTeacher } = await this.processStudentResults(studentDataToInsert);
+            const studentByCode = new Map(students.map((s) => [s.code, s]));
+
+            const inserted: StudentResult[] = [];
+            const studentMaxLevelUpdates: Array<{ id: number; maxLevel: number }> = [];
+
+            for (const r of parsedRows) {
+                const student = studentByCode.get(r.studentCode);
+                if (!student) continue; // studentsWithoutTeacher — уже учтено
+
+                const scorePercent = r.maxQuestions > 0 ? (r.totalScore / r.maxQuestions) * 100 : 0;
+                const band = await levelScaleServicePg.resolveBand(examType.levelScaleId, scorePercent);
+
+                let developmentScore = 0;
+                if (student.maxLevel !== undefined && student.maxLevel !== null) {
+                    if (band.participationScore > student.maxLevel) {
+                        developmentScore = 10;
+                        studentMaxLevelUpdates.push({ id: student.id, maxLevel: band.participationScore });
+                    }
+                } else {
+                    studentMaxLevelUpdates.push({ id: student.id, maxLevel: band.participationScore });
+                }
+
+                const scorePercentRounded = Number(scorePercent.toFixed(3));
+
+                const row = await pg.transaction().execute(async (trx) => {
+                    const upserted = await trx
+                        .insertInto("student_results")
+                        .values({
+                            student_id: student.id, exam_id: examId, grade: r.grade,
+                            exam_type_id: exam.exam_type_id, section_id: r.sectionId, level_scale_id: examType.levelScaleId,
+                            max_questions: r.maxQuestions, score_percent: scorePercentRounded,
+                            total_score: r.totalScore, level: band.code, participation_score: band.participationScore,
+                            development_score: developmentScore, score: 1, month, year,
+                        })
+                        .onConflict((oc) =>
+                            oc.columns(["student_id", "exam_id"]).doUpdateSet({
+                                grade: r.grade, exam_type_id: exam.exam_type_id, section_id: r.sectionId,
+                                level_scale_id: examType.levelScaleId, max_questions: r.maxQuestions,
+                                score_percent: scorePercentRounded, total_score: r.totalScore, level: band.code,
+                                participation_score: band.participationScore, development_score: developmentScore,
+                            })
+                        )
+                        .returningAll()
+                        .executeTakeFirstOrThrow();
+
+                    await this.replaceSubjectScores(trx, upserted.id, r.subjectScores);
+                    return upserted;
+                });
+
+                inserted.push((await this.attachRefs([row]))[0]);
+            }
 
             for (const upd of studentMaxLevelUpdates) {
                 await pg.updateTable("students").set({ max_level: upd.maxLevel }).where("id", "=", upd.id).execute();
             }
 
             await deleteFile(filePath).catch(() => {});
-
-            const inserted: StudentResult[] = [];
-            for (const result of resultsToInsert) {
-                const row = await pg
-                    .insertInto("student_results")
-                    .values({ ...this.toColumns(result), development_score: result.developmentScore } as any)
-                    .onConflict((oc) =>
-                        oc.columns(["student_id", "exam_id"]).doUpdateSet({ ...this.toColumns(result), development_score: result.developmentScore })
-                    )
-                    .returningAll()
-                    .executeTakeFirstOrThrow();
-                inserted.push((await this.attachRefs([row]))[0]);
-            }
 
             return {
                 processedData: inserted,
@@ -319,11 +451,15 @@ export class StudentResultServicePg {
     }
 
     /**
-     * Создаёт недостающих учеников (по коду), назначая учителя арифметикой кода — как и Mongo-версия.
-     * Ученики, для которых учитель не резолвится, НЕ создаются (studentsWithoutTeacher) — то же поведение.
+     * Создаёт недостающих учеников (по коду), назначая учителя арифметикой кода — как и раньше.
+     * Ученики, для которых учитель не резолвится, НЕ создаются (studentsWithoutTeacher).
+     * maxLevel у новых студентов теперь неизвестен на момент создания (шаг 2 больше не читает
+     * level из файла — его считает сервер уже после того, как студент создан), поэтому
+     * передаётся null; вызывающий код (processStudentResultsFromExcel) сам проставляет
+     * students.max_level через studentMaxLevelUpdates, как и раньше.
      */
     private async processStudentResults(
-        studentDataToInsert: Array<{ code: number; lastName: string; firstName: string; middleName: string; grade: number; maxLevel: number }>
+        studentDataToInsert: Array<{ code: number; lastName: string; firstName: string; middleName: string; grade: number; maxLevel: number | null }>
     ): Promise<{ students: Array<{ id: number; code: number; maxLevel: number | null }>; studentsWithoutTeacher: number[] }> {
         const studentCodes = studentDataToInsert.map((s) => s.code);
         const existingStudents = studentCodes.length > 0
@@ -345,7 +481,7 @@ export class StudentResultServicePg {
             }
             studentsWithTeacher.push({
                 code: s.code, lastName: s.lastName, firstName: s.firstName, middleName: s.middleName,
-                grade: s.grade, teacherId, schoolId, districtId, maxLevel: s.maxLevel,
+                grade: s.grade, teacherId, schoolId, districtId, maxLevel: s.maxLevel ?? undefined,
             });
         });
 
@@ -372,7 +508,8 @@ export class StudentResultServicePg {
         return { students: allStudents, studentsWithoutTeacher };
     }
 
-    /** Удаляет результаты экзамена и очищает `status` у затронутых учеников (два отдельных запроса, как в Mongo-версии). */
+    /** Удаляет результаты экзамена и очищает `status` у затронутых учеников. Баллы по предметам
+     *  (student_result_subject_scores) уходят сами через ON DELETE CASCADE. */
     async deleteResultsByExamId(examId: number): Promise<{ deletedCount: number }> {
         const affected = await pg.selectFrom("student_results").select("student_id").where("exam_id", "=", examId).execute();
         const studentIds = affected.map((r) => r.student_id);
@@ -387,8 +524,13 @@ export class StudentResultServicePg {
     }
 
     /**
-     * Одноразовый импорт исторических результатов из JSON (по полному имени ученика, без exam_id
-     * в типичном случае) — см. importLegacyResultsFromJson в Mongo-версии, логика 1:1.
+     * Одноразовый импорт исторических результатов из JSON — НЕ трогается по требованию ТЗ §7
+     * ("Легаси-импорт POST /student-results/import-json не трогаем"). Единственное добавление:
+     * exam_type_id (базовый тип) и level_scale_id (isim_percent) проставляются на вставке —
+     * без них у новых через этот путь строк не работал бы composite FK на level_scale_bands
+     * (level_scale_id NULL => FK не проверяется вовсе, а не "проверяется как раньше через
+     * levels"), и они выпадали бы из всего, что читает student_results по типу экзамена в
+     * будущих шагах. Логика сопоставления по ФИО, баллы, статус — не изменены.
      */
     async importLegacyResultsFromJson(filePath: string): Promise<{
         inserted: number;
@@ -408,7 +550,11 @@ export class StudentResultServicePg {
             await deleteFile(filePath).catch(() => {});
         }
 
-        const allStudents = await pg.selectFrom("students").select(["id", "last_name", "first_name", "middle_name"]).execute();
+        const [allStudents, baseType, levelScale] = await Promise.all([
+            pg.selectFrom("students").select(["id", "last_name", "first_name", "middle_name"]).execute(),
+            pg.selectFrom("exam_types").select("id").where("is_base", "=", true).executeTakeFirstOrThrow(),
+            pg.selectFrom("level_scales").select("id").where("code", "=", "isim_percent").executeTakeFirstOrThrow(),
+        ]);
         const studentMap = new Map<string, { id: number }>();
         for (const student of allStudents) {
             const fullName = [student.last_name, student.first_name, student.middle_name]
@@ -462,6 +608,8 @@ export class StudentResultServicePg {
                     status: resultData.status ?? null,
                     month: 0,
                     year: 2024,
+                    exam_type_id: baseType.id,
+                    level_scale_id: levelScale.id,
                 };
 
                 const existing = await pg
@@ -486,64 +634,231 @@ export class StudentResultServicePg {
         return { inserted, skipped, errors, details: { skippedCodes: skippedNames, errorMessages } };
     }
 
+    /** Резолвит exam_type_id для ручного создания/правки результата: из exams по examId, либо
+     *  базовый тип (is_base = true), если examId не указан — тот же паттерн, что и backfill
+     *  024_student_result_subject_scores.sql для строк без exam_id. */
+    private async resolveExamTypeId(examId: number | null | undefined): Promise<number> {
+        if (examId != null) {
+            const exam = await pg.selectFrom("exams").select("exam_type_id").where("id", "=", examId).executeTakeFirst();
+            if (exam) return exam.exam_type_id;
+        }
+        const base = await pg.selectFrom("exam_types").select("id").where("is_base", "=", true).executeTakeFirstOrThrow();
+        return base.id;
+    }
+
+    /** Секция типа экзамена, в которую попадает класс, + её конфиг предметов. `null`, если ни
+     *  одна секция не покрывает этот класс (данные и должны быть возможны без исключения —
+     *  вызывающий код решает, ошибка ли это построчная или на весь импорт). Бросает исключение,
+     *  если секция найдена, но в ней НЕ настроено ни одного предмета (§3/§7 ТЗ) — делить на
+     *  ноль нельзя, а это состояние (свежесозданный тип/секция "5-11 sinif") штатное. */
+    private async resolveSectionConfig(examTypeId: number, grade: number): Promise<SectionConfig | null> {
+        const section = await pg
+            .selectFrom("exam_type_sections")
+            .select(["id"])
+            .where("exam_type_id", "=", examTypeId)
+            .where("grade_from", "<=", grade)
+            .where("grade_to", ">=", grade)
+            .executeTakeFirst();
+        if (!section) return null;
+
+        const subjectRows = await pg
+            .selectFrom("exam_type_section_subjects as ss")
+            .innerJoin("subjects as s", "s.code", "ss.subject_code")
+            .select(["ss.subject_code", "ss.max_questions", "s.name_az", "ss.sort_order"])
+            .where("ss.section_id", "=", section.id)
+            .execute();
+
+        if (subjectRows.length === 0) {
+            throw this.importError("Bu sinif qrupu üçün fənlər təyin edilməyib");
+        }
+
+        const subjects = new Map(
+            subjectRows.map((r) => [r.subject_code, { maxQuestions: r.max_questions, nameAz: r.name_az, sortOrder: r.sort_order }])
+        );
+        const totalMaxQuestions = subjectRows.reduce((sum, r) => sum + r.max_questions, 0);
+
+        return { sectionId: section.id, subjects, totalMaxQuestions };
+    }
+
+    /** Общий расчёт для ручного create/update одного результата: валидирует предметы против
+     *  конфига секции, считает total_score/score_percent/level/participation_score. Тот же
+     *  принцип, что использует построчный разбор Excel-импорта, но для одного результата и с
+     *  исключением вместо построчного пропуска (единичная правка — либо валидна целиком, либо нет). */
+    private async computeScoreSummary(
+        examTypeId: number,
+        grade: number,
+        disciplines: StudentResultSubjectScoreInput[]
+    ): Promise<{
+        sectionId: number;
+        levelScaleId: number;
+        maxQuestions: number;
+        totalScore: number;
+        scorePercent: number;
+        level: string;
+        participationScore: number;
+        subjectRows: Array<{ subjectCode: string; score: number; questionCount: number | null }>;
+    }> {
+        const config = await this.resolveSectionConfig(examTypeId, grade);
+        if (!config) {
+            throw this.importError(`${grade}-ci sinif üçün bu imtahan növündə bölmə tapılmadı`);
+        }
+
+        let totalScore = 0;
+        const subjectRows: Array<{ subjectCode: string; score: number; questionCount: number | null }> = [];
+        for (const d of disciplines) {
+            const cfg = config.subjects.get(d.subjectCode);
+            if (!cfg) {
+                throw this.importError(`"${d.subjectCode}" fənni bu bölmənin tərkibinə daxil deyil`);
+            }
+            if (d.score > cfg.maxQuestions) {
+                throw this.importError(`${cfg.nameAz}: bal (${d.score}) sual sayından (${cfg.maxQuestions}) çoxdur`);
+            }
+            totalScore += d.score;
+            subjectRows.push({ subjectCode: d.subjectCode, score: d.score, questionCount: d.questionCount ?? null });
+        }
+
+        const examType = await examTypeServicePg.findById(examTypeId);
+        if (!examType) throw this.importError("İmtahan növü tapılmadı");
+
+        const scorePercent = config.totalMaxQuestions > 0 ? (totalScore / config.totalMaxQuestions) * 100 : 0;
+        const band = await levelScaleServicePg.resolveBand(examType.levelScaleId, scorePercent);
+
+        return {
+            sectionId: config.sectionId,
+            levelScaleId: examType.levelScaleId,
+            maxQuestions: config.totalMaxQuestions,
+            totalScore,
+            scorePercent: Number(scorePercent.toFixed(3)),
+            level: band.code,
+            participationScore: band.participationScore,
+            subjectRows,
+        };
+    }
+
+    private async replaceSubjectScores(
+        trx: Transaction<DB>,
+        resultId: number,
+        subjectRows: Array<{ subjectCode: string; score: number; questionCount: number | null }>
+    ): Promise<void> {
+        await trx.deleteFrom("student_result_subject_scores").where("result_id", "=", resultId).execute();
+        if (subjectRows.length > 0) {
+            await trx
+                .insertInto("student_result_subject_scores")
+                .values(subjectRows.map((r) => ({ result_id: resultId, subject_code: r.subjectCode, score: r.score, question_count: r.questionCount })))
+                .execute();
+        }
+    }
+
+    /** Заголовки строки 1 шаблона (col 0-4 фиксированы позиционно: код/класс/фамилия/имя/отчество,
+     *  см. resultTemplate.service.ts), col 5+ — предметы, опознаются по name_az или
+     *  "<name_az> (sual sayı)". Неопознанный заголовок — исключение с указанием колонки и
+     *  текста (§7 ТЗ: "неизвестный заголовок — ошибка импорта, а не молчаливый пропуск"). */
+    private parseHeaderColumns(
+        headerRow: any[],
+        subjects: Array<{ code: string; nameAz: string }>
+    ): Array<{ colIdx: number; subjectCode: string; nameAz: string; isCount: boolean }> {
+        const byName = new Map(subjects.map((s) => [s.nameAz.trim(), s.code]));
+        const countSuffix = " (sual sayı)";
+        const columns: Array<{ colIdx: number; subjectCode: string; nameAz: string; isCount: boolean }> = [];
+
+        for (let i = 5; i < headerRow.length; i++) {
+            const raw = headerRow[i];
+            const text = raw == null ? "" : String(raw).trim();
+            if (text === "") continue;
+
+            if (text.endsWith(countSuffix)) {
+                const subjectName = text.slice(0, -countSuffix.length).trim();
+                const code = byName.get(subjectName);
+                if (!code) throw this.importError(`Naməlum sütun (${this.colLabel(i)}): "${text}"`);
+                columns.push({ colIdx: i, subjectCode: code, nameAz: subjectName, isCount: true });
+                continue;
+            }
+
+            const code = byName.get(text);
+            if (!code) throw this.importError(`Naməlum sütun (${this.colLabel(i)}): "${text}"`);
+            columns.push({ colIdx: i, subjectCode: code, nameAz: text, isCount: false });
+        }
+
+        return columns;
+    }
+
+    /** 0-based индекс колонки -> буквенное обозначение (A, B, ..., Z, AA, ...) для сообщений об ошибках. */
+    private colLabel(idx: number): string {
+        let n = idx + 1;
+        let label = "";
+        while (n > 0) {
+            const rem = (n - 1) % 26;
+            label = String.fromCharCode(65 + rem) + label;
+            n = Math.floor((n - 1) / 26);
+        }
+        return label;
+    }
+
+    private importError(message: string): Error {
+        const err: any = new Error(message);
+        err.status = 400;
+        return err;
+    }
+
     private mapSortColumn(column: string): "grade" | "total_score" | "level" | "month" | "year" | "id" {
         const map: Record<string, any> = { grade: "grade", totalScore: "total_score", level: "level", month: "month", year: "year", createdAt: "id" };
         return map[column] ?? "id";
     }
 
-    private toColumns(data: Partial<StudentResultCreate>): Record<string, any> {
-        const cols: Record<string, any> = {};
-        if (data.studentId !== undefined) cols.student_id = data.studentId;
-        if (data.examId !== undefined) cols.exam_id = data.examId;
-        if (data.grade !== undefined) cols.grade = data.grade;
-        if (data.disciplines !== undefined) {
-            cols.az = data.disciplines.az;
-            cols.math = data.disciplines.math;
-            cols.life_knowledge = data.disciplines.lifeKnowledge ?? null;
-            cols.logic = data.disciplines.logic ?? null;
-            cols.english = data.disciplines.english ?? null;
-        }
-        if (data.questionCounts !== undefined) {
-            cols.az_count = data.questionCounts.az;
-            cols.math_count = data.questionCounts.math;
-            cols.life_knowledge_count = data.questionCounts.lifeKnowledge ?? null;
-            cols.logic_count = data.questionCounts.logic ?? null;
-            cols.english_count = data.questionCounts.english ?? null;
-        }
-        if (data.totalScore !== undefined) cols.total_score = data.totalScore;
-        if (data.level !== undefined) cols.level = data.level;
-        if (data.participationScore !== undefined) cols.participation_score = data.participationScore;
-        if (data.score !== undefined) cols.score = data.score;
-        if (data.status !== undefined) cols.status = data.status;
-        if (data.month !== undefined) cols.month = data.month;
-        if (data.year !== undefined) cols.year = data.year;
-        return cols;
-    }
-
     private async attachRefs(rows: StudentResultRowRaw[]): Promise<StudentResult[]> {
         if (rows.length === 0) return [];
+        const resultIds = rows.map((r) => r.id);
         const studentIds = [...new Set(rows.map((r) => r.student_id))];
         const examIds = [...new Set(rows.map((r) => r.exam_id).filter((id): id is number => id != null))];
+        const sectionIds = [...new Set(rows.map((r) => r.section_id).filter((id): id is number => id != null))];
 
-        const [students, exams] = await Promise.all([
+        const [students, exams, subjectScoreRows, sectionSubjectRows] = await Promise.all([
             pg.selectFrom("students").select(["id", "code", "last_name", "first_name", "middle_name"]).where("id", "in", studentIds).execute(),
             examIds.length > 0 ? pg.selectFrom("exams").select(["id", "code", "name", "date"]).where("id", "in", examIds).execute() : Promise.resolve([]),
+            pg
+                .selectFrom("student_result_subject_scores as srs")
+                .innerJoin("subjects as s", "s.code", "srs.subject_code")
+                .select(["srs.result_id", "srs.subject_code", "s.name_az", "srs.score", "srs.question_count"])
+                .where("srs.result_id", "in", resultIds)
+                .execute(),
+            sectionIds.length > 0
+                ? pg
+                      .selectFrom("exam_type_section_subjects")
+                      .select(["section_id", "subject_code", "max_questions"])
+                      .where("section_id", "in", sectionIds)
+                      .execute()
+                : Promise.resolve([]),
         ]);
 
         const studentById = new Map(students.map((s) => [s.id, s]));
         const examById = new Map(exams.map((e) => [e.id, e]));
+        const maxQuestionsBySectionSubject = new Map(sectionSubjectRows.map((r) => [`${r.section_id}:${r.subject_code}`, r.max_questions]));
 
         return rows.map((row) => {
             const student = studentById.get(row.student_id);
             const exam = row.exam_id != null ? examById.get(row.exam_id) : undefined;
+            const disciplines: StudentResultSubjectScoreRow[] = subjectScoreRows
+                .filter((s) => s.result_id === row.id)
+                .map((s) => ({
+                    subjectCode: s.subject_code,
+                    nameAz: s.name_az,
+                    score: s.score,
+                    questionCount: s.question_count,
+                    maxQuestions: row.section_id != null ? maxQuestionsBySectionSubject.get(`${row.section_id}:${s.subject_code}`) ?? null : null,
+                }));
+
             return {
                 id: row.id,
                 studentId: row.student_id,
                 examId: row.exam_id,
+                examTypeId: row.exam_type_id,
+                sectionId: row.section_id,
+                levelScaleId: row.level_scale_id,
                 grade: row.grade,
-                disciplines: { az: row.az, math: row.math, lifeKnowledge: row.life_knowledge, logic: row.logic, english: row.english },
-                questionCounts: { az: row.az_count, math: row.math_count, lifeKnowledge: row.life_knowledge_count, logic: row.logic_count, english: row.english_count },
+                disciplines,
                 totalScore: row.total_score,
+                maxQuestions: row.max_questions,
+                scorePercent: row.score_percent,
                 level: row.level,
                 score: row.score,
                 participationScore: row.participation_score,

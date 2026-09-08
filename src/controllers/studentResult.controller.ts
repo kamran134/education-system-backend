@@ -13,9 +13,12 @@ export class StudentResultController {
     }
 
     /**
-     * Mongo-версия (IStudentResultInput) принимала `student`/`exam` (имена ref-полей модели)
-     * и вложенные `disciplines`/`questionCounts` — тот же паттерн несогласованности имён,
-     * что и у booklet (см. комментарий в booklet.controller.ts). Принимаем оба варианта.
+     * Mongo-версия (IStudentResultInput) принимала `student`/`exam` (имена ref-полей модели) —
+     * тот же паттерн несогласованности имён, что и у booklet (см. booklet.controller.ts).
+     * Принимаем оба варианта. С шага 2 (IMTAHAN_NOVLERI_TASK.md §5) totalScore/level/
+     * participationScore/score БОЛЬШЕ НЕ принимаются от клиента — сервер считает их сам из
+     * `disciplines` (баллы по предметам) через конфиг секции и шкалу типа экзамена, единый
+     * путь с парсером Excel (studentResult.service.pg.ts::computeScoreSummary).
      */
     private toStudentResultUpdate(body: any) {
         const studentRaw = body.studentId ?? body.student;
@@ -25,11 +28,6 @@ export class StudentResultController {
             ...(examRaw !== undefined && examRaw !== null && { examId: parseInt(examRaw, 10) }),
             ...(body.grade !== undefined && { grade: parseInt(body.grade, 10) }),
             ...(body.disciplines !== undefined && { disciplines: body.disciplines }),
-            ...(body.questionCounts !== undefined && { questionCounts: body.questionCounts }),
-            ...(body.totalScore !== undefined && { totalScore: body.totalScore }),
-            ...(body.level !== undefined && { level: body.level }),
-            ...(body.participationScore !== undefined && { participationScore: body.participationScore }),
-            ...(body.score !== undefined && { score: body.score }),
             // status НЕ принимается от клиента: единственный писатель — markDevelopingStudents
             // (stats.service.pg.ts), иначе status и development_score снова расходятся
             // (см. DB_REFACTOR_TASKS.md §4, гейт 2).

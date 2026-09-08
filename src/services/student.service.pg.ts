@@ -7,6 +7,7 @@ import { escapeRegex } from "../utils/validation.util";
 import { CODE_DIVISORS } from "../utils/entity-codes.const";
 import { getCurrentAcademicYear, parseMonthFilter } from "../utils/academic-year.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
+import { resolveExamTypeId } from "./examType.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -76,18 +77,25 @@ export interface ExamSummary {
     date: Date;
 }
 
+export interface StudentResultSubjectScoreRow {
+    subjectCode: string;
+    nameAz: string;
+    score: number;
+    questionCount: number | null;
+    maxQuestions: number | null;
+}
+
 export interface StudentResultRow {
     id: number;
     examId: number | null;
     exam: ExamSummary | null;
     grade: number;
-    az: number; math: number; lifeKnowledge: number | null; logic: number | null; english: number | null;
-    azCount: number; mathCount: number; lifeKnowledgeCount: number | null; logicCount: number | null; englishCount: number | null;
-    // Вложенные disciplines/questionCounts — фронтенд (ExamResult) читает именно их, не плоские
-    // поля выше (те оставлены для обратной совместимости с другими потребителями). Отсутствующий
-    // предмет (NULL в БД) не попадает в объект вовсе — .az !== undefined в шаблоне так и ждёт.
-    disciplines: { az?: number; math?: number; lifeKnowledge?: number; logic?: number; english?: number };
-    questionCounts: { az?: number; math?: number; lifeKnowledge?: number; logic?: number; english?: number };
+    // disciplines — массив по фактическому набору предметов результата (IMTAHAN_NOVLERI_TASK.md
+    // §4/§6, шаг 2), заменяет пять захардкоженных полей az/math/lifeKnowledge/logic/english.
+    // Читается из student_result_subject_scores, а не из легаси-колонок student_results.
+    disciplines: StudentResultSubjectScoreRow[];
+    maxQuestions: number | null;
+    scorePercent: number | null;
     totalScore: number; score: number; level: string; status: string | null;
     participationScore: number; developmentScore: number | null;
     studentOfTheMonthScore: number | null; republicWideStudentOfTheMonthScore: number | null;
@@ -144,25 +152,47 @@ export class StudentServicePg {
             .orderBy("sr.month", "desc")
             .execute();
 
-        const sparse = (az: number | null, math: number | null, lifeKnowledge: number | null, logic: number | null, english: number | null) => {
-            const obj: { az?: number; math?: number; lifeKnowledge?: number; logic?: number; english?: number } = {};
-            if (az !== null) obj.az = az;
-            if (math !== null) obj.math = math;
-            if (lifeKnowledge !== null) obj.lifeKnowledge = lifeKnowledge;
-            if (logic !== null) obj.logic = logic;
-            if (english !== null) obj.english = english;
-            return obj;
-        };
+        if (rows.length === 0) return [];
+
+        // Баллы по предметам — из student_result_subject_scores (024_student_result_subject_scores.sql),
+        // не из легаси-колонок sr.az/math/... (см. StudentResultRow.disciplines). maxQuestions по
+        // предмету подтягивается из конфига секции результата, а не хранится на строке баллов.
+        const resultIds = rows.map((r) => r.id);
+        const sectionIds = [...new Set(rows.map((r) => r.section_id).filter((id): id is number => id != null))];
+
+        const [subjectScoreRows, sectionSubjectRows] = await Promise.all([
+            pg
+                .selectFrom("student_result_subject_scores as srs")
+                .innerJoin("subjects as s", "s.code", "srs.subject_code")
+                .select(["srs.result_id", "srs.subject_code", "s.name_az", "srs.score", "srs.question_count"])
+                .where("srs.result_id", "in", resultIds)
+                .execute(),
+            sectionIds.length > 0
+                ? pg
+                      .selectFrom("exam_type_section_subjects")
+                      .select(["section_id", "subject_code", "max_questions"])
+                      .where("section_id", "in", sectionIds)
+                      .execute()
+                : Promise.resolve([]),
+        ]);
+
+        const maxQuestionsBySectionSubject = new Map(sectionSubjectRows.map((r) => [`${r.section_id}:${r.subject_code}`, r.max_questions]));
 
         return rows.map((r) => ({
             id: r.id, examId: r.exam_id,
             exam: r.exam_id_full ? { id: r.exam_id_full, code: r.exam_code!, name: r.exam_name!, date: r.exam_date! } : null,
             grade: r.grade,
-            az: r.az, math: r.math, lifeKnowledge: r.life_knowledge, logic: r.logic, english: r.english,
-            azCount: r.az_count, mathCount: r.math_count, lifeKnowledgeCount: r.life_knowledge_count,
-            logicCount: r.logic_count, englishCount: r.english_count,
-            disciplines: sparse(r.az, r.math, r.life_knowledge, r.logic, r.english),
-            questionCounts: sparse(r.az_count, r.math_count, r.life_knowledge_count, r.logic_count, r.english_count),
+            disciplines: subjectScoreRows
+                .filter((s) => s.result_id === r.id)
+                .map((s) => ({
+                    subjectCode: s.subject_code,
+                    nameAz: s.name_az,
+                    score: s.score,
+                    questionCount: s.question_count,
+                    maxQuestions: r.section_id != null ? maxQuestionsBySectionSubject.get(`${r.section_id}:${s.subject_code}`) ?? null : null,
+                })),
+            maxQuestions: r.max_questions,
+            scorePercent: r.score_percent,
             totalScore: r.total_score, score: r.score, level: r.level, status: r.status,
             participationScore: r.participation_score, developmentScore: r.development_score,
             studentOfTheMonthScore: r.student_of_the_month_score,
@@ -284,6 +314,13 @@ export class StudentServicePg {
 
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const isCurrentYear = currentYear === getCurrentAcademicYear();
+        // IMTAHAN_NOVLERI_TASK.md §4 шаг 3: student_year_ratings.exam_type_id обязателен с
+        // 025_ratings_by_exam_type.sql (PK расширен до (student_id, year, exam_type_id)). Без
+        // фильтра по типу в джойне ниже строка ученика задвоилась бы, как только у второго типа
+        // экзамена появится рейтинг за тот же год. Без examTypeId в фильтрах — базовый тип,
+        // существующий реестр/"İlin şagirdləri" (features/stats) продолжают видеть то же, что и
+        // раньше; features/type-ratings передаёт выбранный тип явно.
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
         // Год явных БАЛЛОВ (student_year_ratings), отдельный от currentYear (года КЛАССА, см.
         // yearGradeExpr ниже) — REYTINQ_ILI_TASK.md §5. Явный filters.academicYear (/stats)
@@ -316,7 +353,9 @@ export class StudentServicePg {
                 // по баллу того года, что реально показан на карточке/в колонке, а не по баллу
                 // текущего года, где может не быть ни одного результата.
                 .leftJoin("student_year_ratings", (join) =>
-                    join.onRef("student_year_ratings.student_id", "=", "students.id").on("student_year_ratings.year", "=", ratingYear)
+                    join.onRef("student_year_ratings.student_id", "=", "students.id")
+                        .on("student_year_ratings.year", "=", ratingYear)
+                        .on("student_year_ratings.exam_type_id", "=", examTypeId)
                 )
                 .leftJoin("student_grade_history as sgh", (join) =>
                     join.onRef("sgh.student_id", "=", "students.id").on("sgh.academic_year", "=", currentYear)
@@ -337,7 +376,9 @@ export class StudentServicePg {
             // Балл — за ratingYear, класс (ниже, sgh) — за currentYear. Разные годы намеренно:
             // REYTINQ_ILI_TASK.md §5.
             .leftJoin("student_year_ratings", (join) =>
-                join.onRef("student_year_ratings.student_id", "=", "students.id").on("student_year_ratings.year", "=", ratingYear)
+                join.onRef("student_year_ratings.student_id", "=", "students.id")
+                    .on("student_year_ratings.year", "=", ratingYear)
+                    .on("student_year_ratings.exam_type_id", "=", examTypeId)
             )
             .leftJoin("student_grade_history as sgh", (join) =>
                 join.onRef("sgh.student_id", "=", "students.id").on("sgh.academic_year", "=", currentYear)
@@ -572,6 +613,10 @@ export class StudentServicePg {
     /** Одноразовый импорт исторических данных 2024 года — см. LEGACY_IMPORT_PLAN.md. */
     async importLegacyStudents(records: any[]): Promise<{ inserted: number; updated: number; skipped: number; errors: number; details: { skippedCodes: number[]; errorMessages: string[] } }> {
         const LEGACY_YEAR = 2024;
+        // IMTAHAN_NOVLERI_TASK.md §4 шаг 3: exam_type_id обязателен в student_year_ratings с
+        // 025_ratings_by_exam_type.sql. Легаси-импорт 2024 года логически принадлежит базовому
+        // типу — единственному, существовавшему на момент этих данных.
+        const baseExamTypeId = await resolveExamTypeId();
         let inserted = 0, updated = 0, skipped = 0, errors = 0;
         const skippedCodes: number[] = [];
         const errorMessages: string[] = [];
@@ -595,7 +640,7 @@ export class StudentServicePg {
                     }
                     const score = typeof record.score === "number" ? record.score : 0;
                     const averageScore = typeof record.averageScore === "number" ? record.averageScore : 0;
-                    await pg.insertInto("student_year_ratings").values({ student_id: existing.id, year: LEGACY_YEAR, score, average_score: averageScore, place: null, district_place: null }).execute();
+                    await pg.insertInto("student_year_ratings").values({ student_id: existing.id, year: LEGACY_YEAR, exam_type_id: baseExamTypeId, score, average_score: averageScore, place: null, district_place: null }).execute();
                     updated++;
                     continue;
                 }
@@ -622,7 +667,7 @@ export class StudentServicePg {
                     })
                     .returning("id")
                     .executeTakeFirstOrThrow();
-                await pg.insertInto("student_year_ratings").values({ student_id: created.id, year: LEGACY_YEAR, score, average_score: averageScore, place: null, district_place: null }).execute();
+                await pg.insertInto("student_year_ratings").values({ student_id: created.id, year: LEGACY_YEAR, exam_type_id: baseExamTypeId, score, average_score: averageScore, place: null, district_place: null }).execute();
                 inserted++;
             } catch (err: any) {
                 errors++;

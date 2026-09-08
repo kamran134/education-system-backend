@@ -87,21 +87,28 @@ export class SubjectServicePg {
     }
 
     /**
-     * Не вызывается ни из одного роута в этом шаге (нет DELETE /subjects в §5.3 ТЗ шага 1) —
-     * метод существует для полноты сервиса per ТЗ §5 ("Удаление предмета... запрещать") и
-     * будет использован, когда появится DELETE-роут. Проверяет ссылки ТОЛЬКО на
-     * exam_type_section_subjects — student_result_subject_scores появится в миграции 024,
-     * которой в этом шаге ещё нет.
+     * Не вызывается ни из одного роута (нет DELETE /subjects в §5.3 ТЗ) — метод существует для
+     * полноты сервиса per ТЗ §5 ("Удаление предмета... запрещать") и будет использован, когда
+     * появится DELETE-роут. С 024_student_result_subject_scores.sql проверяет ссылки и на
+     * exam_type_section_subjects (набор предметов секции), и на student_result_subject_scores
+     * (реальные баллы результатов) — предмет, использованный хоть раз, не удаляется никогда.
      */
     async delete(code: string): Promise<void> {
-        const used = await pg
-            .selectFrom("exam_type_section_subjects")
-            .select(({ fn }) => [fn.countAll().as("count")])
-            .where("subject_code", "=", code)
-            .executeTakeFirstOrThrow();
+        const [usedInSections, usedInResults] = await Promise.all([
+            pg
+                .selectFrom("exam_type_section_subjects")
+                .select(({ fn }) => [fn.countAll().as("count")])
+                .where("subject_code", "=", code)
+                .executeTakeFirstOrThrow(),
+            pg
+                .selectFrom("student_result_subject_scores")
+                .select(({ fn }) => [fn.countAll().as("count")])
+                .where("subject_code", "=", code)
+                .executeTakeFirstOrThrow(),
+        ]);
 
-        if (Number(used.count) > 0) {
-            const err: any = new Error("Bu fənn imtahan növü bölmələrində istifadə olunur, silmək olmaz");
+        if (Number(usedInSections.count) > 0 || Number(usedInResults.count) > 0) {
+            const err: any = new Error("Bu fənn imtahan növü bölmələrində və ya nəticələrdə istifadə olunur, silmək olmaz");
             err.status = 409;
             throw err;
         }

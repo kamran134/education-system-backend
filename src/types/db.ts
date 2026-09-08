@@ -68,6 +68,9 @@ export interface DistrictYearRatings {
   place: number | null;
   score: number | null;
   year: number;
+  // Добавлено 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3. PK расширен до
+  // (district_id, year, exam_type_id).
+  exam_type_id: number;
 }
 
 export interface Exams {
@@ -164,6 +167,9 @@ export interface RegionYearRatings {
   region_id: number;
   score: number | null;
   year: number;
+  // Добавлено 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3. PK расширен до
+  // (region_id, year, exam_type_id).
+  exam_type_id: number;
 }
 
 export interface Levels {
@@ -222,12 +228,18 @@ export interface SchoolYearRatings {
   school_id: number;
   score: number | null;
   year: number;
+  // Добавлено 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3. PK расширен до
+  // (school_id, year, exam_type_id).
+  exam_type_id: number;
 }
 
+// az/math/az_count/math_count стали nullable в 024_student_result_subject_scores.sql — легаси-
+// колонки, заполняются только у исторических строк (заморозка), новые импорты пишут баллы в
+// student_result_subject_scores и оставляют эти пять NULL. Удаление колонок — миграция 026.
 export interface StudentResults {
   academic_year: Generated<number | null>;
-  az: number;
-  az_count: number;
+  az: number | null;
+  az_count: number | null;
   development_score: number | null;
   english: number | null;
   english_count: number | null;
@@ -240,8 +252,8 @@ export interface StudentResults {
   life_knowledge_count: number | null;
   logic: number | null;
   logic_count: number | null;
-  math: number;
-  math_count: number;
+  math: number | null;
+  math_count: number | null;
   month: number;
   participation_score: number;
   republic_wide_student_of_the_month_score: number | null;
@@ -251,6 +263,22 @@ export interface StudentResults {
   student_of_the_month_score: number | null;
   total_score: number;
   year: number;
+  // Добавлено 024_student_result_subject_scores.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 2.
+  exam_type_id: number;
+  section_id: number | null;
+  level_scale_id: number;
+  max_questions: number | null;
+  score_percent: number | null;
+}
+
+// Добавлено вручную вслед за миграцией 024_student_result_subject_scores.sql, см.
+// IMTAHAN_NOVLERI_TASK.md — перегенерировать через kysely-codegen при следующей возможности
+// подключиться к живой БД и сверить.
+export interface StudentResultSubjectScores {
+  result_id: number;
+  subject_code: string;
+  score: number;
+  question_count: number | null;
 }
 
 export interface Students {
@@ -276,6 +304,9 @@ export interface StudentYearRatings {
   score: number | null;
   student_id: number;
   year: number;
+  // Добавлено 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3. PK расширен до
+  // (student_id, year, exam_type_id).
+  exam_type_id: number;
 }
 
 // Добавлено вручную вслед за миграцией 018_student_grade_history.sql — перегенерировать через
@@ -380,6 +411,9 @@ export interface TeacherYearRatings {
   score: number | null;
   teacher_id: number;
   year: number;
+  // Добавлено 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3. PK расширен до
+  // (teacher_id, year, exam_type_id).
+  exam_type_id: number;
 }
 
 export interface UserRefreshTokens {
@@ -425,11 +459,16 @@ export interface UserSettings {
   user_id: number | null;
 }
 
+// exam_type_id добавлен во все *_year_scores/*_places/*_month_scores/*_month_places
+// 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3 — партиционирование
+// рейтингов по типу экзамена. Ручное сопровождение (эти view-интерфейсы не генерируются
+// kysely-codegen с живой БД, см. комментарии у соседних вручную добавленных таблиц).
 export interface VDistrictMonthPlaces {
   district_id: number | null;
   month: number | null;
   place: number | null;
   year: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VDistrictMonthScores {
@@ -437,12 +476,14 @@ export interface VDistrictMonthScores {
   month: number | null;
   score: number | null;
   year: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VDistrictPlaces {
   academic_year: number | null;
   district_id: number | null;
   place: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VDistrictYearScores {
@@ -450,6 +491,7 @@ export interface VDistrictYearScores {
   average_score: number | null;
   district_id: number | null;
   score: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VRegionMonthPlaces {
@@ -457,6 +499,7 @@ export interface VRegionMonthPlaces {
   place: number | null;
   region_id: number | null;
   year: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VRegionMonthScores {
@@ -464,6 +507,7 @@ export interface VRegionMonthScores {
   region_id: number | null;
   score: number | null;
   year: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VRegionYearScores {
@@ -472,12 +516,14 @@ export interface VRegionYearScores {
   region_id: number | null;
   score: number | null;
   students_in_region: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VRegionPlaces {
   academic_year: number | null;
   place: number | null;
   region_id: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VSchoolMonthPlaces {
@@ -486,6 +532,7 @@ export interface VSchoolMonthPlaces {
   place: number | null;
   school_id: number | null;
   year: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VSchoolMonthScores {
@@ -493,6 +540,7 @@ export interface VSchoolMonthScores {
   school_id: number | null;
   score: number | null;
   year: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VSchoolPlaces {
@@ -500,6 +548,7 @@ export interface VSchoolPlaces {
   district_place: number | null;
   place: number | null;
   school_id: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VSchoolYearScores {
@@ -507,6 +556,7 @@ export interface VSchoolYearScores {
   average_score: number | null;
   school_id: number | null;
   score: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VStudentMonthPlaces {
@@ -515,6 +565,7 @@ export interface VStudentMonthPlaces {
   place: number | null;
   student_id: number | null;
   year: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VStudentMonthScores {
@@ -524,6 +575,7 @@ export interface VStudentMonthScores {
   score: number | null;
   student_id: number | null;
   year: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VStudentPlaces {
@@ -531,6 +583,7 @@ export interface VStudentPlaces {
   district_place: number | null;
   place: number | null;
   student_id: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VStudentResultSubjectScores {
@@ -554,6 +607,7 @@ export interface VStudentYearScores {
   score: number | null;
   student_id: number | null;
   student_of_the_month_score: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VTeacherMonthPlaces {
@@ -562,6 +616,7 @@ export interface VTeacherMonthPlaces {
   place: number | null;
   teacher_id: number | null;
   year: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VTeacherMonthScores {
@@ -569,6 +624,7 @@ export interface VTeacherMonthScores {
   score: number | null;
   teacher_id: number | null;
   year: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VTeacherPlaces {
@@ -576,6 +632,7 @@ export interface VTeacherPlaces {
   district_place: number | null;
   place: number | null;
   teacher_id: number | null;
+  exam_type_id: number | null;
 }
 
 export interface VTeacherYearScores {
@@ -583,6 +640,7 @@ export interface VTeacherYearScores {
   average_score: number | null;
   score: number | null;
   teacher_id: number | null;
+  exam_type_id: number | null;
 }
 
 export interface DB {
@@ -610,6 +668,7 @@ export interface DB {
   schools: Schools;
   student_grade_history: StudentGradeHistory;
   student_results: StudentResults;
+  student_result_subject_scores: StudentResultSubjectScores;
   student_year_ratings: StudentYearRatings;
   students: Students;
   subjects: Subjects;

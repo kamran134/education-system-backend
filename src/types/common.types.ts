@@ -57,6 +57,10 @@ export interface FilterOptionsPg {
     dateFrom?: string;
     dateTo?: string;
     role?: string;
+    // IMTAHAN_NOVLERI_TASK.md §5 шаг 3: необязательный фильтр по типу экзамена для /api/stats/*.
+    // Без него resolveExamTypeId() подставляет базовый тип (is_base = true) — существующие
+    // экраны продолжают видеть ровно то же, что и до появления типов.
+    examTypeId?: number;
 }
 
 export interface SortOptions {

@@ -196,13 +196,7 @@ export class ExamTypeServicePg {
                     .where("id", "=", id)
                     .execute();
 
-                await trx
-                    .deleteFrom("exam_type_section_subjects")
-                    .where("section_id", "in", trx.selectFrom("exam_type_sections").select("id").where("exam_type_id", "=", id))
-                    .execute();
-                await trx.deleteFrom("exam_type_sections").where("exam_type_id", "=", id).execute();
-
-                await this.insertSections(trx, id, data.sections);
+                await this.upsertSections(trx, id, data.sections);
             });
 
             return (await this.findById(id))!;
@@ -267,6 +261,107 @@ export class ExamTypeServicePg {
     }
 
     /**
+     * Upsert секций по `id` (IMTAHAN_NOVLERI_TASK.md §11, долг из шага 1). Раньше update()
+     * делал DELETE FROM exam_type_section_subjects → DELETE FROM exam_type_sections → INSERT
+     * заново — безвредно, пока на exam_type_sections.id никто не ссылался. После миграции 024
+     * на него ссылается student_results.section_id: пересоздание с новым id либо роняло бы
+     * FK (если есть результаты), либо молча осиротило бы их (если делать ON DELETE SET NULL —
+     * такого нет, схема как раз запрещает потерю ссылки).
+     *
+     * Правила:
+     *  - секция с `id` из входных данных — UPDATE на месте (id не меняется, ссылки из
+     *    student_results остаются рабочими); её набор предметов (exam_type_section_subjects)
+     *    можно пересоздавать целиком — на эту таблицу никто не ссылается по отдельной строке,
+     *    только через сумму max_questions, которая для истории уже снята в student_results
+     *    (backfill 024) и результата не пересчитывает;
+     *  - секция без `id` — новая, INSERT;
+     *  - существующая секция, которой нет во входных данных, удаляется, ТОЛЬКО если на неё нет
+     *    ссылок в student_results.section_id — иначе 409, а не потеря данных.
+     */
+    private async upsertSections(
+        trx: Transaction<DB>,
+        examTypeId: number,
+        sections: ExamTypeSectionInput[]
+    ): Promise<void> {
+        const existing = await trx
+            .selectFrom("exam_type_sections")
+            .select(["id"])
+            .where("exam_type_id", "=", examTypeId)
+            .execute();
+        const existingIds = new Set(existing.map((s) => s.id));
+
+        const incomingIds = new Set(
+            sections.filter((s): s is ExamTypeSectionInput & { id: number } => s.id !== undefined).map((s) => s.id)
+        );
+
+        for (const incomingId of incomingIds) {
+            if (!existingIds.has(incomingId)) {
+                const err: any = new Error("Bölmə bu imtahan növünə aid deyil");
+                err.status = 400;
+                throw err;
+            }
+        }
+
+        const toDelete = [...existingIds].filter((sid) => !incomingIds.has(sid));
+        if (toDelete.length > 0) {
+            const referenced = await trx
+                .selectFrom("student_results")
+                .select(({ fn }) => [fn.countAll().as("count")])
+                .where("section_id", "in", toDelete)
+                .executeTakeFirstOrThrow();
+            if (Number(referenced.count) > 0) {
+                const err: any = new Error(
+                    "Bölmələrdən birinin nəticələri var — onu silmək olmaz, əvvəlcə tərkibini dəyişin"
+                );
+                err.status = 409;
+                throw err;
+            }
+            // ON DELETE CASCADE на exam_type_section_subjects (023) — набор предметов уходит вместе с секцией.
+            await trx.deleteFrom("exam_type_sections").where("id", "in", toDelete).execute();
+        }
+
+        for (const section of sections) {
+            let sectionId: number;
+            if (section.id !== undefined) {
+                sectionId = section.id;
+                await trx
+                    .updateTable("exam_type_sections")
+                    .set({ name_az: section.nameAz, grade_from: section.gradeFrom, grade_to: section.gradeTo })
+                    .where("id", "=", sectionId)
+                    .execute();
+                // Набор предметов секции никто не референсит по отдельной строке — пересоздаём целиком.
+                await trx.deleteFrom("exam_type_section_subjects").where("section_id", "=", sectionId).execute();
+            } else {
+                const inserted = await trx
+                    .insertInto("exam_type_sections")
+                    .values({
+                        exam_type_id: examTypeId,
+                        name_az: section.nameAz,
+                        grade_from: section.gradeFrom,
+                        grade_to: section.gradeTo,
+                    })
+                    .returning(["id"])
+                    .executeTakeFirstOrThrow();
+                sectionId = inserted.id;
+            }
+
+            if (section.subjects.length > 0) {
+                await trx
+                    .insertInto("exam_type_section_subjects")
+                    .values(
+                        section.subjects.map((sub) => ({
+                            section_id: sectionId,
+                            subject_code: sub.subjectCode,
+                            max_questions: sub.maxQuestions,
+                            sort_order: sub.sortOrder ?? 0,
+                        }))
+                    )
+                    .execute();
+            }
+        }
+    }
+
+    /**
      * Менять level_scale_id у типа, у которого есть результаты в незакрытом учебном году,
      * запрещено — иначе внутри одного года pillə были бы выданы по разным шкалам.
      */
@@ -295,3 +390,21 @@ export class ExamTypeServicePg {
 }
 
 export const examTypeServicePg = new ExamTypeServicePg();
+
+/**
+ * IMTAHAN_NOVLERI_TASK.md §5 шаг 3: единственное место, где решается "какой тип экзамена
+ * читать, если вызывающий не указал examTypeId явно". Используется /api/stats/* — существующие
+ * экраны рейтингов не передают этот параметр вовсе и обязаны продолжать видеть базовый тип.
+ * Бросает, если базового типа нет вовсе — инвариант "базовый тип всегда существует" держится
+ * частичным уникальным индексом exam_types_single_base (запрещает ДВА базовых) и проверкой в
+ * update() (запрещает снять is_base с единственного базового) — 0 базовых типов означало бы
+ * повреждённые данные, а не штатный случай, который стоит тихо проглатывать.
+ */
+export async function resolveExamTypeId(examTypeId?: number | null): Promise<number> {
+    if (examTypeId != null) return examTypeId;
+    const base = await pg.selectFrom("exam_types").select("id").where("is_base", "=", true).executeTakeFirst();
+    if (!base) {
+        throw new Error("Baza imtahan növü tapılmadı — məlumat bazası zədələnib");
+    }
+    return base.id;
+}

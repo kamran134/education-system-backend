@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { ExamUseCase } from "../usecases/exam.usecase";
 import { ExamServicePg } from "../services/exam.service.pg";
+import { resultTemplateService } from "../services/resultTemplate.service";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 
@@ -127,6 +128,27 @@ export class ExamController {
         }
     }
 
+    /** GET /exams/:id/results-template.xlsx?grade=N — IMTAHAN_NOVLERI_TASK.md §7. */
+    getResultsTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const examId = parseInt(req.params.id, 10);
+            const grade = parseInt(String(req.query.grade), 10);
+
+            if (isNaN(examId) || isNaN(grade)) {
+                res.status(400).json(ResponseHandler.badRequest("İmtahan və ya sinif düzgün göstərilməyib"));
+                return;
+            }
+
+            const { buffer, filename } = await resultTemplateService.generate(examId, grade);
+
+            res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+            res.send(buffer);
+        } catch (error) {
+            next(error);
+        }
+    }
+
     checkExistingExamCodes = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { codes } = req.body;
@@ -145,6 +167,7 @@ const examController = new ExamController();
 export const deleteAllExams = examController.deleteExams;
 export const getExams = examController.getExams;
 export const getExamsForFilter = examController.getExamsForFilter;
+export const getResultsTemplate = examController.getResultsTemplate;
 export const getExamById = examController.getExamById;
 export const getExamsByMonthYear = examController.getExamsByMonthYear;
 export const createExam = examController.createExam;

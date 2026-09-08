@@ -8,6 +8,7 @@ import { escapeRegex } from "../utils/validation.util";
 import { CODE_RANGES, CODE_DIVISORS } from "../utils/entity-codes.const";
 import { cascadeSchoolCodeToTeachers } from "../utils/code-cascade.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
+import { resolveExamTypeId } from "./examType.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -230,11 +231,18 @@ export class SchoolServicePg {
     ): Promise<{ data: School[]; totalCount: number }> {
         // Резолвер вместо жёсткого текущего года — REYTINQ_ILI_TASK.md §3/§5.
         const currentYear = await resolveRatingYear();
+        // IMTAHAN_NOVLERI_TASK.md §4 шаг 3: school_year_ratings.exam_type_id обязателен с
+        // 025_ratings_by_exam_type.sql (PK расширен до (school_id, year, exam_type_id)). Без
+        // фильтра по типу в джойне ниже строка школы задвоилась бы, как только у второго типа
+        // экзамена появится рейтинг за тот же год — см. student.service.pg.ts getFilteredStudents.
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
         let base = pg
             .selectFrom("schools")
             .leftJoin("school_year_ratings", (join) =>
-                join.onRef("school_year_ratings.school_id", "=", "schools.id").on("school_year_ratings.year", "=", currentYear)
+                join.onRef("school_year_ratings.school_id", "=", "schools.id")
+                    .on("school_year_ratings.year", "=", currentYear)
+                    .on("school_year_ratings.exam_type_id", "=", examTypeId)
             )
             // Only for the "district.name" sort below — attachExtras() fetches the actual district
             // data separately, this join isn't selected from.
@@ -363,6 +371,10 @@ export class SchoolServicePg {
     /** Одноразовый импорт исторических данных 2024 года — см. LEGACY_IMPORT_PLAN.md. */
     async importLegacySchools(records: any[]): Promise<{ inserted: number; updated: number; skipped: number; errors: number; details: { skippedCodes: number[]; errorMessages: string[] } }> {
         const LEGACY_YEAR = 2024;
+        // IMTAHAN_NOVLERI_TASK.md §4 шаг 3: exam_type_id обязателен в school_year_ratings с
+        // 025_ratings_by_exam_type.sql. Легаси-импорт 2024 года логически принадлежит базовому
+        // типу — единственному, существовавшему на момент этих данных.
+        const baseExamTypeId = await resolveExamTypeId();
         let inserted = 0, updated = 0, skipped = 0, errors = 0;
         const skippedCodes: number[] = [];
         const errorMessages: string[] = [];
@@ -386,7 +398,7 @@ export class SchoolServicePg {
                     }
                     const score = typeof record.score === "number" ? record.score : 0;
                     const averageScore = typeof record.averageScore === "number" ? record.averageScore : 0;
-                    await pg.insertInto("school_year_ratings").values({ school_id: existing.id, year: LEGACY_YEAR, score, average_score: averageScore, place: null, district_place: null }).execute();
+                    await pg.insertInto("school_year_ratings").values({ school_id: existing.id, year: LEGACY_YEAR, exam_type_id: baseExamTypeId, score, average_score: averageScore, place: null, district_place: null }).execute();
                     updated++;
                     continue;
                 }
@@ -413,7 +425,7 @@ export class SchoolServicePg {
                     })
                     .returning("id")
                     .executeTakeFirstOrThrow();
-                await pg.insertInto("school_year_ratings").values({ school_id: created.id, year: LEGACY_YEAR, score, average_score: averageScore, place: null, district_place: null }).execute();
+                await pg.insertInto("school_year_ratings").values({ school_id: created.id, year: LEGACY_YEAR, exam_type_id: baseExamTypeId, score, average_score: averageScore, place: null, district_place: null }).execute();
                 inserted++;
             } catch (err: any) {
                 errors++;

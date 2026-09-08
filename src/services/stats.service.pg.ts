@@ -5,6 +5,7 @@ import { FilterOptionsPg } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
 import { academicYearClosureServicePg } from "./academicYearClosure.service.pg";
+import { resolveExamTypeId } from "./examType.service.pg";
 
 export interface StatisticsFilterPg extends FilterOptionsPg {
     month?: string;
@@ -61,6 +62,22 @@ export interface RankedEntity {
 export class StatsServicePg {
     // ================================================================ WRITE-путь
 
+    /**
+     * Типы экзаменов, у которых есть результаты в этом учебном году — recompute* теперь
+     * работает в разрезе (год, тип), иначе пересчёт одного типа стирал бы рейтинги остальных
+     * (IMTAHAN_NOVLERI_TASK.md §5, шаг 3). В подавляющем большинстве случаев здесь ровно один
+     * элемент (базовый тип) — цикл существует ради будущего, когда типов станет больше.
+     */
+    private async examTypeIdsWithResults(academicYear: number): Promise<number[]> {
+        const rows = await pg
+            .selectFrom("student_results")
+            .select("exam_type_id")
+            .distinct()
+            .where("academic_year", "=", academicYear)
+            .execute();
+        return rows.map((r) => r.exam_type_id);
+    }
+
     /** Пересчёт для текущего календарного месяца — вызывается после импорта результатов. */
     async updateStats(): Promise<number> {
         const now = new Date();
@@ -77,7 +94,9 @@ export class StatsServicePg {
             .executeTakeFirstOrThrow();
 
         if (Number(count.c) === 0) {
-            await this.recomputeStudentRatings(academicYear);
+            for (const examTypeId of await this.examTypeIdsWithResults(academicYear)) {
+                await this.recomputeStudentRatings(academicYear, examTypeId);
+            }
             return 200;
         }
 
@@ -90,7 +109,9 @@ export class StatsServicePg {
 
         await this.awardStudentOfTheMonth(month, year);
         await this.markDevelopingStudents(month, year);
-        await this.recomputeStudentRatings(academicYear);
+        for (const examTypeId of await this.examTypeIdsWithResults(academicYear)) {
+            await this.recomputeStudentRatings(academicYear, examTypeId);
+        }
 
         return 200;
     }
@@ -105,13 +126,23 @@ export class StatsServicePg {
 
         await academicYearClosureServicePg.assertYearNotClosed(academicYearStart);
 
-        // Шаг 0: month/year результатов по факту даты экзамена (данные могли устареть после переноса экзамена)
+        // Шаг 0: month/year результатов по факту даты экзамена (данные могли устареть после переноса
+        // экзамена). Фильтр по незакрытым годам — починка бага, найденного при работе над §5 шага 3
+        // (IMTAHAN_NOVLERI_TASK.md): assertYearNotClosed выше проверяет только ТЕКУЩИЙ учебный год,
+        // поэтому без этого условия правка даты СТАРОГО экзамена (перенос задним числом) двигала
+        // month/year строк уже закрытого года — а academic_year, будучи generated-колонкой от
+        // (month, year), мог из-за этого вообще выкинуть результат из закрытого года. sr.academic_year
+        // IS NULL (июль/август, вне какого-либо учебного года) — законно продолжает обновляться,
+        // NOT IN с NULL в списке закрытых лет здесь не встаёт: сравнение с NULL слева отфильтровано
+        // отдельным условием IS NULL, а не полагается на поведение NOT IN.
         await sql`
             UPDATE student_results sr
             SET month = EXTRACT(MONTH FROM e.date)::int, year = EXTRACT(YEAR FROM e.date)::int
             FROM exams e
             WHERE sr.exam_id = e.id
               AND (sr.month <> EXTRACT(MONTH FROM e.date)::int OR sr.year <> EXTRACT(YEAR FROM e.date)::int)
+              AND (sr.academic_year IS NULL
+                   OR sr.academic_year NOT IN (SELECT academic_year FROM academic_year_closures))
         `.execute(pg);
 
         // Шаг 1: обнуляем баллы месяца/развития за весь учебный год (сам score студента
@@ -151,87 +182,111 @@ export class StatsServicePg {
         // Шаг 3: пересчёт score/averageScore/place — студенты (путь A, единственный для них),
         // затем учителя/школы/районы/регионы (путь B). Порядок важен: регион читает
         // v_district_year_scores, поэтому recomputeRegionRatings идёт последним.
-        await this.recomputeStudentRatings(academicYearStart);
-        await this.recomputeTeacherRatings(academicYearStart);
-        await this.recomputeSchoolRatings(academicYearStart);
-        await this.recomputeDistrictRatings(academicYearStart);
-        await this.recomputeRegionRatings(academicYearStart);
+        // В разрезе (год, тип экзамена) — IMTAHAN_NOVLERI_TASK.md §5 шаг 3: пересчёт одного типа
+        // не должен стирать рейтинги остальных, поэтому каждый recompute* вызывается по одному
+        // типу за раз, а не одним DELETE+INSERT сразу по всем строкам года.
+        for (const examTypeId of await this.examTypeIdsWithResults(academicYearStart)) {
+            await this.recomputeStudentRatings(academicYearStart, examTypeId);
+            await this.recomputeTeacherRatings(academicYearStart, examTypeId);
+            await this.recomputeSchoolRatings(academicYearStart, examTypeId);
+            await this.recomputeDistrictRatings(academicYearStart, examTypeId);
+            await this.recomputeRegionRatings(academicYearStart, examTypeId);
+        }
 
         return 200;
     }
 
     /**
-     * Награждает "студента месяца" — по району (среди учеников того же класса и района)
-     * и по республике (среди учеников того же класса) — только если победитель на лицейском
-     * уровне (isLiceyLevel). Ученики без района не участвуют ни в одной из двух номинаций —
-     * так было и в Mongo-версии (весь результат пропускался, если student.district пуст).
+     * Награждает "студента месяца" — по району (среди учеников того же класса, района И ТИПА
+     * ЭКЗАМЕНА) и по республике (среди учеников того же класса и типа) — только если победитель
+     * набрал бэнд с рангом не ниже exam_types.month_award_min_rank (NULL = условия нет вовсе).
+     * Ученики без района не участвуют ни в одной из двух номинаций — так было и в Mongo-версии
+     * (весь результат пропускался, если student.district пуст).
+     *
+     * IMTAHAN_NOVLERI_TASK.md §5 п.2: строковое сравнение upper(trim(level)) LIKE '%LISEY%'
+     * убрано целиком — это был второй, менее надёжный источник истины про pillə (level читается
+     * как текстовый код, сравнение "только Lisey" было зашито в SQL). Теперь ранг берётся из
+     * level_scale_bands по (level_scale_id, level), сохранённым на самой строке результата, и
+     * сравнивается с настраиваемым порогом типа экзамена — для базового типа порог (rank 6 =
+     * Lisey) даёт то же самое поведение, что и раньше, но уже не хардкод.
      */
     private async awardStudentOfTheMonth(month: number, year: number): Promise<void> {
         await sql`
             WITH month_results AS (
-                SELECT sr.id, sr.grade, s.district_id, sr.total_score, sr.level
+                SELECT sr.id, sr.grade, sr.exam_type_id, s.district_id, sr.total_score,
+                       b.rank AS band_rank, et.month_award_min_rank
                 FROM student_results sr
                 JOIN students s ON s.id = sr.student_id
+                JOIN exam_types et ON et.id = sr.exam_type_id
+                JOIN level_scale_bands b ON b.scale_id = sr.level_scale_id AND b.code = sr.level
                 WHERE sr.month = ${month} AND sr.year = ${year} AND s.district_id IS NOT NULL
             ),
             max_district AS (
-                SELECT grade, district_id, MAX(total_score) AS max_score
-                FROM month_results GROUP BY grade, district_id
+                SELECT exam_type_id, grade, district_id, MAX(total_score) AS max_score
+                FROM month_results GROUP BY exam_type_id, grade, district_id
             )
             UPDATE student_results SET student_of_the_month_score = 5
             WHERE id IN (
                 SELECT mr.id FROM month_results mr
-                JOIN max_district md ON md.grade = mr.grade AND md.district_id = mr.district_id AND md.max_score = mr.total_score
-                WHERE upper(trim(mr.level)) LIKE '%LISEY%' OR upper(trim(mr.level)) = 'LISE'
+                JOIN max_district md ON md.exam_type_id = mr.exam_type_id
+                    AND md.grade = mr.grade AND md.district_id = mr.district_id AND md.max_score = mr.total_score
+                WHERE mr.month_award_min_rank IS NULL OR mr.band_rank >= mr.month_award_min_rank
             )
         `.execute(pg);
 
         await sql`
             WITH month_results AS (
-                SELECT sr.id, sr.grade, sr.total_score, sr.level
+                SELECT sr.id, sr.grade, sr.exam_type_id, sr.total_score,
+                       b.rank AS band_rank, et.month_award_min_rank
                 FROM student_results sr
                 JOIN students s ON s.id = sr.student_id
+                JOIN exam_types et ON et.id = sr.exam_type_id
+                JOIN level_scale_bands b ON b.scale_id = sr.level_scale_id AND b.code = sr.level
                 WHERE sr.month = ${month} AND sr.year = ${year} AND s.district_id IS NOT NULL
             ),
             max_republic AS (
-                SELECT grade, MAX(total_score) AS max_score FROM month_results GROUP BY grade
+                SELECT exam_type_id, grade, MAX(total_score) AS max_score FROM month_results GROUP BY exam_type_id, grade
             )
             UPDATE student_results SET republic_wide_student_of_the_month_score = 5
             WHERE id IN (
                 SELECT mr.id FROM month_results mr
-                JOIN max_republic mrp ON mrp.grade = mr.grade AND mrp.max_score = mr.total_score
-                WHERE upper(trim(mr.level)) LIKE '%LISEY%' OR upper(trim(mr.level)) = 'LISE'
+                JOIN max_republic mrp ON mrp.exam_type_id = mr.exam_type_id
+                    AND mrp.grade = mr.grade AND mrp.max_score = mr.total_score
+                WHERE mr.month_award_min_rank IS NULL OR mr.band_rank >= mr.month_award_min_rank
             )
         `.execute(pg);
     }
 
     /**
-     * +10 баллов и статус "İnkişaf edən şagird" тем, чей уровень в этом месяце выше
-     * максимального уровня из ВСЕХ их более ранних результатов в этом же учебном году.
-     * Первый экзамен студента в году никогда не считается развитием (нет с чем сравнивать).
+     * +10 баллов и статус "İnkişaf edən şagird" тем, чей ранг бэнда pillə в этом месяце выше
+     * максимального ранга из ВСЕХ их более ранних результатов ТОГО ЖЕ ТИПА ЭКЗАМЕНА в этом же
+     * учебном году. Первый экзамен студента в году (по этому типу) никогда не считается
+     * развитием (нет с чем сравнивать).
+     *
+     * IMTAHAN_NOVLERI_TASK.md §5 п.1: хардкод порогов total_score (CASE WHEN sr2.total_score
+     * >= 47 THEN 6 ...) убран — это был второй источник истины про pillə, откалиброванный ровно
+     * под экзамен на 50 вопросов и ломающийся на любом другом max_questions. Сравнение теперь
+     * идёт по rank сохранённого на строке бэнда (level_scale_id, level), и только между
+     * результатами ОДНОГО типа экзамена (sr2.exam_type_id = t.exam_type_id) — иначе развитие
+     * могло бы "засчитаться" переходом от одного типа экзамена к другому с иной шкалой.
      */
     private async markDevelopingStudents(month: number, year: number): Promise<void> {
         const academicYearStart = month >= 9 ? year : year - 1;
 
         await sql`
             WITH target AS (
-                SELECT sr.id, sr.student_id, sr.total_score, e.date AS exam_date
+                SELECT sr.id, sr.student_id, sr.exam_type_id, e.date AS exam_date, b.rank AS band_rank
                 FROM student_results sr
                 JOIN exams e ON e.id = sr.exam_id
+                JOIN level_scale_bands b ON b.scale_id = sr.level_scale_id AND b.code = sr.level
                 WHERE sr.month = ${month} AND sr.year = ${year}
             ),
             prior_max AS (
-                SELECT t.id, MAX(
-                    CASE WHEN sr2.total_score >= 47 THEN 6
-                         WHEN sr2.total_score >= 42 THEN 5
-                         WHEN sr2.total_score >= 35 THEN 4
-                         WHEN sr2.total_score >= 26 THEN 3
-                         WHEN sr2.total_score >= 16 THEN 2
-                         ELSE 1 END
-                ) AS max_prev_level
+                SELECT t.id, MAX(b2.rank) AS max_prev_rank
                 FROM target t
-                JOIN student_results sr2 ON sr2.student_id = t.student_id
+                JOIN student_results sr2 ON sr2.student_id = t.student_id AND sr2.exam_type_id = t.exam_type_id
                 JOIN exams e2 ON e2.id = sr2.exam_id
+                JOIN level_scale_bands b2 ON b2.scale_id = sr2.level_scale_id AND b2.code = sr2.level
                 WHERE e2.date < t.exam_date
                   AND e2.date >= make_date(${academicYearStart}, 9, 1)
                 GROUP BY t.id
@@ -240,70 +295,72 @@ export class StatsServicePg {
             WHERE id IN (
                 SELECT t.id FROM target t
                 JOIN prior_max pm ON pm.id = t.id
-                WHERE (CASE WHEN t.total_score >= 47 THEN 6
-                            WHEN t.total_score >= 42 THEN 5
-                            WHEN t.total_score >= 35 THEN 4
-                            WHEN t.total_score >= 26 THEN 3
-                            WHEN t.total_score >= 16 THEN 2
-                            ELSE 1 END) > pm.max_prev_level
+                WHERE t.band_rank > pm.max_prev_rank
             )
         `.execute(pg);
     }
 
-    /** Полная замена строк текущего года — не ручной сброс+пересчёт, а DELETE+INSERT из view. */
-    private async recomputeStudentRatings(year: number): Promise<void> {
-        await pg.deleteFrom("student_year_ratings").where("year", "=", year).execute();
+    /**
+     * Полная замена строк текущего года — не ручной сброс+пересчёт, а DELETE+INSERT из view.
+     * В разрезе (год, тип экзамена) — IMTAHAN_NOVLERI_TASK.md §5 шаг 3: после 025_ratings_by_exam_type.sql
+     * PK каждой из пяти *_year_ratings — (сущность, год, exam_type_id), и DELETE/INSERT без
+     * фильтра по типу задел бы (и тут же переписал) рейтинги ВСЕХ типов сразу, а не только того,
+     * который сейчас пересчитывается — то есть код продолжал бы работать, но значение
+     * "пересчитать один тип, не трогая остальные" было бы невозможно выразить.
+     */
+    private async recomputeStudentRatings(year: number, examTypeId: number): Promise<void> {
+        await pg.deleteFrom("student_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO student_year_ratings (student_id, year, score, average_score, place, district_place)
-            SELECT sc.student_id, sc.academic_year, sc.score, sc.average_score, p.place, p.district_place
+            INSERT INTO student_year_ratings (student_id, year, exam_type_id, score, average_score, place, district_place)
+            SELECT sc.student_id, sc.academic_year, sc.exam_type_id, sc.score, sc.average_score, p.place, p.district_place
             FROM v_student_year_scores sc
-            LEFT JOIN v_student_places p ON p.student_id = sc.student_id AND p.academic_year = sc.academic_year
-            WHERE sc.academic_year = ${year}
+            LEFT JOIN v_student_places p ON p.student_id = sc.student_id AND p.academic_year = sc.academic_year AND p.exam_type_id = sc.exam_type_id
+            WHERE sc.academic_year = ${year} AND sc.exam_type_id = ${examTypeId}
         `.execute(pg);
     }
 
-    private async recomputeTeacherRatings(year: number): Promise<void> {
-        await pg.deleteFrom("teacher_year_ratings").where("year", "=", year).execute();
+    private async recomputeTeacherRatings(year: number, examTypeId: number): Promise<void> {
+        await pg.deleteFrom("teacher_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO teacher_year_ratings (teacher_id, year, score, average_score, place, district_place)
-            SELECT ts.teacher_id, ts.academic_year, ts.score, ts.average_score, p.place, p.district_place
+            INSERT INTO teacher_year_ratings (teacher_id, year, exam_type_id, score, average_score, place, district_place)
+            SELECT ts.teacher_id, ts.academic_year, ts.exam_type_id, ts.score, ts.average_score, p.place, p.district_place
             FROM v_teacher_year_scores ts
-            LEFT JOIN v_teacher_places p ON p.teacher_id = ts.teacher_id AND p.academic_year = ts.academic_year
-            WHERE ts.academic_year = ${year}
+            LEFT JOIN v_teacher_places p ON p.teacher_id = ts.teacher_id AND p.academic_year = ts.academic_year AND p.exam_type_id = ts.exam_type_id
+            WHERE ts.academic_year = ${year} AND ts.exam_type_id = ${examTypeId}
         `.execute(pg);
     }
 
-    private async recomputeSchoolRatings(year: number): Promise<void> {
-        await pg.deleteFrom("school_year_ratings").where("year", "=", year).execute();
+    private async recomputeSchoolRatings(year: number, examTypeId: number): Promise<void> {
+        await pg.deleteFrom("school_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO school_year_ratings (school_id, year, score, average_score, place, district_place)
-            SELECT ss.school_id, ss.academic_year, ss.score, ss.average_score, p.place, p.district_place
+            INSERT INTO school_year_ratings (school_id, year, exam_type_id, score, average_score, place, district_place)
+            SELECT ss.school_id, ss.academic_year, ss.exam_type_id, ss.score, ss.average_score, p.place, p.district_place
             FROM v_school_year_scores ss
-            LEFT JOIN v_school_places p ON p.school_id = ss.school_id AND p.academic_year = ss.academic_year
-            WHERE ss.academic_year = ${year}
+            LEFT JOIN v_school_places p ON p.school_id = ss.school_id AND p.academic_year = ss.academic_year AND p.exam_type_id = ss.exam_type_id
+            WHERE ss.academic_year = ${year} AND ss.exam_type_id = ${examTypeId}
         `.execute(pg);
     }
 
-    private async recomputeDistrictRatings(year: number): Promise<void> {
-        await pg.deleteFrom("district_year_ratings").where("year", "=", year).execute();
+    private async recomputeDistrictRatings(year: number, examTypeId: number): Promise<void> {
+        await pg.deleteFrom("district_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO district_year_ratings (district_id, year, score, average_score, place)
-            SELECT ds.district_id, ds.academic_year, ds.score, ds.average_score, p.place
+            INSERT INTO district_year_ratings (district_id, year, exam_type_id, score, average_score, place)
+            SELECT ds.district_id, ds.academic_year, ds.exam_type_id, ds.score, ds.average_score, p.place
             FROM v_district_year_scores ds
-            LEFT JOIN v_district_places p ON p.district_id = ds.district_id AND p.academic_year = ds.academic_year
-            WHERE ds.academic_year = ${year}
+            LEFT JOIN v_district_places p ON p.district_id = ds.district_id AND p.academic_year = ds.academic_year AND p.exam_type_id = ds.exam_type_id
+            WHERE ds.academic_year = ${year} AND ds.exam_type_id = ${examTypeId}
         `.execute(pg);
     }
 
     /** Регион читает v_district_year_scores — вызывать ПОСЛЕ recomputeDistrictRatings. */
-    private async recomputeRegionRatings(year: number): Promise<void> {
-        await pg.deleteFrom("region_year_ratings").where("year", "=", year).execute();
+    private async recomputeRegionRatings(year: number, examTypeId: number): Promise<void> {
+        await pg.deleteFrom("region_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO region_year_ratings (region_id, year, score, average_score, place)
-            SELECT rs.region_id, rs.academic_year, rs.score, rs.average_score, p.place
+            INSERT INTO region_year_ratings (region_id, year, exam_type_id, score, average_score, place)
+            SELECT rs.region_id, rs.academic_year, rs.exam_type_id, rs.score, rs.average_score, p.place
             FROM v_region_year_scores rs
-            LEFT JOIN v_region_places p ON p.region_id = rs.region_id AND p.academic_year = rs.academic_year
-            WHERE rs.academic_year = ${year}
+            LEFT JOIN v_region_places p ON p.region_id = rs.region_id AND p.academic_year = rs.academic_year AND p.exam_type_id = rs.exam_type_id
+            WHERE rs.academic_year = ${year} AND rs.exam_type_id = ${examTypeId}
         `.execute(pg);
     }
 
@@ -317,11 +374,26 @@ export class StatsServicePg {
     // In-memory кэш (5 мин TTL) из Mongo-версии не перенесён — не влияет на корректность,
     // можно добавить отдельно как оптимизацию, когда появится нагрузка, которая её потребует.
 
+    /**
+     * IMTAHAN_NOVLERI_TASK.md §5 шаг 3: без явного examIds список экзаменов месяца теперь
+     * сужается по типу (по умолчанию — базовый), иначе один календарный месяц смешал бы экзамены
+     * разных типов в одну статистику — новый тип экзамена без этого молча искажал бы существующие
+     * вкладки "Ayın şagirdləri"/"İnkişaf edən şagirdlər" сразу, как только у него появятся
+     * результаты. Явный examIds (уже выбранный вызывающим набор экзаменов) типом не фильтруется —
+     * он и так однозначен.
+     */
     private async resolveExamIds(filters: StatisticsFilterPg): Promise<number[]> {
         if (filters.examIds && filters.examIds.length > 0) return filters.examIds;
         if (!filters.month) throw new Error("Month is required");
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
         const { startDate, endDate } = RequestParser.parseMonthRange(filters.month);
-        const rows = await pg.selectFrom("exams").select("id").where("date", ">=", startDate).where("date", "<", endDate).execute();
+        const rows = await pg
+            .selectFrom("exams")
+            .select("id")
+            .where("date", ">=", startDate)
+            .where("date", "<", endDate)
+            .where("exam_type_id", "=", examTypeId)
+            .execute();
         return rows.map((r) => r.id);
     }
 
@@ -338,8 +410,13 @@ export class StatsServicePg {
             // показывают историю, а не только текущий учебный год. Раньше join был на currentYear —
             // из-за этого в сентябре 2026 "Orta reytinq xalı" на всех прошлых месяцах был пустым
             // (SINIF_TARIXCESI_TASK.md §2.6). sr.academic_year — generated-колонка student_results.
+            // exam_type_id в джойне — после 025_ratings_by_exam_type.sql PK student_year_ratings
+            // включает тип экзамена, у ученика может быть по строке на каждый тип за год; матчим
+            // ровно на тип ЭТОГО результата (sr.exam_type_id), иначе join размножил бы строки.
             .leftJoin("student_year_ratings as syr", (join) =>
-                join.onRef("syr.student_id", "=", "st.id").onRef("syr.year", "=", "sr.academic_year")
+                join.onRef("syr.student_id", "=", "st.id")
+                    .onRef("syr.year", "=", "sr.academic_year")
+                    .onRef("syr.exam_type_id", "=", "sr.exam_type_id")
             )
             .leftJoin("levels as lvl", "lvl.code", "sr.level")
             .where("sr.exam_id", "in", examIds)
@@ -506,18 +583,23 @@ export class StatsServicePg {
         const skip = (page - 1) * size;
         const dir = sortDirection === "asc" ? "asc" : "desc";
         const regionDistrictIds = await this.resolveRegionDistrictIds(filters.regionIds);
+        // IMTAHAN_NOVLERI_TASK.md §5 шаг 3: без examTypeId — базовый тип, существующие экраны
+        // не передают параметр вовсе и обязаны видеть ровно то же, что и до появления типов.
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
         // Месячный режим (п.10 ТЗ 04.09.2026, MONTHLY_RATINGS_TASK.md) — отдельная ветка, а не
         // общий билдер с условными выражениями: годовой путь ниже должен остаться нетронутым.
         const monthFilter = parseMonthFilter(filters.month);
         if (monthFilter) {
-            return this.getTeacherStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter, regionDistrictIds);
+            return this.getTeacherStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter, regionDistrictIds, examTypeId);
         }
 
         const baseQuery = () => {
             let q = pg
                 .selectFrom("teachers as t")
-                .leftJoin("teacher_year_ratings as tyr", (join) => join.onRef("tyr.teacher_id", "=", "t.id").on("tyr.year", "=", currentYear));
+                .leftJoin("teacher_year_ratings as tyr", (join) =>
+                    join.onRef("tyr.teacher_id", "=", "t.id").on("tyr.year", "=", currentYear).on("tyr.exam_type_id", "=", examTypeId)
+                );
             if (filters.teacherIds && filters.teacherIds.length > 0) {
                 q = q.where("t.id", "in", filters.teacherIds);
             } else {
@@ -586,7 +668,8 @@ export class StatsServicePg {
         sortColumn: string,
         sortDirection: string,
         monthFilter: { year: number; month: number },
-        regionDistrictIds: number[] | null
+        regionDistrictIds: number[] | null,
+        examTypeId: number
     ): Promise<{ data: RankedEntity[]; totalCount: number }> {
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
@@ -597,7 +680,8 @@ export class StatsServicePg {
             let q = pg
                 .selectFrom("teachers as t")
                 .leftJoin("v_teacher_month_scores as tms", (join) =>
-                    join.onRef("tms.teacher_id", "=", "t.id").on("tms.year", "=", monthFilter.year).on("tms.month", "=", monthFilter.month)
+                    join.onRef("tms.teacher_id", "=", "t.id").on("tms.year", "=", monthFilter.year)
+                        .on("tms.month", "=", monthFilter.month).on("tms.exam_type_id", "=", examTypeId)
                 );
             if (filters.teacherIds && filters.teacherIds.length > 0) {
                 q = q.where("t.id", "in", filters.teacherIds);
@@ -626,7 +710,8 @@ export class StatsServicePg {
 
         let rowsQuery = baseQuery()
             .leftJoin("v_teacher_month_places as tmp", (join) =>
-                join.onRef("tmp.teacher_id", "=", "t.id").on("tmp.year", "=", monthFilter.year).on("tmp.month", "=", monthFilter.month)
+                join.onRef("tmp.teacher_id", "=", "t.id").on("tmp.year", "=", monthFilter.year)
+                    .on("tmp.month", "=", monthFilter.month).on("tmp.exam_type_id", "=", examTypeId)
             )
             .leftJoin("schools as sc", "sc.id", "t.school_id")
             .leftJoin("districts as d", "d.id", "t.district_id")
@@ -668,17 +753,20 @@ export class StatsServicePg {
         const skip = (page - 1) * size;
         const dir = sortDirection === "asc" ? "asc" : "desc";
         const regionDistrictIds = await this.resolveRegionDistrictIds(filters.regionIds);
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
         // Месячный режим — отдельная ветка, см. комментарий в getTeacherStatistics.
         const monthFilter = parseMonthFilter(filters.month);
         if (monthFilter) {
-            return this.getSchoolStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter, regionDistrictIds);
+            return this.getSchoolStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter, regionDistrictIds, examTypeId);
         }
 
         const baseQuery = () => {
             let q = pg
                 .selectFrom("schools as sc")
-                .leftJoin("school_year_ratings as syr", (join) => join.onRef("syr.school_id", "=", "sc.id").on("syr.year", "=", currentYear))
+                .leftJoin("school_year_ratings as syr", (join) =>
+                    join.onRef("syr.school_id", "=", "sc.id").on("syr.year", "=", currentYear).on("syr.exam_type_id", "=", examTypeId)
+                )
                 .where("sc.active", "=", true);
             if (filters.districtIds && filters.districtIds.length > 0) q = q.where("sc.district_id", "in", filters.districtIds);
             if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("sc.id", "in", filters.schoolIds);
@@ -731,7 +819,8 @@ export class StatsServicePg {
         sortColumn: string,
         sortDirection: string,
         monthFilter: { year: number; month: number },
-        regionDistrictIds: number[] | null
+        regionDistrictIds: number[] | null,
+        examTypeId: number
     ): Promise<{ data: RankedEntity[]; totalCount: number }> {
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
@@ -742,7 +831,8 @@ export class StatsServicePg {
             let q = pg
                 .selectFrom("schools as sc")
                 .leftJoin("v_school_month_scores as sms", (join) =>
-                    join.onRef("sms.school_id", "=", "sc.id").on("sms.year", "=", monthFilter.year).on("sms.month", "=", monthFilter.month)
+                    join.onRef("sms.school_id", "=", "sc.id").on("sms.year", "=", monthFilter.year)
+                        .on("sms.month", "=", monthFilter.month).on("sms.exam_type_id", "=", examTypeId)
                 )
                 .where("sc.active", "=", true);
             if (filters.districtIds && filters.districtIds.length > 0) q = q.where("sc.district_id", "in", filters.districtIds);
@@ -765,7 +855,8 @@ export class StatsServicePg {
         const [rows, countRow] = await Promise.all([
             baseQuery()
                 .leftJoin("v_school_month_places as smp", (join) =>
-                    join.onRef("smp.school_id", "=", "sc.id").on("smp.year", "=", monthFilter.year).on("smp.month", "=", monthFilter.month)
+                    join.onRef("smp.school_id", "=", "sc.id").on("smp.year", "=", monthFilter.year)
+                        .on("smp.month", "=", monthFilter.month).on("smp.exam_type_id", "=", examTypeId)
                 )
                 .leftJoin("districts as d", "d.id", "sc.district_id")
                 .select([
@@ -805,17 +896,20 @@ export class StatsServicePg {
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
         const dir = sortDirection === "asc" ? "asc" : "desc";
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
         // Месячный режим — отдельная ветка, см. комментарий в getTeacherStatistics.
         const monthFilter = parseMonthFilter(filters.month);
         if (monthFilter) {
-            return this.getRegionStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter);
+            return this.getRegionStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter, examTypeId);
         }
 
         const baseQuery = () => {
             let q = pg
                 .selectFrom("regions as r")
-                .leftJoin("region_year_ratings as ryr", (join) => join.onRef("ryr.region_id", "=", "r.id").on("ryr.year", "=", currentYear))
+                .leftJoin("region_year_ratings as ryr", (join) =>
+                    join.onRef("ryr.region_id", "=", "r.id").on("ryr.year", "=", currentYear).on("ryr.exam_type_id", "=", examTypeId)
+                )
                 .where("r.active", "=", true);
             if (filters.regionIds && filters.regionIds.length > 0) q = q.where("r.id", "in", filters.regionIds);
             return q;
@@ -868,7 +962,8 @@ export class StatsServicePg {
         filters: FilterOptionsPg & { page?: number; size?: number },
         sortColumn: string,
         sortDirection: string,
-        monthFilter: { year: number; month: number }
+        monthFilter: { year: number; month: number },
+        examTypeId: number
     ): Promise<{ data: RankedEntity[]; totalCount: number }> {
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
@@ -879,7 +974,8 @@ export class StatsServicePg {
             let q = pg
                 .selectFrom("regions as r")
                 .leftJoin("v_region_month_scores as rms", (join) =>
-                    join.onRef("rms.region_id", "=", "r.id").on("rms.year", "=", monthFilter.year).on("rms.month", "=", monthFilter.month)
+                    join.onRef("rms.region_id", "=", "r.id").on("rms.year", "=", monthFilter.year)
+                        .on("rms.month", "=", monthFilter.month).on("rms.exam_type_id", "=", examTypeId)
                 )
                 .where("r.active", "=", true);
             if (filters.regionIds && filters.regionIds.length > 0) q = q.where("r.id", "in", filters.regionIds);
@@ -902,7 +998,8 @@ export class StatsServicePg {
         const [rows, countRow] = await Promise.all([
             baseQuery()
                 .leftJoin("v_region_month_places as rmp", (join) =>
-                    join.onRef("rmp.region_id", "=", "r.id").on("rmp.year", "=", monthFilter.year).on("rmp.month", "=", monthFilter.month)
+                    join.onRef("rmp.region_id", "=", "r.id").on("rmp.year", "=", monthFilter.year)
+                        .on("rmp.month", "=", monthFilter.month).on("rmp.exam_type_id", "=", examTypeId)
                 )
                 .select(["r.id as id", "r.code as code", "r.name as name", "rms.score as score", "rmp.place as place"])
                 .select(studentCountExpr.as("student_count"))
@@ -938,16 +1035,19 @@ export class StatsServicePg {
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
         // Месячный режим — отдельная ветка, см. комментарий в getTeacherStatistics.
         const monthFilter = parseMonthFilter(filters.month);
         if (monthFilter) {
-            return this.getDistrictStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter);
+            return this.getDistrictStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter, examTypeId);
         }
 
         let query = pg
             .selectFrom("districts as d")
-            .leftJoin("district_year_ratings as dyr", (join) => join.onRef("dyr.district_id", "=", "d.id").on("dyr.year", "=", currentYear))
+            .leftJoin("district_year_ratings as dyr", (join) =>
+                join.onRef("dyr.district_id", "=", "d.id").on("dyr.year", "=", currentYear).on("dyr.exam_type_id", "=", examTypeId)
+            )
             .select(["d.id as id", "d.code as code", "d.name as name", "d.region_id as region_id", "d.student_count as student_count", "dyr.score as score", "dyr.average_score as average_score"])
             // filterPlace: dense rank by score within this exact (code-filtered) scope — same reasoning
             // as getTeacherStatistics above; matches what buildFilterPlaceMap used to compute over allData.
@@ -1036,7 +1136,8 @@ export class StatsServicePg {
         filters: FilterOptionsPg & { page?: number; size?: number },
         sortColumn: string,
         sortDirection: string,
-        monthFilter: { year: number; month: number }
+        monthFilter: { year: number; month: number },
+        examTypeId: number
     ): Promise<{ data: RankedEntity[]; totalCount: number }> {
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
@@ -1045,7 +1146,8 @@ export class StatsServicePg {
         let query = pg
             .selectFrom("districts as d")
             .leftJoin("v_district_month_scores as dms", (join) =>
-                join.onRef("dms.district_id", "=", "d.id").on("dms.year", "=", monthFilter.year).on("dms.month", "=", monthFilter.month)
+                join.onRef("dms.district_id", "=", "d.id").on("dms.year", "=", monthFilter.year)
+                    .on("dms.month", "=", monthFilter.month).on("dms.exam_type_id", "=", examTypeId)
             )
             .select(["d.id as id", "d.code as code", "d.name as name", "d.region_id as region_id", "d.student_count as student_count", "dms.score as score"])
             .select(sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(dms.score, 0) DESC)`.as("filter_place"))

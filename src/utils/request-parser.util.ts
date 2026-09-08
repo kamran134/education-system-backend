@@ -101,6 +101,9 @@ export class RequestParser {
             search: req.query.search as string,
             active: req.query.active !== undefined ? req.query.active === 'true' : undefined,
             role: req.query.role as string | undefined,
+            // IMTAHAN_NOVLERI_TASK.md §5 шаг 3: необязательный фильтр по типу экзамена для
+            // /api/stats/*. Без него resolveExamTypeId() подставляет базовый тип.
+            examTypeId: req.query.examTypeId ? parseInt(req.query.examTypeId as string) : undefined,
         };
     }
 

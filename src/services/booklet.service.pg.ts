@@ -25,13 +25,13 @@ const readBookletExcel = (filePath: string): any[][] => {
     return xlsx.utils.sheet_to_json<any[]>(sheet, { header: 1, raw: false, defval: null });
 };
 
-export interface BookletDisciplines {
-    az?: string[];
-    math?: string[];
-    lifeKnowledge?: string[];
-    logic?: string[];
-    english?: string[];
-}
+// Record<string, string[]> вместо пяти захардкоженных ключей (IMTAHAN_NOVLERI_TASK.md §6) —
+// произвольный набор кодов предметов, а не только az/math/lifeKnowledge/logic/english.
+// parseAndUpsertFromExcel ниже пока опознаёт заголовки тем же эвристическим способом (см.
+// комментарий там), поэтому на практике заполняются только эти пять — но тип больше не
+// ограничивает это искусственно, и валидация идёт по набору предметов СЕКЦИИ экзамена (§5 ТЗ),
+// а не по всему справочнику subjects.
+export type BookletDisciplines = Record<string, string[]>;
 
 export interface BookletExamRef {
     id: number;
@@ -56,6 +56,13 @@ export interface Booklet {
     name: string | null;
     exam?: BookletExamRef;
     district?: BookletDistrictRef | null;
+    // IMTAHAN_NOVLERI_TASK.md §5 "хвост шага 2": subjects.name_az по кодам-ключам disciplines,
+    // JOIN'ом на сервере — страница буклета публична (без JWT), GET /subjects требует
+    // authMiddleware([]), поэтому клиент не может подтянуть названия сам. Раньше фронт держал
+    // локальный словарь пяти известных кодов с фоллбэком на код — для нового предмета показывался
+    // код вместо названия. Ключ, которого нет в subjects (не должно случаться, но не гарантировано
+    // FK — disciplines это Json), просто отсутствует в карте; клиент фоллбэкает на сам код.
+    disciplineNames: Record<string, string>;
 }
 
 export interface BookletCreate {
@@ -203,7 +210,7 @@ export class BookletServicePg {
 
             let variantColIdx = 0;
             let gradeColIdx = 1;
-            const colMap: Partial<Record<keyof BookletDisciplines, number>> = {};
+            const colMap: Record<string, number> = {};
 
             headerRow.forEach((cell: any, idx: number) => {
                 if (cell == null) return;
@@ -230,13 +237,53 @@ export class BookletServicePg {
             if (!grade || isNaN(grade)) throw new Error(`Sinif tapılmadı (sətir 4, sütun indeks ${gradeColIdx})`);
 
             const disciplines: BookletDisciplines = {};
-            for (const [field, colIdx] of Object.entries(colMap) as [keyof BookletDisciplines, number][]) {
+            for (const [field, colIdx] of Object.entries(colMap)) {
                 const answers: string[] = dataRows
                     .map((row) => String(row[colIdx] ?? "").trim())
                     .filter((val) => val !== "" && val !== "null");
 
                 if (answers.length > 0) {
                     disciplines[field] = answers;
+                }
+            }
+
+            // Валидация по набору предметов СЕКЦИИ экзамена, а не по всему справочнику subjects
+            // (IMTAHAN_NOVLERI_TASK.md §5): буклет "5-11 sinif" с ключом "az" должен падать,
+            // если у секции этого экзамена/класса "az" не настроен — до 023_exam_types_and_
+            // level_scales.sql такой проверки не было вовсе (только глобальный триггер БД
+            // validate_booklet_disciplines_keys, который знает только про существование кода
+            // предмета, а не про его принадлежность конкретной секции).
+            const disciplineKeys = Object.keys(disciplines);
+            if (disciplineKeys.length > 0) {
+                const exam = await pg.selectFrom("exams").select("exam_type_id").where("id", "=", examId).executeTakeFirst();
+                if (exam) {
+                    const section = await pg
+                        .selectFrom("exam_type_sections")
+                        .select("id")
+                        .where("exam_type_id", "=", exam.exam_type_id)
+                        .where("grade_from", "<=", grade)
+                        .where("grade_to", ">=", grade)
+                        .executeTakeFirst();
+
+                    const allowedCodes = section
+                        ? new Set(
+                              (
+                                  await pg
+                                      .selectFrom("exam_type_section_subjects")
+                                      .select("subject_code")
+                                      .where("section_id", "=", section.id)
+                                      .execute()
+                              ).map((r) => r.subject_code)
+                          )
+                        : new Set<string>();
+
+                    if (allowedCodes.size === 0) {
+                        throw new Error("Bu sinif qrupu üçün fənlər təyin edilməyib");
+                    }
+                    const unknownKey = disciplineKeys.find((k) => !allowedCodes.has(k));
+                    if (unknownKey) {
+                        throw new Error(`"${unknownKey}" fənni bu sinif üçün bölmənin tərkibinə daxil deyil`);
+                    }
                 }
             }
 
@@ -288,30 +335,45 @@ export class BookletServicePg {
     }[]): Promise<Booklet[]> {
         const examIds = [...new Set(rows.map((r) => r.exam_id))];
         const districtIds = [...new Set(rows.map((r) => r.district_id).filter((id): id is number => id != null))];
+        // Ключи disciplines — коды предметов (az/math/... или новые, из справочника subjects).
+        const subjectCodes = [...new Set(rows.flatMap((r) => Object.keys((r.disciplines as unknown as BookletDisciplines) ?? {})))];
 
-        const [exams, districts] = await Promise.all([
+        const [exams, districts, subjects] = await Promise.all([
             examIds.length > 0
                 ? pg.selectFrom("exams").select(["id", "code", "name", "date"]).where("id", "in", examIds).execute()
                 : Promise.resolve([]),
             districtIds.length > 0
                 ? pg.selectFrom("districts").select(["id", "code", "name"]).where("id", "in", districtIds).execute()
                 : Promise.resolve([]),
+            subjectCodes.length > 0
+                ? pg.selectFrom("subjects").select(["code", "name_az"]).where("code", "in", subjectCodes).execute()
+                : Promise.resolve([]),
         ]);
 
         const examById = new Map(exams.map((e) => [e.id, e]));
         const districtById = new Map(districts.map((d) => [d.id, d]));
+        const subjectNameByCode = new Map(subjects.map((s) => [s.code, s.name_az]));
 
-        return rows.map((row) => ({
-            id: row.id,
-            examId: row.exam_id,
-            districtId: row.district_id,
-            variant: row.variant,
-            grade: row.grade,
-            disciplines: row.disciplines as unknown as BookletDisciplines,
-            name: row.name,
-            exam: examById.get(row.exam_id),
-            district: row.district_id != null ? districtById.get(row.district_id) ?? null : null,
-        }));
+        return rows.map((row) => {
+            const disciplines = row.disciplines as unknown as BookletDisciplines;
+            const disciplineNames: Record<string, string> = {};
+            for (const code of Object.keys(disciplines ?? {})) {
+                const nameAz = subjectNameByCode.get(code);
+                if (nameAz) disciplineNames[code] = nameAz;
+            }
+            return {
+                id: row.id,
+                examId: row.exam_id,
+                districtId: row.district_id,
+                variant: row.variant,
+                grade: row.grade,
+                disciplines,
+                name: row.name,
+                exam: examById.get(row.exam_id),
+                district: row.district_id != null ? districtById.get(row.district_id) ?? null : null,
+                disciplineNames,
+            };
+        });
     }
 }
 

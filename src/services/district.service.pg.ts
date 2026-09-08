@@ -6,6 +6,7 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
+import { resolveExamTypeId } from "./examType.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -174,6 +175,11 @@ export class DistrictServicePg {
     ): Promise<{ data: District[]; totalCount: number }> {
         // Резолвер вместо жёсткого текущего года — REYTINQ_ILI_TASK.md §3/§5.
         const currentYear = await resolveRatingYear();
+        // IMTAHAN_NOVLERI_TASK.md §4 шаг 3: district_year_ratings.exam_type_id обязателен с
+        // 025_ratings_by_exam_type.sql (PK расширен до (district_id, year, exam_type_id)). Без
+        // фильтра по типу в джойне ниже строка района задвоилась бы, как только у второго типа
+        // экзамена появится рейтинг за тот же год — см. student.service.pg.ts getFilteredStudents.
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
         // score/averageScore/place не хранятся на districts — джойн с district_year_ratings
         // за текущий год нужен только для ORDER BY (сама запись в ответе собирается заново
@@ -183,7 +189,9 @@ export class DistrictServicePg {
         let query = pg
             .selectFrom("districts")
             .leftJoin("district_year_ratings", (join) =>
-                join.onRef("district_year_ratings.district_id", "=", "districts.id").on("district_year_ratings.year", "=", currentYear)
+                join.onRef("district_year_ratings.district_id", "=", "districts.id")
+                    .on("district_year_ratings.year", "=", currentYear)
+                    .on("district_year_ratings.exam_type_id", "=", examTypeId)
             )
             .selectAll("districts")
             .select(["district_year_ratings.score as current_score", "district_year_ratings.average_score as current_average_score", "district_year_ratings.place as current_place"]);
