@@ -78,6 +78,9 @@ function parseBaseFilters(req: Request): StatisticsFilterPg {
         grades: parseGrades(req.query.grades),
         year: req.query.year ? parseInt(req.query.year as string) : undefined,
         month: req.query.month as string,
+        // IMTAHAN_NOVLERI_TASK.md §14: тот же транспорт, что у /api/stats/* (RequestParser.
+        // parseFilterOptionsPg) — необязательный examTypeId, без него сервис берёт базовый тип.
+        examTypeId: req.query.examTypeId ? parseInt(req.query.examTypeId as string) : undefined,
     };
 }
 

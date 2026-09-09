@@ -199,11 +199,17 @@ export class RegionServicePg {
     }
 
     private async attachExtras(row: { id: number; code: number; name: string; region_of_the_year_score: number | null; active: boolean; avatar_url: string | null }): Promise<Region> {
+        // IMTAHAN_NOVLERI_TASK.md §14 «попутно найденный дефект»: после 025 PK стал
+        // (region_id, year, exam_type_id) — без фильтра по типу сущность с результатами двух
+        // типов за один год отдала бы две строки, и история в профиле показала бы год дважды.
+        // По решению заказчика (§14) профили видят только базовый тип.
+        const profileHistoryExamTypeId = await resolveExamTypeId();
         const [ratingRows, districtCountRow, studentCountRow] = await Promise.all([
             pg
                 .selectFrom("region_year_ratings")
                 .select(["year", "score", "average_score", "place"])
                 .where("region_id", "=", row.id)
+                .where("exam_type_id", "=", profileHistoryExamTypeId)
                 .orderBy("year")
                 .execute(),
             pg

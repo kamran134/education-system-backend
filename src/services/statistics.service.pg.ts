@@ -2,6 +2,7 @@ import { sql, Expression } from "kysely";
 import { pg } from "../config/pg";
 import { getCurrentAcademicYear } from "../utils/academic-year.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
+import { resolveExamTypeId } from "./examType.service.pg";
 import { MIN_PARTICIPATIONS_FOR_DEVELOPMENT } from "../config/statistics.config";
 import {
     StatisticsFilterPg,
@@ -118,14 +119,18 @@ export class StatisticsServicePg {
         start: Date,
         end: Date,
         endInclusive: boolean,
-        minParticipations: number
+        minParticipations: number,
+        examTypeId: number
     ): Promise<{ baseCount: number; developingCount: number; maxParticipations: number }> {
         let q = pg
             .selectFrom("student_results as sr")
             .innerJoin("students as st", "st.id", "sr.student_id")
             .innerJoin("exams as e", "e.id", "sr.exam_id")
             .where("e.date", ">=", start)
-            .where("e.date", endInclusive ? "<=" : "<", end);
+            .where("e.date", endInclusive ? "<=" : "<", end)
+            // IMTAHAN_NOVLERI_TASK.md §14: без этого фильтра результаты второго типа
+            // молча подмешивались бы в «развивающихся» первого.
+            .where("sr.exam_type_id", "=", examTypeId);
         // Фильтр по классу — по sr.grade (класс на момент результата), а не по живому st.grade:
         // запрос и так идёт по student_results в окне дат конкретного года.
         q = this.applyStudentFilters(q as any, "st", filters as StatisticsFilterPg, sql<number | null>`sr.grade`) as any;
@@ -162,11 +167,22 @@ export class StatisticsServicePg {
         // тумблером. Иначе с 1 сентября и до первого экзамена дашборд стоял пустой.
         const academicYear = filters.year || (await resolveRatingYear());
         const { start, end, endInclusive } = this.resolveExamWindow(filters, academicYear);
+        // IMTAHAN_NOVLERI_TASK.md §14: без examTypeId — базовый тип, старые вызовы (без параметра)
+        // продолжают видеть ровно то же, что видели до второго типа.
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
         // Регион у района, а не у студента напрямую — джойн districts нужен только для regionIds.
         // student_grade_history — только для фильтра по классу за ПРОШЕДШИЙ год: student_results
         // в этом запросе нет (считаются сами ученики), взять исторический класс больше неоткуда.
         // LEFT JOIN по PK (student_id, academic_year) строк не размножает — count остаётся верным.
+        //
+        // IMTAHAN_NOVLERI_TASK.md §15: levelResultRows (ниже) больше не читает students.max_level —
+        // lifetime-колонку без разбивки по типу экзамена (пишется от результата ЛЮБОГО типа, см.
+        // studentResult.service.pg.ts; смешивала очки разных типов — решение №6 §2 ТЗ). Распределение
+        // по pillə теперь считается из student_results: максимум ранга бэнда (level_scale_bands по
+        // (level_scale_id, level)) среди результатов ВЫБРАННОГО ТИПА в текущем окне (год/месяц), на
+        // ученика — тем же фильтром exam_type_id, что и aggRow ниже. totalStudentsRow (знаменатель
+        // процентов) остаётся общим счётчиком студентов под фильтрами — он и раньше не зависел от типа.
         let studentsBase = pg
             .selectFrom("students as st")
             .leftJoin("districts as d", "d.id", "st.district_id")
@@ -178,16 +194,38 @@ export class StatisticsServicePg {
             studentsBase = (studentsBase as any).where("d.region_id", "in", filters.regionIds);
         }
 
-        const [totalStudentsRow, levelRows, aggRow, developing] = await Promise.all([
+        const [totalStudentsRow, levelResultRows, aggRow, developing, examTypeRow] = await Promise.all([
             studentsBase.select(({ fn }) => [fn.countAll().as("count")]).executeTakeFirstOrThrow(),
-            studentsBase.select(["st.max_level as max_level", ({ fn }) => fn.countAll().as("count")]).groupBy("st.max_level").execute(),
+            (() => {
+                let q = pg
+                    .selectFrom("student_results as sr")
+                    .innerJoin("students as st", "st.id", "sr.student_id")
+                    .innerJoin("exams as e", "e.id", "sr.exam_id")
+                    .innerJoin("level_scale_bands as b", (join) =>
+                        join.onRef("b.scale_id", "=", "sr.level_scale_id").onRef("b.code", "=", "sr.level")
+                    )
+                    .where("e.date", ">=", start)
+                    .where("e.date", endInclusive ? "<=" : "<", end)
+                    .where("sr.exam_type_id", "=", examTypeId);
+                q = this.applyStudentFilters(q as any, "st", filters, sql<number | null>`sr.grade`) as any;
+                if (filters.regionIds && filters.regionIds.length > 0) {
+                    q = (q as any).innerJoin("districts as d3", "d3.id", "st.district_id").where("d3.region_id", "in", filters.regionIds);
+                }
+                return q
+                    .groupBy("sr.student_id")
+                    .select(() => [sql<number>`max(b.rank)`.as("max_rank")])
+                    .execute();
+            })(),
             (() => {
                 let q = pg
                     .selectFrom("student_results as sr")
                     .innerJoin("students as st", "st.id", "sr.student_id")
                     .leftJoin("exams as e", "e.id", "sr.exam_id")
                     .where("e.date", ">=", start)
-                    .where("e.date", endInclusive ? "<=" : "<", end);
+                    .where("e.date", endInclusive ? "<=" : "<", end)
+                    // IMTAHAN_NOVLERI_TASK.md §14: без этого фильтра «ученики месяца»/«развивающиеся»
+                    // второго типа молча попали бы в счётчики базового.
+                    .where("sr.exam_type_id", "=", examTypeId);
                 q = this.applyStudentFilters(q as any, "st", filters, sql<number | null>`sr.grade`) as any;
                 if (filters.regionIds && filters.regionIds.length > 0) {
                     q = (q as any).innerJoin("districts as d2", "d2.id", "st.district_id").where("d2.region_id", "in", filters.regionIds);
@@ -204,15 +242,18 @@ export class StatisticsServicePg {
             // BASE_FIXES_TASK.md §4.5: развитие считается только среди тех, кто участвовал
             // минимум MIN_PARTICIPATIONS_FOR_DEVELOPMENT раз — процент от этой же базы, не от
             // totalStudents (иначе разовый всплеск в апреле завышал бы цифру на плитке).
-            this.countDevelopingWithMinParticipations(filters, start, end, endInclusive, MIN_PARTICIPATIONS_FOR_DEVELOPMENT),
+            this.countDevelopingWithMinParticipations(filters, start, end, endInclusive, MIN_PARTICIPATIONS_FOR_DEVELOPMENT, examTypeId),
+            // Название типа — для подписи на плитках профиля (IMTAHAN_NOVLERI_TASK.md §14):
+            // фронт не хардкодит "Mərkəzləşmiş İmtahan", берёт из данных.
+            pg.selectFrom("exam_types").select("name_az").where("id", "=", examTypeId).executeTakeFirstOrThrow(),
         ]);
 
         const totalStudents = Number(totalStudentsRow.count);
         const levelCounts = this.emptyLevelCounts();
         const levelKeyByRank: Record<number, keyof typeof levelCounts> = { 1: "E", 2: "D", 3: "C", 4: "B", 5: "A", 6: "Lisey" };
-        for (const row of levelRows) {
-            const key = row.max_level != null ? levelKeyByRank[row.max_level] : undefined;
-            if (key) levelCounts[key] = Number(row.count);
+        for (const row of levelResultRows) {
+            const key = levelKeyByRank[Number(row.max_rank)];
+            if (key) levelCounts[key]++;
         }
 
         const scoreCount = Number(aggRow?.score_count ?? 0);
@@ -234,6 +275,8 @@ export class StatisticsServicePg {
             },
             averageScore: scoreCount > 0 ? Math.round((totalScore / scoreCount) * 100) / 100 : 0,
             levelStatistics: this.levelCountsToStatistics(levelCounts, totalStudents),
+            examTypeId,
+            examTypeName: examTypeRow.name_az,
         };
     }
 
@@ -243,13 +286,28 @@ export class StatisticsServicePg {
         // тумблером. Иначе с 1 сентября и до первого экзамена дашборд стоял пустой.
         const academicYear = filters.year || (await resolveRatingYear());
         const { start, end, endInclusive } = this.resolveExamWindow(filters, academicYear);
+        // IMTAHAN_NOVLERI_TASK.md §14: без examTypeId — базовый тип.
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
         let q = pg
             .selectFrom("student_results as sr")
             .innerJoin("students as st", "st.id", "sr.student_id")
             .innerJoin("exams as e", "e.id", "sr.exam_id")
+            // IMTAHAN_NOVLERI_TASK.md §15: уровень результата берётся из его СОБСТВЕННОГО бэнда
+            // (level_scale_bands по (level_scale_id, level)), а не из students.max_level (lifetime,
+            // без разбивки по типу — так и раньше давало неверный уровень для КАЖДОГО результата,
+            // не только смешивало типы). 1:1 к строке student_results (композитный FK
+            // гарантирует ровно один бэнд), группировку по месяцу не размножает.
+            .innerJoin("level_scale_bands as b", (join) =>
+                join.onRef("b.scale_id", "=", "sr.level_scale_id").onRef("b.code", "=", "sr.level")
+            )
             .where("e.date", ">=", start)
-            .where("e.date", endInclusive ? "<=" : "<", end);
+            .where("e.date", endInclusive ? "<=" : "<", end)
+            // Тот же резон, что в getYearlyStatistics: без фильтра результаты второго типа
+            // подмешались бы во все агрегаты этой строки, включая помесячную levelStatistics
+            // (она уже считается «по результату», см. class-докстринг — теперь по результату
+            // ОДНОГО типа, а не любого).
+            .where("sr.exam_type_id", "=", examTypeId);
         q = this.applyStudentFilters(q as any, "st", filters, sql<number | null>`sr.grade`) as any;
         if (filters.regionIds && filters.regionIds.length > 0) {
             q = (q as any).innerJoin("districts as d", "d.id", "st.district_id").where("d.region_id", "in", filters.regionIds);
@@ -264,12 +322,12 @@ export class StatisticsServicePg {
                 sql<number>`count(distinct sr.student_id) filter (where sr.republic_wide_student_of_the_month_score > 0)`.as("republic_students_of_month"),
                 sql<number>`count(distinct sr.student_id) filter (where sr.development_score > 0)`.as("developing_students"),
                 // Уровни — по каждому результату, НЕ по уникальному студенту (см. class-докстринг).
-                sql<number>`count(*) filter (where st.max_level = 1)`.as("level_e"),
-                sql<number>`count(*) filter (where st.max_level = 2)`.as("level_d"),
-                sql<number>`count(*) filter (where st.max_level = 3)`.as("level_c"),
-                sql<number>`count(*) filter (where st.max_level = 4)`.as("level_b"),
-                sql<number>`count(*) filter (where st.max_level = 5)`.as("level_a"),
-                sql<number>`count(*) filter (where st.max_level = 6)`.as("level_lisey"),
+                sql<number>`count(*) filter (where b.rank = 1)`.as("level_e"),
+                sql<number>`count(*) filter (where b.rank = 2)`.as("level_d"),
+                sql<number>`count(*) filter (where b.rank = 3)`.as("level_c"),
+                sql<number>`count(*) filter (where b.rank = 4)`.as("level_b"),
+                sql<number>`count(*) filter (where b.rank = 5)`.as("level_a"),
+                sql<number>`count(*) filter (where b.rank = 6)`.as("level_lisey"),
             ])
             .groupBy(sql`to_char(e.date, 'YYYY-MM')`)
             .orderBy(sql`to_char(e.date, 'YYYY-MM')`)
@@ -325,9 +383,11 @@ export class StatisticsServicePg {
         const academicYear = filters.year || (await resolveRatingYear());
         const { startDate, endDate } = this.getAcademicYearDates(academicYear);
         const minParticipations = filters.minParticipations && filters.minParticipations >= 2 ? filters.minParticipations : 2;
+        // IMTAHAN_NOVLERI_TASK.md §14: без examTypeId — базовый тип.
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
         const { baseCount, developingCount, maxParticipations } = await this.countDevelopingWithMinParticipations(
-            filters, startDate, endDate, false, minParticipations
+            filters, startDate, endDate, false, minParticipations, examTypeId
         );
 
         return {

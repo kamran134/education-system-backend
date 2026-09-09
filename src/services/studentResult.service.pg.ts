@@ -4,7 +4,7 @@ import { pg } from "../config/pg";
 import { DB } from "../types/db";
 import { studentServicePg, StudentCreate } from "./student.service.pg";
 import { examTypeServicePg } from "./examType.service.pg";
-import { levelScaleServicePg } from "./levelScale.service.pg";
+import { levelScaleServicePg, maxPriorBandRank } from "./levelScale.service.pg";
 import { subjectServicePg } from "./subject.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions } from "../types/common.types";
 import { readExcel } from "./excel.service";
@@ -276,6 +276,10 @@ export class StudentResultServicePg {
             const examDate = new Date(exam.date);
             const month = examDate.getUTCMonth() + 1;
             const year = examDate.getUTCFullYear();
+            // IMTAHAN_NOVLERI_TASK.md §15: то же определение учебного года, что использует
+            // markDevelopingStudents() (stats.service.pg.ts) — единый экзамен, поэтому считается
+            // один раз для всего импорта, а не на строку.
+            const academicYearStart = month >= 9 ? year : year - 1;
 
             const subjects = await subjectServicePg.findAll();
             const headerRow: any[] = Array.isArray(rows[0]) ? rows[0] : [];
@@ -392,13 +396,20 @@ export class StudentResultServicePg {
                 const scorePercent = r.maxQuestions > 0 ? (r.totalScore / r.maxQuestions) * 100 : 0;
                 const band = await levelScaleServicePg.resolveBand(examType.levelScaleId, scorePercent);
 
-                let developmentScore = 0;
-                if (student.maxLevel !== undefined && student.maxLevel !== null) {
-                    if (band.participationScore > student.maxLevel) {
-                        developmentScore = 10;
-                        studentMaxLevelUpdates.push({ id: student.id, maxLevel: band.participationScore });
-                    }
-                } else {
+                // IMTAHAN_NOVLERI_TASK.md §15: developmentScore больше НЕ сравнивается со
+                // students.max_level (lifetime, без разбивки по типу экзамена — очки разных типов
+                // смешивались бы, решение №6 §2 ТЗ: ученик мог дорасти до C на базовом типе, взять
+                // A на другом типе, вернуться на базовый и вырасти до B — не получая награду,
+                // потому что 4 < 5). Критерий — тот же, что в markDevelopingStudents()
+                // (stats.service.pg.ts): максимальный ранг бэнда среди БОЛЕЕ РАННИХ результатов
+                // ЭТОГО ЖЕ ученика по ЭТОМУ ЖЕ типу экзамена в этом же учебном году.
+                const priorMaxRank = await maxPriorBandRank(student.id, exam.exam_type_id, academicYearStart, examDate);
+                const developmentScore = priorMaxRank !== null && band.rank > priorMaxRank ? 10 : 0;
+
+                // students.max_level — ЛЕГАСИ (§15): для решений (development_score, levelStatistics)
+                // больше не читается нигде в src/, пишется только для обратной совместимости колонки.
+                // Подлежит сносу вместе с миграцией 026 — тогда убрать и эту запись.
+                if (student.maxLevel === undefined || student.maxLevel === null || band.participationScore > student.maxLevel) {
                     studentMaxLevelUpdates.push({ id: student.id, maxLevel: band.participationScore });
                 }
 

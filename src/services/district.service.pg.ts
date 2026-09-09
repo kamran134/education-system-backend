@@ -326,11 +326,17 @@ export class DistrictServicePg {
     }
 
     private async attachRatings(row: { id: number; code: number; name: string; region_id: number | null; student_count: number | null; rate: number | null; district_of_the_year_score: number | null; active: boolean; avatar_url: string | null; education_head_name: string | null }): Promise<District> {
+        // IMTAHAN_NOVLERI_TASK.md §14 «попутно найденный дефект»: после 025 PK стал
+        // (district_id, year, exam_type_id) — без фильтра по типу сущность с результатами двух
+        // типов за один год отдала бы две строки, и история в профиле показала бы год дважды.
+        // По решению заказчика (§14) профили видят только базовый тип.
+        const profileHistoryExamTypeId = await resolveExamTypeId();
         const [ratingRows, region] = await Promise.all([
             pg
                 .selectFrom("district_year_ratings")
                 .select(["year", "score", "average_score", "place"])
                 .where("district_id", "=", row.id)
+                .where("exam_type_id", "=", profileHistoryExamTypeId)
                 .orderBy("year")
                 .execute(),
             row.region_id

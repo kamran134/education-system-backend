@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { pg } from "../config/pg";
 
 export interface LevelScaleBand {
@@ -77,6 +78,43 @@ export class LevelScaleServicePg {
         }
         return band;
     }
+}
+
+/**
+ * Максимальный ранг бэнда среди БОЛЕЕ РАННИХ результатов ОДНОГО И ТОГО ЖЕ ученика по ОДНОМУ И
+ * ТОМУ ЖЕ типу экзамена в ОДНОМ И ТОМ ЖЕ учебном году. IMTAHAN_NOVLERI_TASK.md §15: критерий
+ * повторяет markDevelopingStudents() (stats.service.pg.ts) буква в букву — та же пара условий
+ * (сравнение только внутри exam_type_id + окно e.date >= 1 сентября academicYearStart,
+ * e.date < beforeDate) — иначе импорт результатов и пересчёт "Reytinqləri yenilə" считали бы
+ * development_score по-разному. Единственный источник истины для "прошлого максимума",
+ * заменяет students.max_level (не различала тип экзамена, не учитывала учебный год — очки
+ * разных типов смешивались, решение №6 §2 ТЗ).
+ *
+ * null — более ранних результатов этого типа в этом учебном году ещё не было (первый результат
+ * года по этому типу никогда не считается развитием — так же, как в markDevelopingStudents).
+ *
+ * Только результаты, привязанные к реальному экзамену (exam_id NOT NULL, есть дата) — INNER JOIN
+ * на exams исключает легаси-импорт без exam_id, тем же ограничением, что несёт markDevelopingStudents.
+ */
+export async function maxPriorBandRank(
+    studentId: number,
+    examTypeId: number,
+    academicYearStart: number,
+    beforeDate: Date
+): Promise<number | null> {
+    const row = await pg
+        .selectFrom("student_results as sr2")
+        .innerJoin("exams as e2", "e2.id", "sr2.exam_id")
+        .innerJoin("level_scale_bands as b2", (join) =>
+            join.onRef("b2.scale_id", "=", "sr2.level_scale_id").onRef("b2.code", "=", "sr2.level")
+        )
+        .select(() => [sql<number | null>`max(b2.rank)`.as("maxRank")])
+        .where("sr2.student_id", "=", studentId)
+        .where("sr2.exam_type_id", "=", examTypeId)
+        .where("e2.date", "<", beforeDate)
+        .where("e2.date", ">=", new Date(Date.UTC(academicYearStart, 8, 1)))
+        .executeTakeFirst();
+    return row?.maxRank != null ? Number(row.maxRank) : null;
 }
 
 export const levelScaleServicePg = new LevelScaleServicePg();

@@ -32,6 +32,13 @@ export interface YearlyStatistics {
     developingStudents: StatusStatistics; // İnkişaf edən şagirdlər
     averageScore: number; // Orta bal
     levelStatistics: LevelStatistics; // Статистика по уровням
+    // IMTAHAN_NOVLERI_TASK.md §14: тип экзамена, по которому реально посчитаны цифры выше
+    // (примененный examTypeId — переданный или дефолтный базовый). Фронт использует это для
+    // подписи на плитках профиля, чтобы не хардкодить название базового типа.
+    // Опционально (а не required): interface общий с мёртвым statistics.service.ts (Mongo-эпоха,
+    // не трогаем, см. CLAUDE.md), который типов экзаменов не знает и это поле не заполняет.
+    examTypeId?: number;
+    examTypeName?: string;
 }
 
 export interface MonthlyStatistics {
@@ -73,6 +80,9 @@ export interface StatisticsFilterPg {
     grades?: number[];
     year?: number;
     month?: string;
+    // IMTAHAN_NOVLERI_TASK.md §14: необязательный фильтр по типу экзамена для /api/statistics/*.
+    // Без него resolveExamTypeId() подставляет базовый тип.
+    examTypeId?: number;
 }
 
 export interface InkishafFilterPg extends StatisticsFilterPg {

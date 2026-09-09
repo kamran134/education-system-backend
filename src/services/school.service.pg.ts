@@ -475,8 +475,13 @@ export class SchoolServicePg {
         const districtIds = [...new Set(rows.map((r) => r.district_id))];
         const currentYear = await resolveRatingYear();
 
+        // IMTAHAN_NOVLERI_TASK.md §14 «попутно найденный дефект»: после 025 PK стал
+        // (school_id, year, exam_type_id) — без фильтра по типу сущность с результатами двух
+        // типов за один год отдала бы две строки, и история в профиле показала бы год дважды.
+        // По решению заказчика (§14) профили видят только базовый тип.
+        const profileHistoryExamTypeId = await resolveExamTypeId();
         const [ratingsRows, districtRows] = await Promise.all([
-            pg.selectFrom("school_year_ratings").select(["school_id", "year", "score", "average_score", "place", "district_place"]).where("school_id", "in", schoolIds).orderBy("year").execute(),
+            pg.selectFrom("school_year_ratings").select(["school_id", "year", "score", "average_score", "place", "district_place"]).where("school_id", "in", schoolIds).where("exam_type_id", "=", profileHistoryExamTypeId).orderBy("year").execute(),
             pg.selectFrom("districts").select(["id", "code", "name"]).where("id", "in", districtIds).execute(),
         ]);
 
