@@ -159,9 +159,7 @@ export class UserServicePg {
             buildBase().selectAll("users").select([
                 "sc.name as linked_school_name",
                 "t.fullname as linked_teacher_name",
-                "st.last_name as linked_student_last_name",
-                "st.first_name as linked_student_first_name",
-                "st.middle_name as linked_student_middle_name",
+                "st.fullname as linked_student_fullname",
                 "d.name as linked_district_name",
                 "r.name as linked_region_name",
             ])
@@ -186,9 +184,7 @@ export class UserServicePg {
     private toUserWithLinkedName(row: Parameters<UserServicePg['toUser']>[0] & {
         linked_school_name: string | null;
         linked_teacher_name: string | null;
-        linked_student_last_name: string | null;
-        linked_student_first_name: string | null;
-        linked_student_middle_name: string | null;
+        linked_student_fullname: string | null;
         linked_district_name: string | null;
         linked_region_name: string | null;
     }): User {
@@ -202,9 +198,8 @@ export class UserServicePg {
                 if (row.linked_teacher_name) { user.linkedName = row.linked_teacher_name; user.linkedType = 'teacher'; }
                 break;
             case 'student':
-                if (row.linked_student_first_name) {
-                    // Порядок «Фамилия Имя Отчество» — тот же, что в certificate-issue.service.ts.
-                    user.linkedName = [row.linked_student_last_name, row.linked_student_first_name, row.linked_student_middle_name].filter(Boolean).join(' ');
+                if (row.linked_student_fullname) {
+                    user.linkedName = row.linked_student_fullname;
                     user.linkedType = 'student';
                 }
                 break;

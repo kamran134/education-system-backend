@@ -36,7 +36,7 @@ const ENTITY_FIELDS: Record<ProfileChangeEntityType, string[]> = {
     school: ["name", "directorName", "foundedYear", "achievements"],
     teacher: ["fullname", "gradeLabel", "pedagogicalExperienceYears", "achievements"],
     district: ["educationHeadName"],
-    student: ["lastName", "firstName", "middleName"],
+    student: ["fullname"],
 };
 
 function mapRow(row: any): ProfileChangeRequest {
@@ -234,7 +234,7 @@ export class ProfileChangeRequestServicePg {
                 ? pg.selectFrom("districts").select(["id", "name", "education_head_name"]).where("id", "in", idsByType.district).execute()
                 : Promise.resolve([]),
             idsByType.student.length > 0
-                ? pg.selectFrom("students").select(["id", "last_name", "first_name", "middle_name"]).where("id", "in", idsByType.student).execute()
+                ? pg.selectFrom("students").select(["id", "fullname"]).where("id", "in", idsByType.student).execute()
                 : Promise.resolve([]),
         ]);
 
@@ -260,8 +260,8 @@ export class ProfileChangeRequestServicePg {
                 current = { educationHeadName: d?.education_head_name ?? null };
             } else {
                 const s = studentById.get(r.entity_id);
-                entityName = s ? [s.last_name, s.first_name, s.middle_name].filter(Boolean).join(" ") : "—";
-                current = { lastName: s?.last_name ?? null, firstName: s?.first_name ?? null, middleName: s?.middle_name ?? null };
+                entityName = s?.fullname ?? "—";
+                current = { fullname: s?.fullname ?? null };
             }
 
             return {

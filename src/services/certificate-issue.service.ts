@@ -185,9 +185,7 @@ export class CertificateIssueService {
                 "sr.level as level",
                 "sr.academic_year as academic_year",
                 "e.date as exam_date",
-                "st.last_name as last_name",
-                "st.first_name as first_name",
-                "st.middle_name as middle_name",
+                "st.fullname as student_fullname",
                 "sc.name as school_name",
                 "d.name as district_name",
                 "t.fullname as teacher_fullname",
@@ -211,7 +209,7 @@ export class CertificateIssueService {
             LIMIT 1
         `.execute(pg);
 
-        const studentFullName = [row.last_name, row.first_name, row.middle_name].filter(Boolean).join(" ");
+        const studentFullName = row.student_fullname;
 
         return {
             levelCode: row.level,

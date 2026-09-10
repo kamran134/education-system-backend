@@ -44,7 +44,10 @@ export class ResultTemplateService {
             throw err;
         }
 
-        const header: string[] = ["Şagird kodu", "Sinif", "Soyad", "Ad", "Ata adı"];
+        // SAGIRD_FULLNAME_TASK.md §5: одна колонка ФИО вместо трёх legacy — заголовок должен
+        // ТОЧНО совпадать с SINGLE_FULLNAME_HEADERS в studentResult.service.pg.ts (сравнение
+        // регистронезависимое, но текст — тот же).
+        const header: string[] = ["Şagird kodu", "Sinif", "Soyadı, adı, ata adı"];
         const orderedSubjects = [...section.subjects].sort((a, b) => a.sortOrder - b.sortOrder);
         for (const subject of orderedSubjects) {
             header.push(subject.nameAz);

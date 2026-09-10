@@ -135,21 +135,21 @@ export class StudentController {
                 return;
             }
 
-            const { lastName, firstName, middleName } = req.body;
-            const validationError = this.studentUseCase.validateProfilePayload({ lastName, firstName, middleName });
+            const { fullname } = req.body;
+            const validationError = this.studentUseCase.validateProfilePayload({ fullname });
             if (validationError) {
                 res.status(400).json(ResponseHandler.badRequest(validationError));
                 return;
             }
 
             if (isAdminLike(req.user?.role)) {
-                const student = await this.studentUseCase.updateStudentProfile(id, { lastName, firstName, middleName });
+                const student = await this.studentUseCase.updateStudentProfile(id, { fullname });
                 res.status(200).json(ResponseHandler.updated(student, 'Profil uğurla yeniləndi'));
                 return;
             }
 
             const submittedBy = parseInt(req.user!.userId, 10);
-            const request = await profileChangeRequestServicePg.submit('student', parseInt(id, 10), { lastName, firstName, middleName }, submittedBy);
+            const request = await profileChangeRequestServicePg.submit('student', parseInt(id, 10), { fullname }, submittedBy);
             res.status(202).json(ResponseHandler.success(request, 'Məlumatlar admin təsdiqinə göndərildi'));
         } catch (error: any) {
             console.error('Error in updateProfile (student):', error);

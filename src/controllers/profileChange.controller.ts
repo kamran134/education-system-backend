@@ -137,9 +137,9 @@ export class ProfileChangeController {
             } else if (pending.entityType === "district") {
                 await this.districtUseCase.updateDistrictProfile(String(pending.entityId), finalPayload);
             } else {
-                // updateStudentProfile сам вырезает лишние поля (lastName/firstName/middleName
-                // только) — даже если finalPayload пришёл из body admin-запроса «Düzəliş et»
-                // с чем-то посторонним, через модерацию не должно проходить ничего, кроме имени.
+                // updateStudentProfile сам вырезает лишние поля (fullname только) — даже если
+                // finalPayload пришёл из body admin-запроса «Düzəliş et» с чем-то посторонним,
+                // через модерацию не должно проходить ничего, кроме имени.
                 await this.studentUseCase.updateStudentProfile(String(pending.entityId), finalPayload);
             }
 

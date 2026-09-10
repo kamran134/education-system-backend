@@ -11,6 +11,12 @@ import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { CODE_RANGES } from "../utils/entity-codes.const";
 
+// SAGIRD_FULLNAME_TASK.md §5: заголовок col 2 файла импорта, распознаваемый как ОДНА колонка ФИО
+// (а не первая из трёх legacy-колонок Soyadı/Adı/Ata adı). "Soyadı, adı, ata adı" — заголовок,
+// который генерирует resultTemplate.service.ts; "Şagirdin adı" — синоним, который заказчик
+// использует в части уже существующих у районов файлов. Сравнение регистронезависимое.
+const SINGLE_FULLNAME_HEADERS = new Set(["soyadı, adı, ata adı", "şagirdin adı"]);
+
 /**
  * Баллы по одному предмету одного результата. Заменяет пятиколоночный StudentResultDisciplines
  * (IMTAHAN_NOVLERI_TASK.md §4-§7, шаг 2): произвольный набор предметов на тип экзамена, столбцами
@@ -34,9 +40,7 @@ export interface StudentResultSubjectScoreRow {
 export interface StudentRef {
     id: number;
     code: number;
-    lastName: string | null;
-    firstName: string;
-    middleName: string | null;
+    fullname: string;
 }
 
 export interface ExamRef {
@@ -283,7 +287,16 @@ export class StudentResultServicePg {
 
             const subjects = await subjectServicePg.findAll();
             const headerRow: any[] = Array.isArray(rows[0]) ? rows[0] : [];
-            const subjectColumns = this.parseHeaderColumns(headerRow, subjects);
+            // SAGIRD_FULLNAME_TASK.md §5: заголовок col 2 решает формат имени — одна колонка ФИО
+            // (шаблон с шага 3, resultTemplate.service.ts) или три legacy-колонки (файлы, которые
+            // уже лежат у районов с шага 2). Предметы начинаются сразу после имени — col 3 в
+            // первом случае, col 5 (как раньше) во втором. Если файл почему-то содержит оба
+            // варианта — побеждает одна колонка, о расхождении не ругаемся (§5 ТЗ).
+            const nameHeader = String(headerRow[2] ?? "").trim().toLocaleLowerCase("az");
+            const isSingleNameColumn = SINGLE_FULLNAME_HEADERS.has(nameHeader);
+            const subjectsStartIdx = isSingleNameColumn ? 3 : 5;
+
+            const subjectColumns = this.parseHeaderColumns(headerRow, subjects, subjectsStartIdx);
             if (subjectColumns.filter((c) => !c.isCount).length === 0) {
                 throw this.importError("Fayl başlıqlarında fənn sütunları tapılmadı");
             }
@@ -296,7 +309,7 @@ export class StudentResultServicePg {
             const invalidStudentCodes: number[] = [];
             const studentsWithIncorrectResults: Array<{ code: number; reason: string }> = [];
             const parsedRows: Array<{
-                grade: number; studentCode: number; lastName: string; firstName: string; middleName: string;
+                grade: number; studentCode: number; fullname: string;
                 subjectScores: Array<{ subjectCode: string; score: number; questionCount: number | null }>;
                 totalScore: number; sectionId: number; maxQuestions: number;
             }> = [];
@@ -366,12 +379,14 @@ export class StudentResultServicePg {
                     continue;
                 }
 
+                const fullname = isSingleNameColumn
+                    ? String(row[2] ?? "").trim()
+                    : [row[2], row[3], row[4]].map((v) => String(v ?? "").trim()).filter(Boolean).join(" ");
+
                 parsedRows.push({
                     grade,
                     studentCode: code,
-                    lastName: String(row[2] ?? "").trim(),
-                    firstName: String(row[3] ?? "").trim(),
-                    middleName: String(row[4] ?? "").trim(),
+                    fullname,
                     subjectScores,
                     totalScore,
                     sectionId: config.sectionId,
@@ -380,7 +395,7 @@ export class StudentResultServicePg {
             }
 
             const studentDataToInsert = parsedRows.map((r) => ({
-                code: r.studentCode, lastName: r.lastName, firstName: r.firstName, middleName: r.middleName,
+                code: r.studentCode, fullname: r.fullname,
                 grade: r.grade, maxLevel: null as number | null,
             }));
             const { students, studentsWithoutTeacher } = await this.processStudentResults(studentDataToInsert);
@@ -470,7 +485,7 @@ export class StudentResultServicePg {
      * students.max_level через studentMaxLevelUpdates, как и раньше.
      */
     private async processStudentResults(
-        studentDataToInsert: Array<{ code: number; lastName: string; firstName: string; middleName: string; grade: number; maxLevel: number | null }>
+        studentDataToInsert: Array<{ code: number; fullname: string; grade: number; maxLevel: number | null }>
     ): Promise<{ students: Array<{ id: number; code: number; maxLevel: number | null }>; studentsWithoutTeacher: number[] }> {
         const studentCodes = studentDataToInsert.map((s) => s.code);
         const existingStudents = studentCodes.length > 0
@@ -491,7 +506,7 @@ export class StudentResultServicePg {
                 return;
             }
             studentsWithTeacher.push({
-                code: s.code, lastName: s.lastName, firstName: s.firstName, middleName: s.middleName,
+                code: s.code, fullname: s.fullname,
                 grade: s.grade, teacherId, schoolId, districtId, maxLevel: s.maxLevel ?? undefined,
             });
         });
@@ -502,7 +517,7 @@ export class StudentResultServicePg {
                 .insertInto("students")
                 .values(
                     studentsWithTeacher.map((s) => ({
-                        code: s.code, last_name: s.lastName ?? null, first_name: s.firstName!, middle_name: s.middleName ?? null,
+                        code: s.code, fullname: s.fullname,
                         grade: s.grade ?? null, teacher_id: s.teacherId ?? null, school_id: s.schoolId ?? null, district_id: s.districtId ?? null,
                         max_level: s.maxLevel ?? null,
                     }))
@@ -562,17 +577,17 @@ export class StudentResultServicePg {
         }
 
         const [allStudents, baseType, levelScale] = await Promise.all([
-            pg.selectFrom("students").select(["id", "last_name", "first_name", "middle_name"]).execute(),
+            // fullname, а не склейка трёх легаси-колонок (SAGIRD_FULLNAME_TASK.md): значение
+            // побайтно то же самое — 025b заполнила fullname ровно этой склейкой, — но так
+            // здесь не остаётся последнего живого читателя last_name/first_name/middle_name,
+            // и миграция сноса этих колонок не потребует правок в этом файле.
+            pg.selectFrom("students").select(["id", "fullname"]).execute(),
             pg.selectFrom("exam_types").select("id").where("is_base", "=", true).executeTakeFirstOrThrow(),
             pg.selectFrom("level_scales").select("id").where("code", "=", "isim_percent").executeTakeFirstOrThrow(),
         ]);
         const studentMap = new Map<string, { id: number }>();
         for (const student of allStudents) {
-            const fullName = [student.last_name, student.first_name, student.middle_name]
-                .map((part) => (part ?? "").trim())
-                .filter(Boolean)
-                .join(" ")
-                .trim();
+            const fullName = (student.fullname ?? "").trim();
             if (fullName) studentMap.set(fullName, { id: student.id });
         }
 
@@ -760,19 +775,21 @@ export class StudentResultServicePg {
         }
     }
 
-    /** Заголовки строки 1 шаблона (col 0-4 фиксированы позиционно: код/класс/фамилия/имя/отчество,
-     *  см. resultTemplate.service.ts), col 5+ — предметы, опознаются по name_az или
+    /** Заголовки строки 1 шаблона: col 0-1 фиксированы позиционно (код/класс), col 2..startIdx-1 —
+     *  имя ученика (одна колонка ФИО ИЛИ три legacy-колонки, см. SINGLE_FULLNAME_HEADERS/startIdx
+     *  в processStudentResultsFromExcel), col startIdx+ — предметы, опознаются по name_az или
      *  "<name_az> (sual sayı)". Неопознанный заголовок — исключение с указанием колонки и
      *  текста (§7 ТЗ: "неизвестный заголовок — ошибка импорта, а не молчаливый пропуск"). */
     private parseHeaderColumns(
         headerRow: any[],
-        subjects: Array<{ code: string; nameAz: string }>
+        subjects: Array<{ code: string; nameAz: string }>,
+        startIdx: number
     ): Array<{ colIdx: number; subjectCode: string; nameAz: string; isCount: boolean }> {
         const byName = new Map(subjects.map((s) => [s.nameAz.trim(), s.code]));
         const countSuffix = " (sual sayı)";
         const columns: Array<{ colIdx: number; subjectCode: string; nameAz: string; isCount: boolean }> = [];
 
-        for (let i = 5; i < headerRow.length; i++) {
+        for (let i = startIdx; i < headerRow.length; i++) {
             const raw = headerRow[i];
             const text = raw == null ? "" : String(raw).trim();
             if (text === "") continue;
@@ -824,7 +841,7 @@ export class StudentResultServicePg {
         const sectionIds = [...new Set(rows.map((r) => r.section_id).filter((id): id is number => id != null))];
 
         const [students, exams, subjectScoreRows, sectionSubjectRows] = await Promise.all([
-            pg.selectFrom("students").select(["id", "code", "last_name", "first_name", "middle_name"]).where("id", "in", studentIds).execute(),
+            pg.selectFrom("students").select(["id", "code", "fullname"]).where("id", "in", studentIds).execute(),
             examIds.length > 0 ? pg.selectFrom("exams").select(["id", "code", "name", "date"]).where("id", "in", examIds).execute() : Promise.resolve([]),
             pg
                 .selectFrom("student_result_subject_scores as srs")
@@ -880,7 +897,7 @@ export class StudentResultServicePg {
                 month: row.month,
                 year: row.year,
                 student: student
-                    ? { id: student.id, code: student.code, lastName: student.last_name, firstName: student.first_name, middleName: student.middle_name }
+                    ? { id: student.id, code: student.code, fullname: student.fullname }
                     : undefined,
                 exam: row.exam_id != null ? (exam ? { id: exam.id, code: exam.code, name: exam.name, date: exam.date } : null) : undefined,
             };

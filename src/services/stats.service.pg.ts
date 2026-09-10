@@ -26,7 +26,7 @@ export interface StudentResultStatRow {
     month: number;
     year: number;
     studentData: {
-        id: number; code: number; lastName: string | null; firstName: string; middleName: string | null;
+        id: number; code: number; fullname: string;
         grade: number | null; averageScore: number | null; avatarUrl: string | null;
         teacher: { id: number; fullname: string } | null;
         school: { id: number; name: string } | null;
@@ -434,8 +434,8 @@ export class StatsServicePg {
                 sql<number>`coalesce(sr.participation_score, 0) + coalesce(sr.development_score, 0)
                     + coalesce(sr.student_of_the_month_score, 0)
                     + coalesce(sr.republic_wide_student_of_the_month_score, 0)`.as("rating_score"),
-                "st.id as student_id", "st.code as student_code", "st.last_name as student_last_name",
-                "st.first_name as student_first_name", "st.middle_name as student_middle_name", "st.grade as student_grade",
+                "st.id as student_id", "st.code as student_code", "st.fullname as student_fullname",
+                "st.grade as student_grade",
                 "st.avatar_url as student_avatar_url",
                 "syr.average_score as student_average_score",
                 "t.id as teacher_id", "t.fullname as teacher_fullname",
@@ -475,10 +475,10 @@ export class StatsServicePg {
             const columnMap: Record<string, any> = {
                 // Порядок силы уровня — из справочника levels (E=1..Lisey=6), а не из хардкода.
                 level: sql`lvl.rank`,
-                code: sql`st.code`, lastName: sql`st.last_name COLLATE az_ci`, firstName: sql`st.first_name COLLATE az_ci`,
+                code: sql`st.code`, fullname: sql`st.fullname COLLATE az_ci`,
                 // sr.grade (класс на момент результата), не st.grade (живой) — сортировка должна
                 // идти по тому же классу, который показан в колонке (см. r.grade в маппинге ниже).
-                middleName: sql`st.middle_name COLLATE az_ci`, grade: sql`sr.grade`,
+                grade: sql`sr.grade`,
                 teacher: sql`t.fullname COLLATE az_ci`, school: sql`sc.name COLLATE az_ci`, district: sql`d.name COLLATE az_ci`,
                 totalScore: sql`sr.total_score`, averageScore: sql`syr.average_score`,
                 score: sql`coalesce(sr.participation_score, 0) + coalesce(sr.development_score, 0)
@@ -498,8 +498,8 @@ export class StatsServicePg {
             republicWideStudentOfTheMonthScore: r.republic_wide_student_of_the_month_score,
             month: r.month, year: r.year, score: Number(r.rating_score ?? 0),
             studentData: {
-                id: r.student_id, code: r.student_code, lastName: r.student_last_name, firstName: r.student_first_name,
-                middleName: r.student_middle_name, grade: r.student_grade, averageScore: r.student_average_score,
+                id: r.student_id, code: r.student_code, fullname: r.student_fullname,
+                grade: r.student_grade, averageScore: r.student_average_score,
                 avatarUrl: r.student_avatar_url,
                 teacher: r.teacher_id ? { id: r.teacher_id, fullname: r.teacher_fullname } : null,
                 school: r.school_id ? { id: r.school_id, name: r.school_name } : null,

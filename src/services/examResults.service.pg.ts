@@ -25,7 +25,7 @@ export interface ExamResultRow {
     // (exam-results.component.html/ts) обращаются именно к studentData.*, тот же паттерн,
     // что и в stats.service.pg.ts.
     studentData: {
-        id: number; code: number; lastName: string | null; firstName: string; middleName: string | null;
+        id: number; code: number; fullname: string;
         teacher: { id: number; fullname: string } | null;
         school: { id: number; name: string } | null;
         district: { id: number; name: string } | null;
@@ -77,8 +77,7 @@ export class ExamResultsServicePg {
             .select([
                 "sr.id as id", "sr.grade as grade", "sr.total_score as total_score", "sr.level as level", "sr.status as status",
                 "sr.section_id as section_id", "sr.max_questions as max_questions", "sr.score_percent as score_percent",
-                "st.id as student_id", "st.code as student_code", "st.last_name as student_last_name",
-                "st.first_name as student_first_name", "st.middle_name as student_middle_name",
+                "st.id as student_id", "st.code as student_code", "st.fullname as student_fullname",
                 "t.id as teacher_id", "t.fullname as teacher_fullname",
                 "sc.id as school_id", "sc.name as school_name",
                 "d.id as district_id", "d.name as district_name",
@@ -98,8 +97,7 @@ export class ExamResultsServicePg {
             level: r.level,
             status: r.status,
             studentData: {
-                id: r.student_id, code: r.student_code, lastName: r.student_last_name,
-                firstName: r.student_first_name, middleName: r.student_middle_name,
+                id: r.student_id, code: r.student_code, fullname: r.student_fullname,
                 teacher: r.teacher_id != null ? { id: r.teacher_id, fullname: r.teacher_fullname! } : null,
                 school: r.school_id != null ? { id: r.school_id, name: r.school_name! } : null,
                 district: r.district_id != null ? { id: r.district_id, name: r.district_name! } : null,
@@ -124,8 +122,7 @@ export class ExamResultsServicePg {
             .select([
                 "sr.id as id", "sr.grade as grade", "sr.total_score as total_score", "sr.level as level", "sr.status as status",
                 "sr.section_id as section_id", "sr.max_questions as max_questions", "sr.score_percent as score_percent",
-                "st.id as student_id", "st.code as student_code", "st.last_name as student_last_name",
-                "st.first_name as student_first_name", "st.middle_name as student_middle_name",
+                "st.id as student_id", "st.code as student_code", "st.fullname as student_fullname",
                 "t.id as teacher_id", "t.fullname as teacher_fullname",
                 "sc.id as school_id", "sc.name as school_name",
                 "d.id as district_id", "d.name as district_name",
@@ -143,8 +140,7 @@ export class ExamResultsServicePg {
             level: row.level,
             status: row.status,
             studentData: {
-                id: row.student_id, code: row.student_code, lastName: row.student_last_name,
-                firstName: row.student_first_name, middleName: row.student_middle_name,
+                id: row.student_id, code: row.student_code, fullname: row.student_fullname,
                 teacher: row.teacher_id != null ? { id: row.teacher_id, fullname: row.teacher_fullname! } : null,
                 school: row.school_id != null ? { id: row.school_id, name: row.school_name! } : null,
                 district: row.district_id != null ? { id: row.district_id, name: row.district_name! } : null,
@@ -218,12 +214,7 @@ export class ExamResultsServicePg {
         if (filters.search) {
             const terms = filters.search.trim().split(/\s+/).map(escapeRegex);
             for (const term of terms) {
-                q = q.where((eb: any) =>
-                    eb.or([
-                        eb("st.first_name", "ilike", `%${term}%`),
-                        eb("st.last_name", "ilike", `%${term}%`),
-                    ])
-                ) as Q;
+                q = q.where((eb: any) => eb("st.fullname", "ilike", `%${term}%`)) as Q;
             }
         }
 
@@ -234,8 +225,7 @@ export class ExamResultsServicePg {
         const map: Record<string, any> = {
             "exam.date": sql`e.date`,
             "studentData.code": sql`st.code`,
-            "studentData.lastName": sql`st.last_name COLLATE az_ci`,
-            "studentData.firstName": sql`st.first_name COLLATE az_ci`,
+            "studentData.fullname": sql`st.fullname COLLATE az_ci`,
             "studentData.school.name": sql`sc.name COLLATE az_ci`,
             "studentData.teacher.fullname": sql`t.fullname COLLATE az_ci`,
             "studentData.district.name": sql`d.name COLLATE az_ci`,

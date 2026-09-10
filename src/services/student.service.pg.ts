@@ -32,9 +32,7 @@ export interface TeacherSummary {
 export interface Student {
     id: number;
     code: number;
-    lastName: string | null;
-    firstName: string;
-    middleName: string | null;
+    fullname: string;
     grade: number | null;
     teacherId: number | null;
     schoolId: number | null;
@@ -59,9 +57,7 @@ export interface Student {
 
 export interface StudentCreate {
     code: number;
-    lastName?: string | null;
-    firstName: string;
-    middleName?: string | null;
+    fullname: string;
     grade?: number | null;
     teacherId?: number | null;
     schoolId?: number | null;
@@ -112,7 +108,7 @@ export interface StudentResultRow {
 }
 
 type StudentRow = {
-    id: number; code: number; last_name: string | null; first_name: string; middle_name: string | null;
+    id: number; code: number; fullname: string;
     grade: number | null; teacher_id: number | null; school_id: number | null; district_id: number | null;
     max_level: number | null; status: string | null; avatar_url: string | null;
 };
@@ -223,8 +219,7 @@ export class StudentServicePg {
         const row = await pg
             .insertInto("students")
             .values({
-                code: data.code, last_name: data.lastName ?? null, first_name: data.firstName,
-                middle_name: data.middleName ?? null, grade: data.grade ?? null,
+                code: data.code, fullname: data.fullname, grade: data.grade ?? null,
                 teacher_id: teacherId ?? null, school_id: schoolId ?? null, district_id: districtId ?? null,
                 max_level: data.maxLevel ?? null, status: data.status ?? null,
             })
@@ -238,9 +233,7 @@ export class StudentServicePg {
             .updateTable("students")
             .set({
                 ...(data.code !== undefined && { code: data.code }),
-                ...(data.lastName !== undefined && { last_name: data.lastName }),
-                ...(data.firstName !== undefined && { first_name: data.firstName }),
-                ...(data.middleName !== undefined && { middle_name: data.middleName }),
+                ...(data.fullname !== undefined && { fullname: data.fullname }),
                 ...(data.grade !== undefined && { grade: data.grade }),
                 ...(data.teacherId !== undefined && { teacher_id: data.teacherId }),
                 ...(data.schoolId !== undefined && { school_id: data.schoolId }),
@@ -258,13 +251,13 @@ export class StudentServicePg {
 
     /**
      * Применяет ФИО ученика после подтверждения заявки на модерацию (п.3 ТЗ 04.09.2026) —
-     * сознательно НЕ через общий update(): туда не должно долетать ничего, кроме этих трёх
-     * полей, даже если approve() когда-нибудь передаст сюда более широкий объект.
+     * сознательно НЕ через общий update(): туда не должно долетать ничего, кроме этого поля,
+     * даже если approve() когда-нибудь передаст сюда более широкий объект.
      */
-    async updateProfile(id: number, data: { lastName: string | null; firstName: string; middleName: string | null }): Promise<Student> {
+    async updateProfile(id: number, data: { fullname: string }): Promise<Student> {
         const row = await pg
             .updateTable("students")
-            .set({ last_name: data.lastName, first_name: data.firstName, middle_name: data.middleName })
+            .set({ fullname: data.fullname })
             .where("id", "=", id)
             .returningAll()
             .executeTakeFirst();
@@ -419,9 +412,7 @@ export class StudentServicePg {
         };
         const { column, needsRatingJoin } = this.mapSortColumn(sort.sortColumn);
         const azCollatedColumns: Record<string, any> = {
-            first_name: sql`students.first_name COLLATE az_ci`,
-            last_name: sql`students.last_name COLLATE az_ci`,
-            middle_name: sql`students.middle_name COLLATE az_ci`,
+            fullname: sql`students.fullname COLLATE az_ci`,
         };
         const orderExpr = joinedNameSortColumns[sort.sortColumn] ?? (needsRatingJoin
             ? sql.ref(column)
@@ -517,9 +508,7 @@ export class StudentServicePg {
         };
         const { column, needsRatingJoin } = this.mapSortColumnMonth(sort.sortColumn);
         const azCollatedColumns: Record<string, any> = {
-            first_name: sql`students.first_name COLLATE az_ci`,
-            last_name: sql`students.last_name COLLATE az_ci`,
-            middle_name: sql`students.middle_name COLLATE az_ci`,
+            fullname: sql`students.fullname COLLATE az_ci`,
         };
         const orderExpr = joinedNameSortColumns[sort.sortColumn] ?? (needsRatingJoin
             ? sql.ref(column)
@@ -658,10 +647,12 @@ export class StudentServicePg {
                 const score = typeof record.score === "number" ? record.score : 0;
                 const averageScore = typeof record.averageScore === "number" ? record.averageScore : 0;
 
+                const fullname = [record.lastName, record.firstName, record.middleName].filter(Boolean).join(" ") || String(code);
+
                 const created = await pg
                     .insertInto("students")
                     .values({
-                        code, first_name: record.firstName || "", last_name: record.lastName || "", middle_name: record.middleName || "",
+                        code, fullname,
                         grade: typeof record.grade === "number" ? record.grade : null,
                         district_id: districtRow?.id ?? null, school_id: schoolRow?.id ?? null, teacher_id: teacherRow?.id ?? null,
                     })
@@ -688,13 +679,7 @@ export class StudentServicePg {
         const terms = searchTrim.split(/\s+/).map(escapeRegex);
         let q = query;
         for (const term of terms) {
-            q = q.where((eb: ExpressionBuilder<DB, "students">) =>
-                eb.or([
-                    eb("first_name", "ilike", `%${term}%`),
-                    eb("last_name", "ilike", `%${term}%`),
-                    eb("middle_name", "ilike", `%${term}%`),
-                ])
-            ) as Q;
+            q = q.where((eb: ExpressionBuilder<DB, "students">) => eb("fullname", "ilike", `%${term}%`)) as Q;
         }
         return q;
     }
@@ -736,13 +721,7 @@ export class StudentServicePg {
             } else {
                 const terms = searchTrim.split(/\s+/).map(escapeRegex);
                 for (const term of terms) {
-                    q = q.where((eb: any) =>
-                        eb.or([
-                            eb("students.first_name", "ilike", `%${term}%`),
-                            eb("students.last_name", "ilike", `%${term}%`),
-                            eb("students.middle_name", "ilike", `%${term}%`),
-                        ])
-                    ) as Q;
+                    q = q.where((eb: any) => eb("students.fullname", "ilike", `%${term}%`)) as Q;
                 }
             }
         }
@@ -764,10 +743,10 @@ export class StudentServicePg {
         // по живому students.grade: иначе после повышения сортировка расходится с показанным столбцом.
         if (column === "grade") return { column: "year_grade", needsRatingJoin: true };
         const map: Record<string, string> = {
-            code: "code", firstName: "first_name", lastName: "last_name", middleName: "middle_name",
+            code: "code", fullname: "fullname",
             status: "status",
         };
-        return { column: map[column] ?? "last_name", needsRatingJoin: false };
+        return { column: map[column] ?? "fullname", needsRatingJoin: false };
     }
 
     /**
@@ -784,10 +763,10 @@ export class StudentServicePg {
         if (column === "filterPlace") return { column: "filter_place", needsRatingJoin: true };
         if (column === "grade") return { column: "year_grade", needsRatingJoin: true };
         const map: Record<string, string> = {
-            code: "code", firstName: "first_name", lastName: "last_name", middleName: "middle_name",
+            code: "code", fullname: "fullname",
             status: "status",
         };
-        return { column: map[column] ?? "last_name", needsRatingJoin: false };
+        return { column: map[column] ?? "fullname", needsRatingJoin: false };
     }
 
     private async attachExtras(rows: (StudentRow & Partial<{ current_score: number | null; current_average_score: number | null; current_place: number | null; current_district_place: number | null; participation_count: number; filter_place: number | null; year_grade: number | null }>)[]): Promise<Student[]> {
@@ -859,7 +838,7 @@ export class StudentServicePg {
             const yearGrade = row.year_grade !== undefined ? row.year_grade : row.grade;
 
             return {
-                id: row.id, code: row.code, lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name,
+                id: row.id, code: row.code, fullname: row.fullname,
                 grade: row.grade, teacherId: row.teacher_id, schoolId: row.school_id, districtId: row.district_id,
                 teacher: teacher ? { id: teacher.id, code: teacher.code, fullname: teacher.fullname } : null,
                 school: school ? { id: school.id, code: school.code, name: school.name } : null,

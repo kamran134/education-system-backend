@@ -92,9 +92,14 @@ CREATE TABLE teachers (
 CREATE TABLE students (
     id               bigserial PRIMARY KEY,
     code             bigint  NOT NULL UNIQUE,                     -- 10 знаков = teacher*1000 + nnn. bigint обязателен: не влезает в int4
+    -- last_name/first_name/middle_name — ЛЕГАСИ (025b_student_fullname.sql, SAGIRD_FULLNAME_TASK.md):
+    -- живой код их больше не читает и не пишет, fullname — единственный источник имени, по образцу
+    -- teachers.fullname. Колонки оставлены нетронутыми (не удалены) — склейка необратима (двойные
+    -- фамилии, отсутствующее отчество), снос — отдельной миграцией позже, после недели работы прода.
     last_name        text,
-    first_name       text    NOT NULL,
+    first_name       text,
     middle_name      text,
+    fullname         text    NOT NULL,                            -- "Soyad Ad Ata adı", как у teachers.fullname
     grade            int,
     teacher_id       bigint  REFERENCES teachers(id),
     school_id        bigint  REFERENCES schools(id),
@@ -637,8 +642,8 @@ CREATE INDEX ON booklets (exam_id);
 CREATE INDEX ON user_refresh_tokens (user_id);
 CREATE INDEX issued_certificates_result_idx ON issued_certificates (student_result_id);
 
--- Поиск по ФИО. Заменяет regex-поиск в student.service.ts buildFilter().
-CREATE INDEX students_name_trgm ON students USING gin ((coalesce(last_name,'') || ' ' || first_name) gin_trgm_ops);
+-- Поиск по ФИО (025b_student_fullname.sql: пересоздан на fullname, по образцу teachers_name_trgm).
+CREATE INDEX students_name_trgm ON students USING gin (fullname gin_trgm_ops);
 CREATE INDEX teachers_name_trgm ON teachers USING gin (fullname gin_trgm_ops);
 CREATE INDEX schools_name_trgm  ON schools  USING gin (name gin_trgm_ops);
 

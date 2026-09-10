@@ -285,7 +285,10 @@ export interface Students {
   avatar_url: string | null;
   code: number;
   district_id: number | null;
-  first_name: string;
+  // last_name/first_name/middle_name — легаси (025b_student_fullname.sql, SAGIRD_FULLNAME_TASK.md):
+  // живой код их больше не читает и не пишет, fullname — единственный источник имени.
+  first_name: string | null;
+  fullname: string;
   grade: number | null;
   id: Generated<number>;
   last_name: string | null;

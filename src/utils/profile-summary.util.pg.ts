@@ -28,9 +28,7 @@ export async function buildProfileSummaryPg(user: User): Promise<ProfileSummaryP
                 .leftJoin("teachers", "teachers.id", "students.teacher_id")
                 .select([
                     "students.id as id",
-                    "students.last_name as last_name",
-                    "students.first_name as first_name",
-                    "students.middle_name as middle_name",
+                    "students.fullname as fullname",
                     "students.grade as grade",
                     "students.avatar_url as avatar_url",
                     "schools.name as school_name",
@@ -43,7 +41,7 @@ export async function buildProfileSummaryPg(user: User): Promise<ProfileSummaryP
 
             return {
                 entityId: student.id,
-                fullName: [student.last_name, student.first_name, student.middle_name].filter(Boolean).join(" "),
+                fullName: student.fullname,
                 grade: student.grade,
                 avatarUrl: student.avatar_url,
                 schoolName: student.school_name,

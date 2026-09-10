@@ -105,36 +105,32 @@ export class StudentUseCase {
     /** Та же проверка, что внутри updateStudentProfile — отдельно, чтобы учитель получал внятную
      *  ошибку уже при отправке заявки в модерацию (п.3 ТЗ 04.09.2026), а не только когда админ
      *  попытается её подтвердить. */
-    validateProfilePayload(data: { lastName?: string | null; firstName?: string; middleName?: string | null }): string | null {
+    validateProfilePayload(data: { fullname?: string }): string | null {
         const validation = ValidationUtils.combine([
-            ValidationUtils.validateRequired(data.firstName, 'Şagirdin adı'),
+            ValidationUtils.validateRequired(data.fullname, 'Şagirdin adı, soyadı'),
         ]);
         return validation.isValid ? null : validation.errors.join(', ');
     }
 
     /**
      * Самостоятельное редактирование ФИО ученика учителем (п.3 ТЗ 04.09.2026), через модерацию —
-     * не полный updateStudent: принимает ТОЛЬКО lastName/firstName/middleName, никакие другие
-     * поля (code/teacherId/school/grade и т.д.) сюда не долетают ни при подаче заявки, ни при
-     * подтверждении (см. approve() в profileChange.controller.ts — payload там может прийти из
-     * body admin-запроса «Düzəliş et», и лишние ключи должны молча игнорироваться).
+     * не полный updateStudent: принимает ТОЛЬКО fullname, никакие другие поля (code/teacherId/
+     * school/grade и т.д.) сюда не долетают ни при подаче заявки, ни при подтверждении
+     * (см. approve() в profileChange.controller.ts — payload там может прийти из body
+     * admin-запроса «Düzəliş et», и лишние ключи должны молча игнорироваться).
      */
-    async updateStudentProfile(id: string, data: { lastName?: string | null; firstName?: string; middleName?: string | null }): Promise<Student> {
+    async updateStudentProfile(id: string, data: { fullname?: string }): Promise<Student> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Student ID'),
             ValidationUtils.validateId(id, 'Student ID'),
-            ValidationUtils.validateRequired(data.firstName, 'Şagirdin adı'),
+            ValidationUtils.validateRequired(data.fullname, 'Şagirdin adı, soyadı'),
         ]);
 
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
         }
 
-        return await this.studentService.updateProfile(parseInt(id, 10), {
-            lastName: data.lastName ?? null,
-            firstName: data.firstName!,
-            middleName: data.middleName ?? null,
-        });
+        return await this.studentService.updateProfile(parseInt(id, 10), { fullname: data.fullname! });
     }
 
     async deleteStudent(id: string): Promise<void> {
@@ -229,8 +225,7 @@ export class StudentUseCase {
 
     private validateStudentData(data: StudentCreate): ValidationResult {
         return ValidationUtils.combine([
-            ValidationUtils.validateRequired(data.firstName, 'First name'),
-            ValidationUtils.validateRequired(data.lastName, 'Last name'),
+            ValidationUtils.validateRequired(data.fullname, 'Full name'),
             ValidationUtils.validateRequired(data.code, 'Student code'),
             ValidationUtils.validateCode(data.code, CODE_LENGTHS.STUDENT, CODE_LENGTHS.STUDENT),
             ValidationUtils.validateNumber(data.grade, 'Grade', 1, 12)
