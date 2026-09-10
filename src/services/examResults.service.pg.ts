@@ -30,7 +30,7 @@ export interface ExamResultRow {
         school: { id: number; name: string } | null;
         district: { id: number; name: string } | null;
     };
-    exam: { id: number; code: number; name: string; date: Date } | null;
+    exam: { id: number; name: string; date: Date } | null;
     // disciplines — массив по фактическому набору предметов результата
     // (IMTAHAN_NOVLERI_TASK.md §4/§6, шаг 2), читается из student_result_subject_scores.
     // Диалог редактирования результата (result-editing-dialog.component.ts) рендерит поля
@@ -81,7 +81,7 @@ export class ExamResultsServicePg {
                 "t.id as teacher_id", "t.fullname as teacher_fullname",
                 "sc.id as school_id", "sc.name as school_name",
                 "d.id as district_id", "d.name as district_name",
-                "e.id as exam_id", "e.code as exam_code", "e.name as exam_name", "e.date as exam_date",
+                "e.id as exam_id", "e.name as exam_name", "e.date as exam_date",
             ])
             .orderBy(sql`${sortExpr} ${dirSql} NULLS LAST`)
             .limit(size)
@@ -102,7 +102,7 @@ export class ExamResultsServicePg {
                 school: r.school_id != null ? { id: r.school_id, name: r.school_name! } : null,
                 district: r.district_id != null ? { id: r.district_id, name: r.district_name! } : null,
             },
-            exam: r.exam_id != null ? { id: r.exam_id, code: r.exam_code!, name: r.exam_name!, date: r.exam_date! } : null,
+            exam: r.exam_id != null ? { id: r.exam_id, name: r.exam_name!, date: r.exam_date! } : null,
             disciplines: disciplinesByResultId.get(r.id) ?? [],
             maxQuestions: r.max_questions,
             scorePercent: r.score_percent,
@@ -126,7 +126,7 @@ export class ExamResultsServicePg {
                 "t.id as teacher_id", "t.fullname as teacher_fullname",
                 "sc.id as school_id", "sc.name as school_name",
                 "d.id as district_id", "d.name as district_name",
-                "e.id as exam_id", "e.code as exam_code", "e.name as exam_name", "e.date as exam_date",
+                "e.id as exam_id", "e.name as exam_name", "e.date as exam_date",
             ])
             .where("sr.id", "=", id)
             .executeTakeFirst();
@@ -145,7 +145,7 @@ export class ExamResultsServicePg {
                 school: row.school_id != null ? { id: row.school_id, name: row.school_name! } : null,
                 district: row.district_id != null ? { id: row.district_id, name: row.district_name! } : null,
             },
-            exam: row.exam_id != null ? { id: row.exam_id, code: row.exam_code!, name: row.exam_name!, date: row.exam_date! } : null,
+            exam: row.exam_id != null ? { id: row.exam_id, name: row.exam_name!, date: row.exam_date! } : null,
             disciplines: disciplinesByResultId.get(row.id) ?? [],
             maxQuestions: row.max_questions,
             scorePercent: row.score_percent,

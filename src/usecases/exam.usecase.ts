@@ -19,20 +19,8 @@ export class ExamUseCase {
         return exam;
     }
 
-    async getExamByCode(code: number): Promise<Exam> {
-        ValidationUtils.validateRequired(code, 'Exam code');
-
-        const exam = await this.examService.findByCode(code);
-        if (!exam) {
-            throw new Error('Exam not found');
-        }
-
-        return exam;
-    }
-
     async createExam(examData: ExamCreate): Promise<Exam> {
         ValidationUtils.validateRequired(examData.name, 'Exam name');
-        ValidationUtils.validateRequired(examData.code, 'Exam code');
         ValidationUtils.validateRequired(examData.date, 'Exam date');
         ValidationUtils.validateRequired(examData.examTypeId, 'Exam type');
 
@@ -40,11 +28,6 @@ export class ExamUseCase {
         // Фронт присылает строку "YYYY-MM-DD".
         if (typeof examData.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(examData.date as any)) {
             examData.date = new Date((examData.date as any) + 'T00:00:00.000Z') as any;
-        }
-
-        const existingExam = await this.examService.findByCode(examData.code);
-        if (existingExam) {
-            throw new Error('Exam with this code already exists');
         }
 
         return await this.examService.create(examData);
@@ -58,13 +41,6 @@ export class ExamUseCase {
 
         if (updateData.date && typeof updateData.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(updateData.date as any)) {
             updateData.date = new Date((updateData.date as any) + 'T00:00:00.000Z') as any;
-        }
-
-        if (updateData.code) {
-            const existingExam = await this.examService.findByCode(updateData.code);
-            if (existingExam && existingExam.id !== parseInt(id, 10)) {
-                throw new Error('Exam with this code already exists');
-            }
         }
 
         return await this.examService.update(parseInt(id, 10), updateData);
@@ -139,11 +115,4 @@ export class ExamUseCase {
         }
     }
 
-    async checkExistingExamCodes(codes: number[]): Promise<number[]> {
-        if (!codes || codes.length === 0) {
-            return [];
-        }
-
-        return await this.examService.checkExistingExamCodes(codes);
-    }
 }

@@ -149,16 +149,6 @@ export class ExamController {
         }
     }
 
-    checkExistingExamCodes = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-        try {
-            const { codes } = req.body;
-            const existingCodes = await this.examUseCase.checkExistingExamCodes(codes);
-
-            res.json(ResponseHandler.success(existingCodes, 'Kodlar uğurla yoxlanıldı'));
-        } catch (error) {
-            next(error);
-        }
-    }
 }
 
 // Legacy exports for backward compatibility
@@ -175,4 +165,3 @@ export const updateExam = examController.updateExam;
 export const deleteExam = examController.deleteExam;
 export const deleteExams = examController.deleteExams;
 export const processExamsFromExcel = examController.processExamsFromExcel;
-export const checkExistingExamCodes = examController.checkExistingExamCodes;

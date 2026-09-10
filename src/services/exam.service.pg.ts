@@ -1,15 +1,12 @@
 import { sql } from "kysely";
 import { pg } from "../config/pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, BulkOperationResult, FileProcessingResult } from "../types/common.types";
-import { RequestParser } from "../utils/request-parser.util";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
-import { CODE_LENGTHS } from "../utils/entity-codes.const";
 
 export interface Exam {
     id: number;
-    code: number;
     name: string;
     date: Date;
     active: boolean;
@@ -18,7 +15,6 @@ export interface Exam {
 }
 
 export interface ExamCreate {
-    code: number;
     name: string;
     date: Date;
     active?: boolean;
@@ -41,17 +37,17 @@ export class ExamServicePg {
             .selectFrom("exams as e")
             .innerJoin("exam_types as et", "et.id", "e.exam_type_id")
             .select([
-                "e.id", "e.code", "e.name", "e.date", "e.active",
+                "e.id", "e.name", "e.date", "e.active",
                 "e.exam_type_id", "et.name_az as exam_type_name",
             ]);
     }
 
     private mapRow(row: {
-        id: number; code: number; name: string; date: Date; active: boolean;
+        id: number; name: string; date: Date; active: boolean;
         exam_type_id: number; exam_type_name: string;
     }): Exam {
         return {
-            id: row.id, code: row.code, name: row.name, date: row.date, active: row.active,
+            id: row.id, name: row.name, date: row.date, active: row.active,
             examTypeId: row.exam_type_id, examTypeName: row.exam_type_name,
         };
     }
@@ -61,16 +57,11 @@ export class ExamServicePg {
         return row ? this.mapRow(row) : null;
     }
 
-    async findByCode(code: number): Promise<Exam | null> {
-        const row = await this.baseSelect().where("e.code", "=", code).executeTakeFirst();
-        return row ? this.mapRow(row) : null;
-    }
-
     async create(data: ExamCreate): Promise<Exam> {
         const inserted = await pg
             .insertInto("exams")
             .values({
-                code: data.code, name: data.name, date: data.date, active: data.active ?? true,
+                name: data.name, date: data.date, active: data.active ?? true,
                 exam_type_id: data.examTypeId,
             })
             .returning(["id"])
@@ -106,7 +97,6 @@ export class ExamServicePg {
         await pg
             .updateTable("exams")
             .set({
-                ...(data.code !== undefined && { code: data.code }),
                 ...(data.name !== undefined && { name: data.name }),
                 ...(data.date !== undefined && { date: data.date }),
                 ...(data.active !== undefined && { active: data.active }),
@@ -201,13 +191,18 @@ export class ExamServicePg {
 
             const rows = data.slice(3);
             const dataToInsert = rows
-                .map((row: any) => ({ code: Number(row[1]), name: String(row[2]), date: new Date(row[3]) }))
-                .filter((d: any) => d.code > 0 && d.name && d.date);
+                .map((row: any) => ({ name: String(row[2]), date: new Date(row[3]) }))
+                .filter((d: any) => d.name && d.date);
 
-            const existingCodes = await this.checkExistingExamCodes(dataToInsert.map((d: any) => d.code));
-            const newExams = existingCodes.length > 0
-                ? dataToInsert.filter((d: any) => !existingCodes.includes(d.code))
-                : dataToInsert;
+            // Ключа идемпотентности "code" больше нет (IMTAHAN_KODU_TASK.md §5) — дедуп по
+            // (name, date), той же паре, что теперь несёт UNIQUE на exams. Метод не смонтирован
+            // ни на один роут (см. комментарий класса выше), поэтому полная выборка exams
+            // для сверки в памяти — минимальная правка, не переусложняем мёртвый путь.
+            const existingExams = await pg.selectFrom("exams").select(["name", "date"]).execute();
+            const existingKeys = new Set(existingExams.map((e) => `${e.name}|${e.date.toISOString()}`));
+
+            const newExams = dataToInsert.filter((d: any) => !existingKeys.has(`${d.name}|${d.date.toISOString()}`));
+            const skipped = dataToInsert.filter((d: any) => existingKeys.has(`${d.name}|${d.date.toISOString()}`));
 
             if (newExams.length > 0) {
                 const baseType = await pg
@@ -219,7 +214,7 @@ export class ExamServicePg {
                 const inserted = await pg
                     .insertInto("exams")
                     .values(newExams.map((e: any) => ({
-                        code: e.code, name: e.name, date: e.date, active: true,
+                        name: e.name, date: e.date, active: true,
                         exam_type_id: baseType.id,
                     })))
                     .returning(["id"])
@@ -234,7 +229,7 @@ export class ExamServicePg {
             return {
                 processedData,
                 errors,
-                skippedItems: existingCodes.map((code) => ({ code, reason: "Already exists" })),
+                skippedItems: skipped.map((d) => ({ name: d.name, date: d.date, reason: "Already exists" })),
             };
         } catch (error) {
             await deleteFile(filePath).catch(() => {});
@@ -242,19 +237,8 @@ export class ExamServicePg {
         }
     }
 
-    async checkExistingExamCodes(codes: number[]): Promise<number[]> {
-        if (codes.length === 0) return [];
-        const rows = await pg.selectFrom("exams").select("code").where("code", "in", codes).execute();
-        return rows.map((r) => r.code);
-    }
-
     private applyFilter<Q extends { where: any }>(query: Q, filters: FilterOptionsPg): Q {
         let q = query;
-
-        if (filters.code) {
-            const { start, end } = RequestParser.parseCodeRange(filters.code, CODE_LENGTHS.EXAM);
-            q = q.where("e.code", ">=", parseInt(start)).where("e.code", "<=", parseInt(end));
-        }
 
         if (filters.active !== undefined) {
             q = q.where("e.active", "=", filters.active);
@@ -262,12 +246,7 @@ export class ExamServicePg {
 
         if (filters.search && filters.search.trim() !== "") {
             const term = filters.search.trim();
-            if (/^\d+$/.test(term)) {
-                const { start, end } = RequestParser.parseCodeRange(parseInt(term), 3);
-                q = q.where("e.code", ">=", parseInt(start)).where("e.code", "<=", parseInt(end));
-            } else {
-                q = q.where(sql`e.name`, "ilike", `%${escapeRegex(term)}%`);
-            }
+            q = q.where(sql`e.name`, "ilike", `%${escapeRegex(term)}%`);
         }
 
         // Год/месяц — как в Mongo-версии: месяц работает вместе с годом или отдельно
@@ -298,8 +277,8 @@ export class ExamServicePg {
         return q;
     }
 
-    private mapSortColumn(column: string): "e.code" | "e.name" | "e.date" | "e.active" {
-        const map: Record<string, any> = { code: "e.code", name: "e.name", date: "e.date", active: "e.active" };
+    private mapSortColumn(column: string): "e.name" | "e.date" | "e.active" {
+        const map: Record<string, any> = { name: "e.name", date: "e.date", active: "e.active" };
         return map[column] ?? "e.date";
     }
 }

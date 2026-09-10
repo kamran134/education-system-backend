@@ -14,7 +14,7 @@ export class ResultTemplateService {
     async generate(examId: number, grade: number): Promise<{ buffer: Buffer; filename: string }> {
         const exam = await pg
             .selectFrom("exams")
-            .select(["id", "code", "exam_type_id"])
+            .select(["id", "exam_type_id"])
             .where("id", "=", examId)
             .executeTakeFirst();
         if (!exam) {
@@ -61,7 +61,7 @@ export class ResultTemplateService {
         xlsx.utils.book_append_sheet(workbook, sheet, "Nəticələr");
         const buffer = xlsx.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 
-        return { buffer, filename: `netice-sablonu-imtahan-${exam.code}-sinif-${grade}.xlsx` };
+        return { buffer, filename: `netice-sablonu-imtahan-${exam.id}-sinif-${grade}.xlsx` };
     }
 }
 

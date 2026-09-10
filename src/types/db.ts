@@ -75,7 +75,6 @@ export interface DistrictYearRatings {
 
 export interface Exams {
   active: Generated<boolean>;
-  code: number;
   date: Timestamp;
   exam_type_id: number;
   id: Generated<number>;

@@ -45,7 +45,6 @@ export interface StudentRef {
 
 export interface ExamRef {
     id: number;
-    code: number;
     name: string;
     date: Date;
 }
@@ -842,7 +841,7 @@ export class StudentResultServicePg {
 
         const [students, exams, subjectScoreRows, sectionSubjectRows] = await Promise.all([
             pg.selectFrom("students").select(["id", "code", "fullname"]).where("id", "in", studentIds).execute(),
-            examIds.length > 0 ? pg.selectFrom("exams").select(["id", "code", "name", "date"]).where("id", "in", examIds).execute() : Promise.resolve([]),
+            examIds.length > 0 ? pg.selectFrom("exams").select(["id", "name", "date"]).where("id", "in", examIds).execute() : Promise.resolve([]),
             pg
                 .selectFrom("student_result_subject_scores as srs")
                 .innerJoin("subjects as s", "s.code", "srs.subject_code")
@@ -899,7 +898,7 @@ export class StudentResultServicePg {
                 student: student
                     ? { id: student.id, code: student.code, fullname: student.fullname }
                     : undefined,
-                exam: row.exam_id != null ? (exam ? { id: exam.id, code: exam.code, name: exam.name, date: exam.date } : null) : undefined,
+                exam: row.exam_id != null ? (exam ? { id: exam.id, name: exam.name, date: exam.date } : null) : undefined,
             };
         });
     }

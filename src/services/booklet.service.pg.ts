@@ -35,7 +35,6 @@ export type BookletDisciplines = Record<string, string[]>;
 
 export interface BookletExamRef {
     id: number;
-    code: number;
     name: string;
     date: Date;
 }
@@ -340,7 +339,7 @@ export class BookletServicePg {
 
         const [exams, districts, subjects] = await Promise.all([
             examIds.length > 0
-                ? pg.selectFrom("exams").select(["id", "code", "name", "date"]).where("id", "in", examIds).execute()
+                ? pg.selectFrom("exams").select(["id", "name", "date"]).where("id", "in", examIds).execute()
                 : Promise.resolve([]),
             districtIds.length > 0
                 ? pg.selectFrom("districts").select(["id", "code", "name"]).where("id", "in", districtIds).execute()

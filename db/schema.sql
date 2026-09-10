@@ -175,14 +175,18 @@ CREATE TABLE exam_type_sections (
     EXCLUDE USING gist (exam_type_id WITH =, int4range(grade_from, grade_to + 1) WITH &&)
 );
 
+-- code (трёхзначное собственное пространство номеров, никак не связанное с иерархией
+-- район→школа→учитель→ученик в utils/entity-codes.const.ts) удалён миграцией
+-- 025c_drop_exam_code.sql (IMTAHAN_KODU_TASK.md) — заказчику код экзамена не нужен.
+-- UNIQUE (name, date) занял место прежней защиты от дублей, которую держал code.
 CREATE TABLE exams (
     id               bigserial PRIMARY KEY,
-    code             bigint      NOT NULL UNIQUE,
     name             text        NOT NULL,
     date             timestamptz NOT NULL,
     active           boolean     NOT NULL DEFAULT true,
     exam_type_id     bigint      NOT NULL REFERENCES exam_types(id),  -- 023_exam_types_and_level_scales.sql
-    legacy_mongo_id  text UNIQUE
+    legacy_mongo_id  text UNIQUE,
+    CONSTRAINT exams_name_date_key UNIQUE (name, date)
     -- PHASE3 п.5 добавит include_in_rating boolean NOT NULL DEFAULT true — отдельной миграцией,
     -- вместе с правкой v_student_year_scores (JOIN exams ... WHERE include_in_rating).
 );

@@ -68,7 +68,6 @@ export interface StudentCreate {
 
 export interface ExamSummary {
     id: number;
-    code: number;
     name: string;
     date: Date;
 }
@@ -142,7 +141,7 @@ export class StudentServicePg {
             .selectFrom("student_results as sr")
             .leftJoin("exams as e", "e.id", "sr.exam_id")
             .selectAll("sr")
-            .select(["e.id as exam_id_full", "e.code as exam_code", "e.name as exam_name", "e.date as exam_date"])
+            .select(["e.id as exam_id_full", "e.name as exam_name", "e.date as exam_date"])
             .where("sr.student_id", "=", studentId)
             .orderBy("sr.year", "desc")
             .orderBy("sr.month", "desc")
@@ -176,7 +175,7 @@ export class StudentServicePg {
 
         return rows.map((r) => ({
             id: r.id, examId: r.exam_id,
-            exam: r.exam_id_full ? { id: r.exam_id_full, code: r.exam_code!, name: r.exam_name!, date: r.exam_date! } : null,
+            exam: r.exam_id_full ? { id: r.exam_id_full, name: r.exam_name!, date: r.exam_date! } : null,
             grade: r.grade,
             disciplines: subjectScoreRows
                 .filter((s) => s.result_id === r.id)
