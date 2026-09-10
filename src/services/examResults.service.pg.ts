@@ -35,7 +35,7 @@ export interface ExamResultRow {
     // (IMTAHAN_NOVLERI_TASK.md §4/§6, шаг 2), читается из student_result_subject_scores.
     // Диалог редактирования результата (result-editing-dialog.component.ts) рендерит поля
     // предметов циклом по этому массиву, а не пятью статичными блоками.
-    disciplines: Array<{ subjectCode: string; nameAz: string; score: number; questionCount: number | null; maxQuestions: number | null }>;
+    disciplines: Array<{ subjectCode: string; nameAz: string; score: number; questionCount: number | null }>;
     maxQuestions: number | null;
     scorePercent: number | null;
 }
@@ -76,7 +76,7 @@ export class ExamResultsServicePg {
         const rows = await query
             .select([
                 "sr.id as id", "sr.grade as grade", "sr.total_score as total_score", "sr.level as level", "sr.status as status",
-                "sr.section_id as section_id", "sr.max_questions as max_questions", "sr.score_percent as score_percent",
+                "sr.max_questions as max_questions", "sr.score_percent as score_percent",
                 "st.id as student_id", "st.code as student_code", "st.fullname as student_fullname",
                 "t.id as teacher_id", "t.fullname as teacher_fullname",
                 "sc.id as school_id", "sc.name as school_name",
@@ -88,7 +88,7 @@ export class ExamResultsServicePg {
             .offset((page - 1) * size)
             .execute();
 
-        const disciplinesByResultId = await this.loadDisciplines(rows.map((r) => r.id), rows.map((r) => r.section_id));
+        const disciplinesByResultId = await this.loadDisciplines(rows.map((r) => r.id));
 
         const data: ExamResultRow[] = rows.map((r) => ({
             id: r.id,
@@ -121,7 +121,7 @@ export class ExamResultsServicePg {
             .leftJoin("exams as e", "e.id", "sr.exam_id")
             .select([
                 "sr.id as id", "sr.grade as grade", "sr.total_score as total_score", "sr.level as level", "sr.status as status",
-                "sr.section_id as section_id", "sr.max_questions as max_questions", "sr.score_percent as score_percent",
+                "sr.max_questions as max_questions", "sr.score_percent as score_percent",
                 "st.id as student_id", "st.code as student_code", "st.fullname as student_fullname",
                 "t.id as teacher_id", "t.fullname as teacher_fullname",
                 "sc.id as school_id", "sc.name as school_name",
@@ -132,7 +132,7 @@ export class ExamResultsServicePg {
             .executeTakeFirst();
 
         if (!row) return null;
-        const disciplinesByResultId = await this.loadDisciplines([row.id], [row.section_id]);
+        const disciplinesByResultId = await this.loadDisciplines([row.id]);
         return {
             id: row.id,
             grade: row.grade,
@@ -153,43 +153,29 @@ export class ExamResultsServicePg {
     }
 
     /** Баллы по предметам батчем на набор результатов (024_student_result_subject_scores.sql) —
-     *  один доп. запрос на всю страницу, не N+1 на строку. maxQuestions подтягивается из
-     *  конфига секции результата (exam_type_section_subjects), а не хранится на строке баллов. */
+     *  один доп. запрос на всю страницу, не N+1 на строку. §16: maxQuestions по предмету больше
+     *  не существует как отдельное понятие (exam_type_section_subjects.max_questions снят
+     *  025d_question_counts_from_file.sql) — questionCount на строке баллов И ЕСТЬ число
+     *  вопросов по предмету в этой работе, JOIN на конфиг секции не нужен. */
     private async loadDisciplines(
-        resultIds: number[],
-        sectionIds: Array<number | null>
-    ): Promise<Map<number, Array<{ subjectCode: string; nameAz: string; score: number; questionCount: number | null; maxQuestions: number | null }>>> {
+        resultIds: number[]
+    ): Promise<Map<number, Array<{ subjectCode: string; nameAz: string; score: number; questionCount: number | null }>>> {
         if (resultIds.length === 0) return new Map();
-        const uniqueSectionIds = [...new Set(sectionIds.filter((id): id is number => id != null))];
 
-        const [subjectScoreRows, sectionSubjectRows] = await Promise.all([
-            pg
-                .selectFrom("student_result_subject_scores as srs")
-                .innerJoin("subjects as s", "s.code", "srs.subject_code")
-                .select(["srs.result_id", "srs.subject_code", "s.name_az", "srs.score", "srs.question_count"])
-                .where("srs.result_id", "in", resultIds)
-                .execute(),
-            uniqueSectionIds.length > 0
-                ? pg
-                      .selectFrom("exam_type_section_subjects")
-                      .select(["section_id", "subject_code", "max_questions"])
-                      .where("section_id", "in", uniqueSectionIds)
-                      .execute()
-                : Promise.resolve([]),
-        ]);
+        const subjectScoreRows = await pg
+            .selectFrom("student_result_subject_scores as srs")
+            .innerJoin("subjects as s", "s.code", "srs.subject_code")
+            .select(["srs.result_id", "srs.subject_code", "s.name_az", "srs.score", "srs.question_count"])
+            .where("srs.result_id", "in", resultIds)
+            .execute();
 
-        const sectionByResultId = new Map(resultIds.map((id, i) => [id, sectionIds[i]]));
-        const maxQuestionsBySectionSubject = new Map(sectionSubjectRows.map((r) => [`${r.section_id}:${r.subject_code}`, r.max_questions]));
-
-        const map = new Map<number, Array<{ subjectCode: string; nameAz: string; score: number; questionCount: number | null; maxQuestions: number | null }>>();
+        const map = new Map<number, Array<{ subjectCode: string; nameAz: string; score: number; questionCount: number | null }>>();
         for (const s of subjectScoreRows) {
-            const sectionId = sectionByResultId.get(s.result_id) ?? null;
             const entry = {
                 subjectCode: s.subject_code,
                 nameAz: s.name_az,
                 score: s.score,
                 questionCount: s.question_count,
-                maxQuestions: sectionId != null ? maxQuestionsBySectionSubject.get(`${sectionId}:${s.subject_code}`) ?? null : null,
             };
             const list = map.get(s.result_id) ?? [];
             list.push(entry);

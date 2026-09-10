@@ -77,7 +77,6 @@ export interface StudentResultSubjectScoreRow {
     nameAz: string;
     score: number;
     questionCount: number | null;
-    maxQuestions: number | null;
 }
 
 export interface StudentResultRow {
@@ -150,28 +149,18 @@ export class StudentServicePg {
         if (rows.length === 0) return [];
 
         // Баллы по предметам — из student_result_subject_scores (024_student_result_subject_scores.sql),
-        // не из легаси-колонок sr.az/math/... (см. StudentResultRow.disciplines). maxQuestions по
-        // предмету подтягивается из конфига секции результата, а не хранится на строке баллов.
+        // не из легаси-колонок sr.az/math/... (см. StudentResultRow.disciplines). §16: per-subject
+        // maxQuestions больше не существует как отдельное понятие (exam_type_section_subjects.max_questions
+        // снят 025d_question_counts_from_file.sql) — questionCount на строке баллов И ЕСТЬ число
+        // вопросов по предмету в этой работе, JOIN на конфиг секции не нужен.
         const resultIds = rows.map((r) => r.id);
-        const sectionIds = [...new Set(rows.map((r) => r.section_id).filter((id): id is number => id != null))];
 
-        const [subjectScoreRows, sectionSubjectRows] = await Promise.all([
-            pg
-                .selectFrom("student_result_subject_scores as srs")
-                .innerJoin("subjects as s", "s.code", "srs.subject_code")
-                .select(["srs.result_id", "srs.subject_code", "s.name_az", "srs.score", "srs.question_count"])
-                .where("srs.result_id", "in", resultIds)
-                .execute(),
-            sectionIds.length > 0
-                ? pg
-                      .selectFrom("exam_type_section_subjects")
-                      .select(["section_id", "subject_code", "max_questions"])
-                      .where("section_id", "in", sectionIds)
-                      .execute()
-                : Promise.resolve([]),
-        ]);
-
-        const maxQuestionsBySectionSubject = new Map(sectionSubjectRows.map((r) => [`${r.section_id}:${r.subject_code}`, r.max_questions]));
+        const subjectScoreRows = await pg
+            .selectFrom("student_result_subject_scores as srs")
+            .innerJoin("subjects as s", "s.code", "srs.subject_code")
+            .select(["srs.result_id", "srs.subject_code", "s.name_az", "srs.score", "srs.question_count"])
+            .where("srs.result_id", "in", resultIds)
+            .execute();
 
         return rows.map((r) => ({
             id: r.id, examId: r.exam_id,
@@ -184,7 +173,6 @@ export class StudentServicePg {
                     nameAz: s.name_az,
                     score: s.score,
                     questionCount: s.question_count,
-                    maxQuestions: r.section_id != null ? maxQuestionsBySectionSubject.get(`${r.section_id}:${s.subject_code}`) ?? null : null,
                 })),
             maxQuestions: r.max_questions,
             scorePercent: r.score_percent,

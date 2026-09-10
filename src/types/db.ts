@@ -353,11 +353,12 @@ export interface LevelScaleBands {
 
 // Добавлено вручную вслед за миграцией 023_exam_types_and_level_scales.sql, см.
 // IMTAHAN_NOVLERI_TASK.md — перегенерировать через kysely-codegen при следующей возможности
-// подключиться к живой БД и сверить.
+// подключиться к живой БД и сверить. has_question_counts убран 025d_question_counts_from_file.sql
+// (§16 ТЗ): счётчик вопросов больше не свойство типа экзамена, колонка теперь всегда генерируется
+// в шаблоне и обязательна в файле.
 export interface ExamTypes {
   active: Generated<boolean>;
   code: string;
-  has_question_counts: Generated<boolean>;
   id: Generated<number>;
   is_base: Generated<boolean>;
   level_scale_id: number;
@@ -379,9 +380,10 @@ export interface ExamTypeSections {
 
 // Добавлено вручную вслед за миграцией 023_exam_types_and_level_scales.sql, см.
 // IMTAHAN_NOVLERI_TASK.md — перегенерировать через kysely-codegen при следующей возможности
-// подключиться к живой БД и сверить.
+// подключиться к живой БД и сверить. max_questions убран 025d_question_counts_from_file.sql
+// (§16 ТЗ): конфиг секции теперь задаёт только НАБОР предметов, число вопросов по каждому —
+// свойство конкретной работы, читается из файла/ручного ввода (student_result_subject_scores.question_count).
 export interface ExamTypeSectionSubjects {
-  max_questions: number;
   section_id: number;
   sort_order: Generated<number>;
   subject_code: string;

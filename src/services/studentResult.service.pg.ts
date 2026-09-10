@@ -20,8 +20,9 @@ const SINGLE_FULLNAME_HEADERS = new Set(["soyadı, adı, ata adı", "şagirdin a
 /**
  * Баллы по одному предмету одного результата. Заменяет пятиколоночный StudentResultDisciplines
  * (IMTAHAN_NOVLERI_TASK.md §4-§7, шаг 2): произвольный набор предметов на тип экзамена, столбцами
- * такое не выразить. maxQuestions — не хранится на строке, а подтягивается из конфига секции
- * (exam_type_section_subjects) на чтении — тот же предмет в другой секции может иметь другой лимит.
+ * такое не выразить. questionCount обязателен (§16): конфиг секции больше не задаёт числа
+ * вопросов вовсе (тип/секция определяют только СОСТАВ предметов) — знаменатель процента считается
+ * по этому полю, взятому из файла или ручного ввода, отдельно на каждом результате.
  */
 export interface StudentResultSubjectScoreInput {
     subjectCode: string;
@@ -34,7 +35,6 @@ export interface StudentResultSubjectScoreRow {
     nameAz: string;
     score: number;
     questionCount: number | null;
-    maxQuestions: number | null;
 }
 
 export interface StudentRef {
@@ -99,10 +99,14 @@ type StudentResultRowRaw = {
     status: string | null; month: number; year: number;
 };
 
+/**
+ * Набор предметов секции (IMTAHAN_NOVLERI_TASK.md §16): конфиг задаёт ТОЛЬКО состав предметов
+ * секции, больше не число вопросов по каждому — оно свойство конкретной работы, а не типа
+ * экзамена, и читается из файла/ручного ввода на каждом результате (см. computeScoreSummary).
+ */
 interface SectionConfig {
     sectionId: number;
-    subjects: Map<string, { maxQuestions: number; nameAz: string; sortOrder: number }>;
-    totalMaxQuestions: number;
+    subjects: Map<string, { nameAz: string; sortOrder: number }>;
 }
 
 /**
@@ -114,12 +118,18 @@ interface SectionConfig {
  *
  * **Шаг 2 (IMTAHAN_NOVLERI_TASK.md §4-§7):** позиционный парсер Excel с веткой по классу
  * (`row[7]`/`row[8]`, `grade >= 5`) заменён парсером по заголовкам — предмет опознаётся по
- * `subjects.name_az`, набор предметов и лимиты берутся из `exam_type_section_subjects` секции,
- * в которую попадает класс строки. `total_score`/`score_percent`/`level`/`participation_score`
+ * `subjects.name_az`, набор предметов берётся из `exam_type_section_subjects` секции, в
+ * которую попадает класс строки. `total_score`/`score_percent`/`level`/`participation_score`
  * считаются здесь же, единым путём для ручного создания/правки результата (`create`/`update`)
  * и для массового импорта (`processStudentResultsFromExcel`) — `computeScoreSummary` ниже.
  * Баллы по предметам хранятся в `student_result_subject_scores`, а не в пяти колонках
  * `student_results` (те остаются NULL у всех новых строк — легаси, снос в 026).
+ *
+ * **§16 (IMTAHAN_NOVLERI_TASK.md, 11.09.2026):** знаменатель процента больше НЕ берётся из
+ * конфига типа (`exam_type_section_subjects.max_questions` — колонка снята миграцией
+ * 025d_question_counts_from_file.sql). Конфиг секции теперь задаёт только СОСТАВ предметов;
+ * число вопросов по каждому предмету — свойство конкретной работы, читается из
+ * `question_count` входных данных (файл или ручной ввод) на каждом результате отдельно.
  */
 export class StudentResultServicePg {
     async findById(id: number): Promise<StudentResult | null> {
@@ -302,6 +312,17 @@ export class StudentResultServicePg {
             const countColByCode = new Map(subjectColumns.filter((c) => c.isCount).map((c) => [c.subjectCode, c.colIdx]));
             const scoreColumns = subjectColumns.filter((c) => !c.isCount);
 
+            // IMTAHAN_NOVLERI_TASK.md §16: сual sayı sütunu hər fənn üçün MÜTLƏQdir — bu artıq
+            // konfiqin deyil, faylın öz məsuliyyətidir (məxrəc faylın özündən oxunur). Sütun
+            // ümumiyyətlə yoxdursa — bu struktur uyğunsuzluqdur, bütün idxal dayanır (sətir-sətir
+            // "sual sayı göstərilməyib" xətası ilə qarışdırılmamalıdır — həmin hal aşağıda, sətir
+            // səviyyəsində, konkret dəyər boş/sıfır olduqda yoxlanılır).
+            for (const col of scoreColumns) {
+                if (!countColByCode.has(col.subjectCode)) {
+                    throw this.importError(`"${col.nameAz}" fənni üçün sual sayı sütunu yoxdur`);
+                }
+            }
+
             const dataRows = rows.slice(1);
             const sectionConfigByGrade = new Map<number, SectionConfig | null>();
 
@@ -309,7 +330,7 @@ export class StudentResultServicePg {
             const studentsWithIncorrectResults: Array<{ code: number; reason: string }> = [];
             const parsedRows: Array<{
                 grade: number; studentCode: number; fullname: string;
-                subjectScores: Array<{ subjectCode: string; score: number; questionCount: number | null }>;
+                subjectScores: Array<{ subjectCode: string; score: number; questionCount: number }>;
                 totalScore: number; sectionId: number; maxQuestions: number;
             }> = [];
 
@@ -340,7 +361,8 @@ export class StudentResultServicePg {
 
                 let hasError = false;
                 let totalScore = 0;
-                const subjectScores: Array<{ subjectCode: string; score: number; questionCount: number | null }> = [];
+                let totalQuestionCount = 0;
+                const subjectScores: Array<{ subjectCode: string; score: number; questionCount: number }> = [];
 
                 for (const col of scoreColumns) {
                     const cfg = config.subjects.get(col.subjectCode);
@@ -357,17 +379,28 @@ export class StudentResultServicePg {
                         hasError = true;
                         break;
                     }
-                    if (score > cfg.maxQuestions) {
-                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: bal (${score}) sual sayından (${cfg.maxQuestions}) çoxdur` });
+
+                    // IMTAHAN_NOVLERI_TASK.md §16: sual sayı artıq konfiqdən deyil, məhz bu fayldan
+                    // (bu sətirdən) oxunur — məxrəc konkret işin xassəsidir, imtahan növünün deyil.
+                    // Sütunun MÖVCUDLUĞU yuxarıda yoxlanıldı (struktur), burada isə KONKRET DƏYƏR:
+                    // boş/ədəd olmayan/sıfır/mənfi — sətir səviyyəsində xəta, sükutla sıfır olmaz.
+                    const countColIdx = countColByCode.get(col.subjectCode)!;
+                    const rawCount = row[countColIdx];
+                    const questionCount = rawCount == null || String(rawCount).trim() === "" ? NaN : Number(rawCount);
+                    if (isNaN(questionCount) || questionCount <= 0) {
+                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: sual sayı göstərilməyib` });
                         hasError = true;
                         break;
                     }
 
-                    const countColIdx = countColByCode.get(col.subjectCode);
-                    const rawCount = countColIdx !== undefined ? row[countColIdx] : null;
-                    const questionCount = rawCount != null && String(rawCount).trim() !== "" ? Number(rawCount) : null;
+                    if (score > questionCount) {
+                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: bal (${score}) sual sayından (${questionCount}) çoxdur` });
+                        hasError = true;
+                        break;
+                    }
 
                     totalScore += score;
+                    totalQuestionCount += questionCount;
                     subjectScores.push({ subjectCode: col.subjectCode, score, questionCount });
                 }
 
@@ -389,7 +422,7 @@ export class StudentResultServicePg {
                     subjectScores,
                     totalScore,
                     sectionId: config.sectionId,
-                    maxQuestions: config.totalMaxQuestions,
+                    maxQuestions: totalQuestionCount,
                 });
             }
 
@@ -689,7 +722,7 @@ export class StudentResultServicePg {
         const subjectRows = await pg
             .selectFrom("exam_type_section_subjects as ss")
             .innerJoin("subjects as s", "s.code", "ss.subject_code")
-            .select(["ss.subject_code", "ss.max_questions", "s.name_az", "ss.sort_order"])
+            .select(["ss.subject_code", "s.name_az", "ss.sort_order"])
             .where("ss.section_id", "=", section.id)
             .execute();
 
@@ -698,17 +731,23 @@ export class StudentResultServicePg {
         }
 
         const subjects = new Map(
-            subjectRows.map((r) => [r.subject_code, { maxQuestions: r.max_questions, nameAz: r.name_az, sortOrder: r.sort_order }])
+            subjectRows.map((r) => [r.subject_code, { nameAz: r.name_az, sortOrder: r.sort_order }])
         );
-        const totalMaxQuestions = subjectRows.reduce((sum, r) => sum + r.max_questions, 0);
 
-        return { sectionId: section.id, subjects, totalMaxQuestions };
+        return { sectionId: section.id, subjects };
     }
 
-    /** Общий расчёт для ручного create/update одного результата: валидирует предметы против
-     *  конфига секции, считает total_score/score_percent/level/participation_score. Тот же
-     *  принцип, что использует построчный разбор Excel-импорта, но для одного результата и с
-     *  исключением вместо построчного пропуска (единичная правка — либо валидна целиком, либо нет). */
+    /**
+     * Общий расчёт для ручного create/update одного результата: валидирует предметы против
+     * конфига секции (только состав, число вопросов конфиг больше не задаёт — IMTAHAN_NOVLERI_TASK.md
+     * §16), считает total_score/score_percent/level/participation_score. Тот же принцип, что
+     * использует построчный разбор Excel-импорта, но для одного результата и с исключением
+     * вместо построчного пропуска (единичная правка — либо валидна целиком, либо нет).
+     *
+     * Знаменатель процента — Σ questionCount из ВХОДНЫХ данных (файла или ручного ввода), а не
+     * из конфига секции: число вопросов — свойство конкретной работы. Отсутствие или ноль
+     * questionCount у любого предмета — ошибка (§16: "молчаливый ноль в знаменателе недопустим").
+     */
     private async computeScoreSummary(
         examTypeId: number,
         grade: number,
@@ -721,37 +760,46 @@ export class StudentResultServicePg {
         scorePercent: number;
         level: string;
         participationScore: number;
-        subjectRows: Array<{ subjectCode: string; score: number; questionCount: number | null }>;
+        subjectRows: Array<{ subjectCode: string; score: number; questionCount: number }>;
     }> {
         const config = await this.resolveSectionConfig(examTypeId, grade);
         if (!config) {
             throw this.importError(`${grade}-ci sinif üçün bu imtahan növündə bölmə tapılmadı`);
         }
+        if (disciplines.length === 0) {
+            throw this.importError("Fənlər üzrə heç bir nəticə göstərilməyib");
+        }
 
         let totalScore = 0;
-        const subjectRows: Array<{ subjectCode: string; score: number; questionCount: number | null }> = [];
+        let totalQuestionCount = 0;
+        const subjectRows: Array<{ subjectCode: string; score: number; questionCount: number }> = [];
         for (const d of disciplines) {
             const cfg = config.subjects.get(d.subjectCode);
             if (!cfg) {
                 throw this.importError(`"${d.subjectCode}" fənni bu bölmənin tərkibinə daxil deyil`);
             }
-            if (d.score > cfg.maxQuestions) {
-                throw this.importError(`${cfg.nameAz}: bal (${d.score}) sual sayından (${cfg.maxQuestions}) çoxdur`);
+            const questionCount = d.questionCount ?? null;
+            if (questionCount == null || questionCount <= 0) {
+                throw this.importError(`${cfg.nameAz}: sual sayı göstərilməyib`);
+            }
+            if (d.score > questionCount) {
+                throw this.importError(`${cfg.nameAz}: bal (${d.score}) sual sayından (${questionCount}) çoxdur`);
             }
             totalScore += d.score;
-            subjectRows.push({ subjectCode: d.subjectCode, score: d.score, questionCount: d.questionCount ?? null });
+            totalQuestionCount += questionCount;
+            subjectRows.push({ subjectCode: d.subjectCode, score: d.score, questionCount });
         }
 
         const examType = await examTypeServicePg.findById(examTypeId);
         if (!examType) throw this.importError("İmtahan növü tapılmadı");
 
-        const scorePercent = config.totalMaxQuestions > 0 ? (totalScore / config.totalMaxQuestions) * 100 : 0;
+        const scorePercent = totalQuestionCount > 0 ? (totalScore / totalQuestionCount) * 100 : 0;
         const band = await levelScaleServicePg.resolveBand(examType.levelScaleId, scorePercent);
 
         return {
             sectionId: config.sectionId,
             levelScaleId: examType.levelScaleId,
-            maxQuestions: config.totalMaxQuestions,
+            maxQuestions: totalQuestionCount,
             totalScore,
             scorePercent: Number(scorePercent.toFixed(3)),
             level: band.code,
@@ -837,9 +885,12 @@ export class StudentResultServicePg {
         const resultIds = rows.map((r) => r.id);
         const studentIds = [...new Set(rows.map((r) => r.student_id))];
         const examIds = [...new Set(rows.map((r) => r.exam_id).filter((id): id is number => id != null))];
-        const sectionIds = [...new Set(rows.map((r) => r.section_id).filter((id): id is number => id != null))];
 
-        const [students, exams, subjectScoreRows, sectionSubjectRows] = await Promise.all([
+        // IMTAHAN_NOVLERI_TASK.md §16: per-subject maxQuestions больше не существует как
+        // отдельное понятие (exam_type_section_subjects.max_questions снят) — questionCount на
+        // самой строке баллов теперь И ЕСТЬ число вопросов по этому предмету в этой конкретной
+        // работе, добавочный JOIN на конфиг секции не нужен.
+        const [students, exams, subjectScoreRows] = await Promise.all([
             pg.selectFrom("students").select(["id", "code", "fullname"]).where("id", "in", studentIds).execute(),
             examIds.length > 0 ? pg.selectFrom("exams").select(["id", "name", "date"]).where("id", "in", examIds).execute() : Promise.resolve([]),
             pg
@@ -848,18 +899,10 @@ export class StudentResultServicePg {
                 .select(["srs.result_id", "srs.subject_code", "s.name_az", "srs.score", "srs.question_count"])
                 .where("srs.result_id", "in", resultIds)
                 .execute(),
-            sectionIds.length > 0
-                ? pg
-                      .selectFrom("exam_type_section_subjects")
-                      .select(["section_id", "subject_code", "max_questions"])
-                      .where("section_id", "in", sectionIds)
-                      .execute()
-                : Promise.resolve([]),
         ]);
 
         const studentById = new Map(students.map((s) => [s.id, s]));
         const examById = new Map(exams.map((e) => [e.id, e]));
-        const maxQuestionsBySectionSubject = new Map(sectionSubjectRows.map((r) => [`${r.section_id}:${r.subject_code}`, r.max_questions]));
 
         return rows.map((row) => {
             const student = studentById.get(row.student_id);
@@ -871,7 +914,6 @@ export class StudentResultServicePg {
                     nameAz: s.name_az,
                     score: s.score,
                     questionCount: s.question_count,
-                    maxQuestions: row.section_id != null ? maxQuestionsBySectionSubject.get(`${row.section_id}:${s.subject_code}`) ?? null : null,
                 }));
 
             return {

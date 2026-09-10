@@ -4,7 +4,6 @@ import { DB } from "../types/db";
 
 export interface ExamTypeSectionSubjectInput {
     subjectCode: string;
-    maxQuestions: number;
     sortOrder?: number;
 }
 
@@ -20,7 +19,6 @@ export interface ExamTypeInput {
     code: string;
     nameAz: string;
     levelScaleId: number;
-    hasQuestionCounts?: boolean;
     monthAwardMinRank?: number | null;
     isBase?: boolean;
     active?: boolean;
@@ -31,7 +29,6 @@ export interface ExamTypeInput {
 export interface ExamTypeSectionSubjectRow {
     subjectCode: string;
     nameAz: string; // из subjects.name_az, JOIN — фронту сразу нужно название, не только код
-    maxQuestions: number;
     sortOrder: number;
 }
 
@@ -48,7 +45,6 @@ export interface ExamTypeRow {
     code: string;
     nameAz: string;
     levelScaleId: number;
-    hasQuestionCounts: boolean;
     monthAwardMinRank: number | null;
     isBase: boolean;
     active: boolean;
@@ -67,7 +63,7 @@ export class ExamTypeServicePg {
             pg
                 .selectFrom("exam_types")
                 .select([
-                    "id", "code", "name_az", "level_scale_id", "has_question_counts",
+                    "id", "code", "name_az", "level_scale_id",
                     "month_award_min_rank", "is_base", "active", "sort_order",
                 ])
                 .orderBy("sort_order", "asc")
@@ -80,7 +76,7 @@ export class ExamTypeServicePg {
             pg
                 .selectFrom("exam_type_section_subjects as ss")
                 .innerJoin("subjects as s", "s.code", "ss.subject_code")
-                .select(["ss.section_id", "ss.subject_code", "s.name_az as name_az", "ss.max_questions", "ss.sort_order"])
+                .select(["ss.section_id", "ss.subject_code", "s.name_az as name_az", "ss.sort_order"])
                 .orderBy("ss.sort_order", "asc")
                 .execute(),
         ]);
@@ -90,7 +86,6 @@ export class ExamTypeServicePg {
             code: t.code,
             nameAz: t.name_az,
             levelScaleId: t.level_scale_id,
-            hasQuestionCounts: t.has_question_counts,
             monthAwardMinRank: t.month_award_min_rank,
             isBase: t.is_base,
             active: t.active,
@@ -107,7 +102,6 @@ export class ExamTypeServicePg {
                         .map((sub) => ({
                             subjectCode: sub.subject_code,
                             nameAz: sub.name_az,
-                            maxQuestions: sub.max_questions,
                             sortOrder: sub.sort_order,
                         })),
                 })),
@@ -128,7 +122,6 @@ export class ExamTypeServicePg {
                         code: data.code,
                         name_az: data.nameAz,
                         level_scale_id: data.levelScaleId,
-                        has_question_counts: data.hasQuestionCounts ?? true,
                         month_award_min_rank: data.monthAwardMinRank ?? null,
                         is_base: data.isBase ?? false,
                         active: data.active ?? true,
@@ -187,7 +180,6 @@ export class ExamTypeServicePg {
                         code: data.code,
                         name_az: data.nameAz,
                         level_scale_id: data.levelScaleId,
-                        has_question_counts: data.hasQuestionCounts ?? true,
                         month_award_min_rank: data.monthAwardMinRank ?? null,
                         is_base: data.isBase ?? false,
                         active: data.active ?? true,
@@ -251,7 +243,6 @@ export class ExamTypeServicePg {
                         section.subjects.map((sub) => ({
                             section_id: insertedSection.id,
                             subject_code: sub.subjectCode,
-                            max_questions: sub.maxQuestions,
                             sort_order: sub.sortOrder ?? 0,
                         }))
                     )
@@ -272,8 +263,9 @@ export class ExamTypeServicePg {
      *  - секция с `id` из входных данных — UPDATE на месте (id не меняется, ссылки из
      *    student_results остаются рабочими); её набор предметов (exam_type_section_subjects)
      *    можно пересоздавать целиком — на эту таблицу никто не ссылается по отдельной строке,
-     *    только через сумму max_questions, которая для истории уже снята в student_results
-     *    (backfill 024) и результата не пересчитывает;
+     *    только по количеству строк, счётчик вопросов больше не хранится на конфиге секции
+     *    вовсе (§16 ТЗ, снят 025d_question_counts_from_file.sql) — читается из файла/ручного
+     *    ввода на каждом результате;
      *  - секция без `id` — новая, INSERT;
      *  - существующая секция, которой нет во входных данных, удаляется, ТОЛЬКО если на неё нет
      *    ссылок в student_results.section_id — иначе 409, а не потеря данных.
@@ -352,7 +344,6 @@ export class ExamTypeServicePg {
                         section.subjects.map((sub) => ({
                             section_id: sectionId,
                             subject_code: sub.subjectCode,
-                            max_questions: sub.maxQuestions,
                             sort_order: sub.sortOrder ?? 0,
                         }))
                     )

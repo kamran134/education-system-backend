@@ -3,12 +3,14 @@ import { pg } from "../config/pg";
 import { examTypeServicePg } from "./examType.service.pg";
 
 /**
- * Генератор шаблона загрузки результатов (IMTAHAN_NOVLERI_TASK.md §7):
+ * Генератор шаблона загрузки результатов (IMTAHAN_NOVLERI_TASK.md §7, §16):
  * `GET /exams/:id/results-template.xlsx?grade=N`. Формат физически не может разойтись с
  * настройкой типа экзамена — колонки собираются из `exam_type_section_subjects` секции, в
- * которую попадает класс N, а не заданы отдельно. Колонки "(sual sayı)" присутствуют только
- * при `has_question_counts = true`. Колонок "итог"/"pillə" в шаблоне нет — их считает бэкенд
- * при импорте (`studentResult.service.pg.ts`).
+ * которую попадает класс N, а не заданы отдельно. Колонки "(sual sayı)" присутствуют ВСЕГДА,
+ * для каждого предмета (§16: `exam_types.has_question_counts` снят миграцией
+ * 025d_question_counts_from_file.sql — знаменатель процента теперь всегда читается из файла,
+ * а не из конфига типа, поэтому счётчик обязателен независимо от типа экзамена). Колонок
+ * "итог"/"pillə" в шаблоне нет — их считает бэкенд при импорте (`studentResult.service.pg.ts`).
  */
 export class ResultTemplateService {
     async generate(examId: number, grade: number): Promise<{ buffer: Buffer; filename: string }> {
@@ -51,9 +53,7 @@ export class ResultTemplateService {
         const orderedSubjects = [...section.subjects].sort((a, b) => a.sortOrder - b.sortOrder);
         for (const subject of orderedSubjects) {
             header.push(subject.nameAz);
-            if (examType.hasQuestionCounts) {
-                header.push(`${subject.nameAz} (sual sayı)`);
-            }
+            header.push(`${subject.nameAz} (sual sayı)`);
         }
 
         const sheet = xlsx.utils.aoa_to_sheet([header]);

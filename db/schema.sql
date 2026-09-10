@@ -146,12 +146,13 @@ CREATE TABLE level_scale_bands (
 
 -- exam_types — то, по чему считается отдельный рейтинг. Все нынешние экзамены — один тип,
 -- is_base = true (единственный тип с этим флагом, см. exam_types_single_base ниже).
+-- has_question_counts убрана 025d_question_counts_from_file.sql (IMTAHAN_NOVLERI_TASK.md §16):
+-- колонка "(sual sayı)" в шаблоне Excel теперь генерируется всегда, для любого типа.
 CREATE TABLE exam_types (
     id                   bigserial PRIMARY KEY,
     code                 text    NOT NULL UNIQUE,
     name_az              text    NOT NULL,
     level_scale_id       bigint  NOT NULL REFERENCES level_scales(id),
-    has_question_counts  boolean NOT NULL DEFAULT true,
     month_award_min_rank int,          -- NULL = награда месяца не зависит от pillə
     is_base              boolean NOT NULL DEFAULT false,
     active               boolean NOT NULL DEFAULT true,
@@ -305,13 +306,15 @@ CREATE TABLE subjects (
     active        boolean NOT NULL DEFAULT true
 );
 
--- Набор предметов секции типа экзамена, с лимитом вопросов по предмету
--- (023_exam_types_and_level_scales.sql). Секция "5-11 sinif" сеется БЕЗ строк здесь —
--- предметы и max_questions заводит админ в редакторе типов (§3 IMTAHAN_NOVLERI_TASK.md).
+-- Набор предметов секции типа экзамена (023_exam_types_and_level_scales.sql). С
+-- 025d_question_counts_from_file.sql (IMTAHAN_NOVLERI_TASK.md §16) задаёт ТОЛЬКО состав
+-- предметов — max_questions отсюда убран: число вопросов по предмету свойство конкретной
+-- работы, а не типа экзамена, читается построчно из student_result_subject_scores.question_count
+-- (см. studentResult.service.pg.ts::computeScoreSummary). Секция "5-11 sinif" базового типа
+-- сеялась пустой в 023 (§3 того ТЗ), досеяна az/math/english миграцией 025d.
 CREATE TABLE exam_type_section_subjects (
     section_id    bigint NOT NULL REFERENCES exam_type_sections(id) ON DELETE CASCADE,
     subject_code  text   NOT NULL REFERENCES subjects(code),
-    max_questions int    NOT NULL CHECK (max_questions > 0),
     sort_order    int    NOT NULL DEFAULT 0,
     PRIMARY KEY (section_id, subject_code)
 );
@@ -319,8 +322,10 @@ CREATE TABLE exam_type_section_subjects (
 -- Баллы по предметам, по строке на (результат, предмет) — заменяет пять фиксированных колонок
 -- student_results.az/math/life_knowledge/logic/english (024_student_result_subject_scores.sql,
 -- IMTAHAN_NOVLERI_TASK.md §4). Произвольный набор предметов на тип экзамена — то, ради чего
--- всё затевалось: колонками такое не выразить. question_count nullable — у типов с
--- has_question_counts=false его просто нет.
+-- всё затевалось: колонками такое не выразить. question_count nullable в схеме (историю не
+-- переоцениваем и не блокируем), но с 025d (§16) обязателен по факту для НОВЫХ строк —
+-- проверяется на уровне приложения (computeScoreSummary/processStudentResultsFromExcel), не
+-- CHECK constraint.
 CREATE TABLE student_result_subject_scores (
     result_id      bigint NOT NULL REFERENCES student_results(id) ON DELETE CASCADE,
     subject_code   text   NOT NULL REFERENCES subjects(code),
