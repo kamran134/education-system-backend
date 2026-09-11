@@ -62,7 +62,12 @@ export class ExamResultsServicePg {
             .leftJoin("schools as sc", "sc.id", "st.school_id")
             .leftJoin("districts as d", "d.id", "st.district_id")
             .leftJoin("exams as e", "e.id", "sr.exam_id")
-            .leftJoin("levels as lvl", "lvl.code", "sr.level");
+            // levels снесена миграцией 026 (IMTAHAN_NOVLERI_TASK.md §20) — level_scale_bands,
+            // композитный джойн по (scale_id, code), тем же критерием, что и student_results
+            // FK level_band_fkey (024).
+            .leftJoin("level_scale_bands as lvl", (join) =>
+                join.onRef("lvl.scale_id", "=", "sr.level_scale_id").onRef("lvl.code", "=", "sr.level")
+            );
 
         query = this.applyFilter(query, filters);
 
@@ -218,7 +223,7 @@ export class ExamResultsServicePg {
             grade: sql`sr.grade`,
             totalScore: sql`sr.total_score`,
             // Mongo-версия сортировала level через ручной levelPriority (Lisey=1..E=6) — лучший
-            // уровень первым, а не алфавитный порядок E<D<C... Справочник levels.rank даёт
+            // уровень первым, а не алфавитный порядок E<D<C... level_scale_bands.rank даёт
             // обратную величину (E=1..Lisey=6), поэтому инвертируем через (7 - rank), что даёт
             // ровно те же числа, что были в старом CASE (Lisey=1..E=6).
             level: sql`(7 - lvl.rank)`,

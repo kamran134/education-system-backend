@@ -418,7 +418,12 @@ export class StatsServicePg {
                     .onRef("syr.year", "=", "sr.academic_year")
                     .onRef("syr.exam_type_id", "=", "sr.exam_type_id")
             )
-            .leftJoin("levels as lvl", "lvl.code", "sr.level")
+            // levels снесена миграцией 026 (IMTAHAN_NOVLERI_TASK.md §20) — level_scale_bands,
+            // композитный джойн по (scale_id, code), тем же критерием, что и student_results
+            // FK level_band_fkey (024) и maxPriorBandRank (levelScale.service.pg.ts, §15).
+            .leftJoin("level_scale_bands as lvl", (join) =>
+                join.onRef("lvl.scale_id", "=", "sr.level_scale_id").onRef("lvl.code", "=", "sr.level")
+            )
             .where("sr.exam_id", "in", examIds)
             .select([
                 "sr.id as id", "sr.exam_id as exam_id", "sr.grade as grade", "sr.total_score as total_score",
@@ -473,7 +478,7 @@ export class StatsServicePg {
         if (filters.sortColumn && filters.sortDirection) {
             const dir = filters.sortDirection === "asc" ? "asc" : "desc";
             const columnMap: Record<string, any> = {
-                // Порядок силы уровня — из справочника levels (E=1..Lisey=6), а не из хардкода.
+                // Порядок силы уровня — из level_scale_bands.rank (E=1..Lisey=6), а не из хардкода.
                 level: sql`lvl.rank`,
                 code: sql`st.code`, fullname: sql`st.fullname COLLATE az_ci`,
                 // sr.grade (класс на момент результата), не st.grade (живой) — сортировка должна

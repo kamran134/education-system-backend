@@ -31,7 +31,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middleware/errorHandler";
 import { startTokenCleanupScheduler } from "./services/token.service.pg";
-import { loadLevelsCache, loadLevelScaleBandsCache } from "./services/levels.cache";
+import { loadLevelScaleBandsCache } from "./services/levels.cache";
 import { academicYearClosureServicePg } from "./services/academicYearClosure.service.pg";
 
 dotenv.config();
@@ -151,7 +151,7 @@ app.use((req, res, next) => {
 
 app.use(errorHandler);
 
-Promise.all([loadLevelsCache(), loadLevelScaleBandsCache()])
+Promise.all([loadLevelScaleBandsCache()])
     .then(async () => {
         // Авто-закрытие учебных годов (ACADEMIC_YEAR_ARCHIVE_TASK.md §3) — не фатально:
         // это предохранитель поверх ручного закрытия, не критичная для старта функциональность.
@@ -169,6 +169,6 @@ Promise.all([loadLevelsCache(), loadLevelScaleBandsCache()])
         });
     })
     .catch((err) => {
-        console.error("Failed to load levels/level-scale-bands cache on startup:", err);
+        console.error("Failed to load level-scale-bands cache on startup:", err);
         process.exit(1);
     });

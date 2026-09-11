@@ -1,18 +1,26 @@
 import { Request, Response } from "express";
 import { pg } from "../config/pg";
-import { getLevelsCache } from "../services/levels.cache";
+import { getBandsByScaleCode } from "../services/levels.cache";
 import { getRatingYearState } from "../services/ratingYear.service.pg";
 import { ResponseHandler } from "../utils/response-handler.util";
 
+/**
+ * Таблица levels снесена миграцией 026 (IMTAHAN_NOVLERI_TASK.md §20) — отдаём бэнды
+ * единственной шкалы isim_percent вместо строк старого справочника. Форма ответа поменялась:
+ * minTotalScore/maxTotalScore (абсолютные пороги, калибровка под 50-вопросный экзамен) заменены
+ * на minPercent/maxPercent — не найдено ни одного вызывающего на фронте (проверено grep'ом),
+ * ломать нечего. GET /level-scales (levelScale.controller.ts) — более полный аналог этого
+ * эндпоинта (все шкалы, а не только "текущая"); этот оставлен ради обратной совместимости пути.
+ */
 export const getLevelsReference = async (req: Request, res: Response): Promise<void> => {
     try {
-        const levels = getLevelsCache().map((l) => ({
-            code: l.code,
-            nameAz: l.nameAz,
-            rank: l.rank,
-            participationScore: l.participationScore,
-            minTotalScore: l.minTotalScore,
-            maxTotalScore: l.maxTotalScore,
+        const levels = getBandsByScaleCode("isim_percent").map((b) => ({
+            code: b.code,
+            nameAz: b.nameAz,
+            rank: b.rank,
+            participationScore: b.participationScore,
+            minPercent: b.minPercent,
+            maxPercent: b.maxPercent,
         }));
         res.status(200).json(ResponseHandler.success(levels));
     } catch (error) {

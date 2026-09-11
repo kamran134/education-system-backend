@@ -89,22 +89,19 @@ CREATE TABLE teachers (
     pedagogical_experience_years int CHECK (pedagogical_experience_years IS NULL OR pedagogical_experience_years BETWEEN 0 AND 70)  -- 016_teacher_pedagogical_experience.sql: стаж вводится числом лет, не годом начала (работал не непрерывно)
 );
 
+-- last_name/first_name/middle_name (легаси, вытеснены fullname в 025b_student_fullname.sql,
+-- SAGIRD_FULLNAME_TASK.md) и max_level (перестал влиять на любое решение после
+-- IMTAHAN_NOVLERI_TASK.md §15 — maxPriorBandRank считает "прошлый максимум" из student_results,
+-- а не из lifetime-колонки без разбивки по типу экзамена) удалены
+-- 026_drop_legacy_subject_columns.sql (§20).
 CREATE TABLE students (
     id               bigserial PRIMARY KEY,
     code             bigint  NOT NULL UNIQUE,                     -- 10 знаков = teacher*1000 + nnn. bigint обязателен: не влезает в int4
-    -- last_name/first_name/middle_name — ЛЕГАСИ (025b_student_fullname.sql, SAGIRD_FULLNAME_TASK.md):
-    -- живой код их больше не читает и не пишет, fullname — единственный источник имени, по образцу
-    -- teachers.fullname. Колонки оставлены нетронутыми (не удалены) — склейка необратима (двойные
-    -- фамилии, отсутствующее отчество), снос — отдельной миграцией позже, после недели работы прода.
-    last_name        text,
-    first_name       text,
-    middle_name      text,
     fullname         text    NOT NULL,                            -- "Soyad Ad Ata adı", как у teachers.fullname
     grade            int,
     teacher_id       bigint  REFERENCES teachers(id),
     school_id        bigint  REFERENCES schools(id),
     district_id      bigint  REFERENCES districts(id),
-    max_level        int,
     status           text,
     avatar_url       text,
     legacy_mongo_id  text UNIQUE
@@ -195,47 +192,21 @@ CREATE TABLE exams (
 
 -- ============================================================ справочники
 
--- Справочник уровней — заменяет 4 дубля хардкода (calculateLevel, calculateLevelNumb,
--- ParticipationScoreMap, SQL CASE в stats/examResults), см. db/migrations/001_levels_lookup.sql.
--- 6 строк, кэшируется в памяти при старте (services/levels.cache.ts).
-CREATE TABLE levels (
-    code                text PRIMARY KEY,              -- 'E','D','C','B','A','Lisey'
-    name_az             text NOT NULL,
-    rank                int  NOT NULL UNIQUE,           -- 1..6, порядок силы уровня
-    participation_score double precision NOT NULL,
-    min_total_score     int  NOT NULL,                  -- нижняя граница total_score включительно
-    max_total_score     int,                             -- верхняя граница включительно, NULL = без предела
-    active              boolean NOT NULL DEFAULT true
-);
+-- levels (справочник уровней 001_levels_lookup.sql) снесена 026_drop_legacy_subject_columns.sql
+-- (IMTAHAN_NOVLERI_TASK.md §20) — заменена level_scales/level_scale_bands выше (023).
 
 
 -- ============================================================ результаты
 
+-- Пять колонок предметов (az/math/life_knowledge/logic/english) и их *_count — ЛЕГАСИ,
+-- заменены строками student_result_subject_scores ниже (024_student_result_subject_scores.sql,
+-- произвольный набор предметов вместо пяти фиксированных колонок), удалены
+-- 026_drop_legacy_subject_columns.sql (IMTAHAN_NOVLERI_TASK.md §20) после сверки сумм.
 CREATE TABLE student_results (
     id          bigserial PRIMARY KEY,
     student_id  bigint NOT NULL REFERENCES students(id) ON DELETE CASCADE,
     exam_id     bigint REFERENCES exams(id),                      -- в Mongo required:false, оставлено nullable
     grade       int    NOT NULL,
-
-    -- disciplines.* — ЛЕГАСИ, только для истории. С 024_student_result_subject_scores.sql
-    -- баллы новых импортов пишутся в student_result_subject_scores (произвольный набор
-    -- предметов), эти пять колонок больше не заполняются новым кодом и NULL для новых строк.
-    -- az/math/az_count/math_count были NOT NULL — сняты в 024, потому что типы экзамена без
-    -- предметов "az"/"math" (то есть почти любой новый тип) иначе не могли бы вставить строку
-    -- результата вовсе. Удаление самих колонок — миграция 026 (после того как 025 и весь
-    -- код §5/§6 IMTAHAN_NOVLERI_TASK.md прошли прод-проверку).
-    az                 double precision,
-    math               double precision,
-    life_knowledge     double precision,
-    logic              double precision,
-    english            double precision,
-
-    -- questionCounts.* — количество вопросов по тем же предметам (легаси, см. выше)
-    az_count             int,
-    math_count           int,
-    life_knowledge_count int,
-    logic_count          int,
-    english_count        int,
 
     total_score  double precision NOT NULL,
     score        double precision NOT NULL,
@@ -274,10 +245,9 @@ CREATE TABLE student_results (
 
     legacy_mongo_id text UNIQUE,
     UNIQUE (student_id, exam_id),
-    -- Композитный FK вместо простого level -> levels(code) (снят в 024): коды pillə у разных
-    -- шкал разных типов экзаменов могут совпасть при разном смысле, level_scale_id снимает
-    -- неоднозначность. levels(code) как таблица не удалена (снос в 026), но student_results
-    -- на неё больше не ссылается.
+    -- Композитный FK вместо простого level -> levels(code) (снят в 024, levels снесена в 026):
+    -- коды pillə у разных шкал разных типов экзаменов могут совпасть при разном смысле,
+    -- level_scale_id снимает неоднозначность.
     CONSTRAINT student_results_level_band_fkey
         FOREIGN KEY (level_scale_id, level) REFERENCES level_scale_bands (scale_id, code)
 );
@@ -334,17 +304,9 @@ CREATE TABLE student_result_subject_scores (
     PRIMARY KEY (result_id, subject_code)
 );
 
--- Совместимая замена версии над колонками (002_subjects_lookup.sql) — та же форма результата,
--- чтобы не искать всех читателей в один заход. lifeKnowledge/logic/english в новых строках
--- этой фильтрацией по классу уже не нуждаются (их просто нет в student_result_subject_scores,
--- если предмета нет в наборе секции) — фильтр остался только историческим следом того, как
--- заполнялась старая вьюха; для новых импортов он не действует, потому что строки по предметам
--- вне секции сюда просто не попадают.
-CREATE VIEW v_student_result_subject_scores AS
-SELECT srs.result_id, sr.student_id, sr.exam_id, sr.grade, sr.academic_year,
-       srs.subject_code, srs.score, srs.question_count
-FROM student_result_subject_scores srs
-JOIN student_results sr ON sr.id = srs.result_id;
+-- v_student_result_subject_scores (совместимая вьюха на время переезда с колонок, 024) снесена
+-- 026_drop_legacy_subject_columns.sql (IMTAHAN_NOVLERI_TASK.md §20) — читателей не осталось
+-- с шага 2.
 
 -- Защита ключей booklets.disciplines от посторонних кодов предметов (CHECK не может
 -- ссылаться на другую таблицу).
@@ -594,18 +556,27 @@ CREATE TABLE schema_migrations (
 -- Шаблон = картинка + раскладка полей (координаты в px картинки), редактируется визуальным
 -- конструктором в админке. image_path иммутабелен (имя = sha1 содержимого) — на него
 -- ссылаются уже выданные сертификаты через свою собственную копию пути, см. ниже.
+-- level_scale_id (026_drop_legacy_subject_columns.sql, IMTAHAN_NOVLERI_TASK.md §20.3): шаблон,
+-- градуированный по pillə, привязан к конкретной шкале level_scales, как и student_results.level
+-- с 024 — level_code сам по себе больше не глобально уникален (composite FK ниже). level_code и
+-- level_scale_id либо оба NULL (награда без градации), либо оба заданы (CHECK ниже).
 CREATE TABLE certificate_templates (
-    id           bigserial PRIMARY KEY,
-    award_code   text NOT NULL,                 -- 'developing_student' и далее
-    level_code   text REFERENCES levels(code),  -- NULL, если награда не зависит от пилли
-    name         text NOT NULL,
-    image_path   text NOT NULL,
-    image_width  int  NOT NULL,
-    image_height int  NOT NULL,
-    fields       jsonb NOT NULL DEFAULT '[]'::jsonb,
-    active       boolean NOT NULL DEFAULT true,
-    created_at   timestamptz NOT NULL DEFAULT now(),
-    updated_at   timestamptz NOT NULL DEFAULT now()
+    id             bigserial PRIMARY KEY,
+    award_code     text NOT NULL,                 -- 'developing_student' и далее
+    level_code     text,                          -- NULL, если награда не зависит от пилли
+    level_scale_id bigint REFERENCES level_scales(id),
+    name           text NOT NULL,
+    image_path     text NOT NULL,
+    image_width    int  NOT NULL,
+    image_height   int  NOT NULL,
+    fields         jsonb NOT NULL DEFAULT '[]'::jsonb,
+    active         boolean NOT NULL DEFAULT true,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    updated_at     timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT certificate_templates_level_band_fkey
+        FOREIGN KEY (level_scale_id, level_code) REFERENCES level_scale_bands (scale_id, code),
+    CONSTRAINT certificate_templates_level_pair_chk
+        CHECK ((level_code IS NULL) = (level_scale_id IS NULL))
 );
 CREATE UNIQUE INDEX certificate_templates_award_level_uq
     ON certificate_templates (award_code, coalesce(level_code, ''));

@@ -40,7 +40,6 @@ export interface Student {
     teacher: TeacherSummary | null;
     school: EntitySummary | null;
     district: EntitySummary | null;
-    maxLevel: number | null;
     status: string | null;
     avatarUrl: string | null;
     score: number | null;
@@ -62,7 +61,6 @@ export interface StudentCreate {
     teacherId?: number | null;
     schoolId?: number | null;
     districtId?: number | null;
-    maxLevel?: number;
     status?: string;
 }
 
@@ -108,7 +106,7 @@ export interface StudentResultRow {
 type StudentRow = {
     id: number; code: number; fullname: string;
     grade: number | null; teacher_id: number | null; school_id: number | null; district_id: number | null;
-    max_level: number | null; status: string | null; avatar_url: string | null;
+    status: string | null; avatar_url: string | null;
 };
 
 /**
@@ -208,7 +206,7 @@ export class StudentServicePg {
             .values({
                 code: data.code, fullname: data.fullname, grade: data.grade ?? null,
                 teacher_id: teacherId ?? null, school_id: schoolId ?? null, district_id: districtId ?? null,
-                max_level: data.maxLevel ?? null, status: data.status ?? null,
+                status: data.status ?? null,
             })
             .returningAll()
             .executeTakeFirstOrThrow();
@@ -225,7 +223,6 @@ export class StudentServicePg {
                 ...(data.teacherId !== undefined && { teacher_id: data.teacherId }),
                 ...(data.schoolId !== undefined && { school_id: data.schoolId }),
                 ...(data.districtId !== undefined && { district_id: data.districtId }),
-                ...(data.maxLevel !== undefined && { max_level: data.maxLevel }),
                 ...(data.status !== undefined && { status: data.status }),
             })
             .where("id", "=", id)
@@ -830,7 +827,7 @@ export class StudentServicePg {
                 teacher: teacher ? { id: teacher.id, code: teacher.code, fullname: teacher.fullname } : null,
                 school: school ? { id: school.id, code: school.code, name: school.name } : null,
                 district: district ? { id: district.id, code: district.code, name: district.name } : null,
-                maxLevel: row.max_level, status: row.status, avatarUrl: row.avatar_url,
+                status: row.status, avatarUrl: row.avatar_url,
                 score: (hasJoinedRating ? row.current_score : current?.score) ?? null,
                 averageScore: (hasJoinedRating ? row.current_average_score : current?.averageScore) ?? null,
                 place: (hasJoinedRating ? row.current_place : current?.place) ?? null,

@@ -116,6 +116,10 @@ export interface AppSettings {
 
 // Добавлено вручную вслед за миграцией 011_certificates.sql — перегенерировать через
 // kysely-codegen при следующей возможности подключиться к живой БД и сверить.
+// level_scale_id добавлена вручную вслед за миграцией 026_drop_legacy_subject_columns.sql
+// (IMTAHAN_NOVLERI_TASK.md §20.3) — перенос FK level_code с levels(code) на
+// level_scale_bands(scale_id, code), сделан ДО DROP TABLE levels в той же миграции.
+// level_code и level_scale_id либо оба NULL, либо оба заданы (CHECK на уровне БД).
 export interface CertificateTemplates {
   active: Generated<boolean>;
   award_code: string;
@@ -126,6 +130,7 @@ export interface CertificateTemplates {
   image_path: string;
   image_width: number;
   level_code: string | null;
+  level_scale_id: number | null;
   name: string;
   updated_at: Generated<Timestamp>;
 }
@@ -171,15 +176,8 @@ export interface RegionYearRatings {
   exam_type_id: number;
 }
 
-export interface Levels {
-  active: Generated<boolean>;
-  code: string;
-  max_total_score: number | null;
-  min_total_score: number;
-  name_az: string;
-  participation_score: number;
-  rank: number;
-}
+// Levels — таблица снесена миграцией 026_drop_legacy_subject_columns.sql
+// (IMTAHAN_NOVLERI_TASK.md §20). Заменена level_scales/level_scale_bands (023).
 
 // Добавлено вручную вслед за миграцией 017_profile_change_requests.sql — перегенерировать через
 // kysely-codegen при следующей возможности подключиться к живой БД и сверить.
@@ -232,27 +230,18 @@ export interface SchoolYearRatings {
   exam_type_id: number;
 }
 
-// az/math/az_count/math_count стали nullable в 024_student_result_subject_scores.sql — легаси-
-// колонки, заполняются только у исторических строк (заморозка), новые импорты пишут баллы в
-// student_result_subject_scores и оставляют эти пять NULL. Удаление колонок — миграция 026.
+// Десять легаси-колонок предметов (az/math/life_knowledge/logic/english + их *_count) снесены
+// миграцией 026_drop_legacy_subject_columns.sql (IMTAHAN_NOVLERI_TASK.md §20.2) — данные с
+// 024_student_result_subject_scores.sql живут в student_result_subject_scores, суммы сверены
+// (§20.1). Читать баллы по предметам теперь только через student_result_subject_scores.
 export interface StudentResults {
   academic_year: Generated<number | null>;
-  az: number | null;
-  az_count: number | null;
   development_score: number | null;
-  english: number | null;
-  english_count: number | null;
   exam_id: number | null;
   grade: number;
   id: Generated<number>;
   legacy_mongo_id: string | null;
   level: string;
-  life_knowledge: number | null;
-  life_knowledge_count: number | null;
-  logic: number | null;
-  logic_count: number | null;
-  math: number | null;
-  math_count: number | null;
   month: number;
   participation_score: number;
   republic_wide_student_of_the_month_score: number | null;
@@ -280,20 +269,17 @@ export interface StudentResultSubjectScores {
   question_count: number | null;
 }
 
+// last_name/first_name/middle_name (легаси, вытеснены fullname в 025b) и max_level (перестал
+// влиять на решения после IMTAHAN_NOVLERI_TASK.md §15, maxPriorBandRank) снесены миграцией
+// 026_drop_legacy_subject_columns.sql (§20.2).
 export interface Students {
   avatar_url: string | null;
   code: number;
   district_id: number | null;
-  // last_name/first_name/middle_name — легаси (025b_student_fullname.sql, SAGIRD_FULLNAME_TASK.md):
-  // живой код их больше не читает и не пишет, fullname — единственный источник имени.
-  first_name: string | null;
   fullname: string;
   grade: number | null;
   id: Generated<number>;
-  last_name: string | null;
   legacy_mongo_id: string | null;
-  max_level: number | null;
-  middle_name: string | null;
   school_id: number | null;
   status: string | null;
   teacher_id: number | null;
@@ -590,16 +576,9 @@ export interface VStudentPlaces {
   exam_type_id: number | null;
 }
 
-export interface VStudentResultSubjectScores {
-  academic_year: number | null;
-  exam_id: number | null;
-  grade: number | null;
-  question_count: number | null;
-  result_id: number | null;
-  score: number | null;
-  student_id: number | null;
-  subject_code: string | null;
-}
+// VStudentResultSubjectScores — вьюха-совместимость v_student_result_subject_scores снесена
+// миграцией 026_drop_legacy_subject_columns.sql (IMTAHAN_NOVLERI_TASK.md §20.2), читателей не
+// осталось с шага 2 (024).
 
 export interface VStudentYearScores {
   academic_year: number | null;
@@ -663,7 +642,6 @@ export interface DB {
   issued_certificates: IssuedCertificates;
   level_scale_bands: LevelScaleBands;
   level_scales: LevelScales;
-  levels: Levels;
   profile_change_requests: ProfileChangeRequests;
   region_year_ratings: RegionYearRatings;
   regions: Regions;
@@ -696,7 +674,6 @@ export interface DB {
   v_student_month_places: VStudentMonthPlaces;
   v_student_month_scores: VStudentMonthScores;
   v_student_places: VStudentPlaces;
-  v_student_result_subject_scores: VStudentResultSubjectScores;
   v_student_year_scores: VStudentYearScores;
   v_teacher_month_places: VTeacherMonthPlaces;
   v_teacher_month_scores: VTeacherMonthScores;

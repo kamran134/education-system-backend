@@ -169,7 +169,9 @@ export class CertificateIssueService {
         return out;
     }
 
-    private async buildData(studentResultId: number): Promise<{ data: CertificateData; levelCode: string }> {
+    private async buildData(
+        studentResultId: number
+    ): Promise<{ data: CertificateData; levelCode: string; levelScaleId: number }> {
         const row = await pg
             .selectFrom("student_results as sr")
             .innerJoin("students as st", "st.id", "sr.student_id")
@@ -183,6 +185,7 @@ export class CertificateIssueService {
                 "sr.month as month",
                 "sr.year as year",
                 "sr.level as level",
+                "sr.level_scale_id as level_scale_id",
                 "sr.academic_year as academic_year",
                 "e.date as exam_date",
                 "st.fullname as student_fullname",
@@ -197,11 +200,14 @@ export class CertificateIssueService {
 
         // Предыдущая (максимальная) пилля за тот же учебный год до этого экзамена —
         // та же логика, что prior_max в markDevelopingStudents() (stats.service.pg.ts).
+        // levels снесена миграцией 026 (IMTAHAN_NOVLERI_TASK.md §20) — level_scale_bands,
+        // композитный джойн по (scale_id, code), тем же критерием, что и остальной код
+        // (maxPriorBandRank, stats.service.pg.ts, examResults.service.pg.ts).
         const prevLevel = await sql<{ code: string | null }>`
             SELECT lvl.code
             FROM student_results sr2
             JOIN exams e2 ON e2.id = sr2.exam_id
-            JOIN levels lvl ON lvl.code = sr2.level
+            JOIN level_scale_bands lvl ON lvl.scale_id = sr2.level_scale_id AND lvl.code = sr2.level
             WHERE sr2.student_id = (SELECT student_id FROM student_results WHERE id = ${studentResultId})
               AND sr2.academic_year = ${row.academic_year}
               AND e2.date < ${row.exam_date}
@@ -213,6 +219,7 @@ export class CertificateIssueService {
 
         return {
             levelCode: row.level,
+            levelScaleId: row.level_scale_id,
             data: {
                 studentFullName,
                 schoolName: row.school_name,
@@ -251,10 +258,14 @@ export class CertificateIssueService {
             throw new CertificateNotEligibleError("Bu nəticə üçün sertifikat mövcud deyil");
         }
 
-        const { data, levelCode } = await this.buildData(studentResultId);
+        const { data, levelCode, levelScaleId } = await this.buildData(studentResultId);
 
+        // Шаблон резолвится по (award_code, level_scale_id, level_code) — IMTAHAN_NOVLERI_TASK.md
+        // §20.3: level_code сам по себе больше не уникален глобально, шаблон градуирован по
+        // конкретной шкале pillə (level_scale_bands), поэтому шкала — часть ключа поиска.
         const templateLevelCode = LEVEL_GRADED_AWARDS.has(awardCode as AwardCode) ? levelCode : null;
-        const template = await templateService.findActive(awardCode, templateLevelCode);
+        const templateLevelScaleId = templateLevelCode === null ? null : levelScaleId;
+        const template = await templateService.findActive(awardCode, templateLevelCode, templateLevelScaleId);
         if (!template) {
             throw new CertificateNoTemplateError(
                 `Bu pillə üçün sertifikat şablonu hələ yüklənməyib (${awardCode}/${templateLevelCode})`

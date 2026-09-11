@@ -94,7 +94,7 @@ Auth: JWT access + refresh, refresh tokens stored server-side (max 5 sessions) a
 - **A global `errorHandler` middleware exists** (`middleware/errorHandler`, imported in `index.ts`) but is effectively bypassed: all 23 controllers wrap their methods in their own try/catch (~184 blocks). Match the surrounding style rather than half-migrating a file to the global handler.
 - **`src/_backups_ratings_migration/` is dead code** — `.backup` copies from the ratings migration. It sits inside `src/` and gets compiled. Never edit, never import; it is not a reference for current behavior.
 - Request body limit is 100 MB (`index.ts`) for Excel/bulk uploads.
-- Startup loads two in-memory caches before listening (`loadLevelsCache`, `loadLevelScaleBandsCache` in `services/levels.cache.ts`) — if you add a row to `levels`/`level_scale_bands` at runtime via direct SQL, the server won't see it until restart.
+- Startup loads one in-memory cache before listening (`loadLevelScaleBandsCache` in `services/levels.cache.ts`) — if you add a row to `level_scale_bands`/`level_scales` at runtime via direct SQL, the server won't see it until restart. `getBands(scaleId)`/`getBandsByScaleCode(code)` are the only source of truth for pillə now — the old `levels` table and its cache (`loadLevelsCache`/`getLevelsCache`/`getLevelByCode`/`getLevelByScore`) are gone as of `026_drop_legacy_subject_columns.sql` (`IMTAHAN_NOVLERI_TASK.md` §20).
 
 ## Excel
 

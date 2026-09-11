@@ -7,11 +7,16 @@ import { pg } from "../config/pg";
 import { CertificateField } from "../types/certificate.types";
 import { defaultCertificateLayout, defaultVerificationFields } from "./certificate-default-layout";
 import { scaleLayout } from "./certificate-layout.util";
+import { resolveExamTypeId } from "./examType.service.pg";
 
 export interface CertificateTemplate {
     id: number;
     awardCode: string;
     levelCode: string | null;
+    // level_scale_id добавлена миграцией 026 (IMTAHAN_NOVLERI_TASK.md §20.3) — шаблон,
+    // градуированный по pillə, привязан к конкретной шкале level_scales; либо оба поля NULL
+    // (награда без градации), либо оба заданы (CHECK certificate_templates_level_pair_chk).
+    levelScaleId: number | null;
     name: string;
     imagePath: string;
     imageWidth: number;
@@ -36,6 +41,7 @@ function toTemplate(row: any): CertificateTemplate {
         id: row.id,
         awardCode: row.award_code,
         levelCode: row.level_code,
+        levelScaleId: row.level_scale_id,
         name: row.name,
         imagePath: row.image_path,
         imageWidth: row.image_width,
@@ -63,15 +69,28 @@ export class CertificateTemplateService {
         return row ? toTemplate(row) : null;
     }
 
-    // Активный шаблон под конкретную пиллю. levelCode передаётся как есть — для наград без
-    // градации по пилле (award_code без уровня) вызывающий код передаёт null.
-    async findActive(awardCode: string, levelCode: string | null): Promise<CertificateTemplate | null> {
+    // Активный шаблон под конкретную пиллю. levelCode/levelScaleId передаются как есть — для
+    // наград без градации по пилле (award_code без уровня) вызывающий код передаёт null в оба.
+    // Ключ поиска — (award_code, level_scale_id, level_code), а не только (award_code,
+    // level_code): с IMTAHAN_NOVLERI_TASK.md §20.3 level_code сам по себе не глобально уникален,
+    // шаблон градуирован по конкретной шкале pillə (level_scale_bands).
+    async findActive(
+        awardCode: string,
+        levelCode: string | null,
+        levelScaleId: number | null = null
+    ): Promise<CertificateTemplate | null> {
+        if (levelCode !== null && levelScaleId === null) {
+            throw new Error("findActive: levelCode задан без levelScaleId");
+        }
         let query = pg
             .selectFrom("certificate_templates")
             .selectAll()
             .where("award_code", "=", awardCode)
             .where("active", "=", true);
-        query = levelCode === null ? query.where("level_code", "is", null) : query.where("level_code", "=", levelCode);
+        query =
+            levelCode === null
+                ? query.where("level_code", "is", null)
+                : query.where("level_code", "=", levelCode).where("level_scale_id", "=", levelScaleId!);
         const row = await query.executeTakeFirst();
         return row ? toTemplate(row) : null;
     }
@@ -131,6 +150,23 @@ export class CertificateTemplateService {
         return row ? toTemplate(row) : null;
     }
 
+    /**
+     * Шкала для НОВОГО шаблона, градуированного по pillə. Админ-форма загрузки шаблона (§20.3
+     * не расширяет её) не выбирает шкалу явно — сегодня она всё равно одна на систему
+     * (IMTAHAN_NOVLERI_TASK.md §2, "почему одна шкала"), резолвится тем же способом, что и
+     * остальной код: через базовый тип экзамена (resolveExamTypeId() без аргумента → is_base)
+     * → exam_types.level_scale_id.
+     */
+    private async resolveDefaultLevelScaleId(): Promise<number> {
+        const baseExamTypeId = await resolveExamTypeId();
+        const row = await pg
+            .selectFrom("exam_types")
+            .select("level_scale_id")
+            .where("id", "=", baseExamTypeId)
+            .executeTakeFirstOrThrow();
+        return row.level_scale_id;
+    }
+
     async create(data: {
         awardCode: string;
         levelCode: string | null;
@@ -138,6 +174,7 @@ export class CertificateTemplateService {
         imageBuffer: Buffer;
     }): Promise<CertificateTemplate> {
         const { imagePath, width, height } = await this.saveImage(data.imageBuffer);
+        const levelScaleId = data.levelCode === null ? null : await this.resolveDefaultLevelScaleId();
 
         // Наследуем раскладку с самого свежего настроенного шаблона той же награды вместо
         // заводской — админ, который уже довёл один шаблон до ума, не должен переделывать
@@ -160,6 +197,7 @@ export class CertificateTemplateService {
             .values({
                 award_code: data.awardCode,
                 level_code: data.levelCode,
+                level_scale_id: levelScaleId,
                 name: data.name,
                 image_path: imagePath,
                 image_width: width,

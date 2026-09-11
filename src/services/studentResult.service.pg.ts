@@ -427,14 +427,12 @@ export class StudentResultServicePg {
             }
 
             const studentDataToInsert = parsedRows.map((r) => ({
-                code: r.studentCode, fullname: r.fullname,
-                grade: r.grade, maxLevel: null as number | null,
+                code: r.studentCode, fullname: r.fullname, grade: r.grade,
             }));
             const { students, studentsWithoutTeacher } = await this.processStudentResults(studentDataToInsert);
             const studentByCode = new Map(students.map((s) => [s.code, s]));
 
             const inserted: StudentResult[] = [];
-            const studentMaxLevelUpdates: Array<{ id: number; maxLevel: number }> = [];
 
             for (const r of parsedRows) {
                 const student = studentByCode.get(r.studentCode);
@@ -452,13 +450,6 @@ export class StudentResultServicePg {
                 // ЭТОГО ЖЕ ученика по ЭТОМУ ЖЕ типу экзамена в этом же учебном году.
                 const priorMaxRank = await maxPriorBandRank(student.id, exam.exam_type_id, academicYearStart, examDate);
                 const developmentScore = priorMaxRank !== null && band.rank > priorMaxRank ? 10 : 0;
-
-                // students.max_level — ЛЕГАСИ (§15): для решений (development_score, levelStatistics)
-                // больше не читается нигде в src/, пишется только для обратной совместимости колонки.
-                // Подлежит сносу вместе с миграцией 026 — тогда убрать и эту запись.
-                if (student.maxLevel === undefined || student.maxLevel === null || band.participationScore > student.maxLevel) {
-                    studentMaxLevelUpdates.push({ id: student.id, maxLevel: band.participationScore });
-                }
 
                 const scorePercentRounded = Number(scorePercent.toFixed(3));
 
@@ -490,10 +481,6 @@ export class StudentResultServicePg {
                 inserted.push((await this.attachRefs([row]))[0]);
             }
 
-            for (const upd of studentMaxLevelUpdates) {
-                await pg.updateTable("students").set({ max_level: upd.maxLevel }).where("id", "=", upd.id).execute();
-            }
-
             await deleteFile(filePath).catch(() => {});
 
             return {
@@ -511,17 +498,17 @@ export class StudentResultServicePg {
     /**
      * Создаёт недостающих учеников (по коду), назначая учителя арифметикой кода — как и раньше.
      * Ученики, для которых учитель не резолвится, НЕ создаются (studentsWithoutTeacher).
-     * maxLevel у новых студентов теперь неизвестен на момент создания (шаг 2 больше не читает
-     * level из файла — его считает сервер уже после того, как студент создан), поэтому
-     * передаётся null; вызывающий код (processStudentResultsFromExcel) сам проставляет
-     * students.max_level через studentMaxLevelUpdates, как и раньше.
+     * students.max_level снесён миграцией 026 (IMTAHAN_NOVLERI_TASK.md §20.2/§15) — раньше сюда
+     * прокидывался lifetime-максимум участия, но ни одно решение (development_score,
+     * levelStatistics) его уже не читало с шага §15, только записывало для обратной
+     * совместимости колонки. Запись убрана вместе с колонкой.
      */
     private async processStudentResults(
-        studentDataToInsert: Array<{ code: number; fullname: string; grade: number; maxLevel: number | null }>
-    ): Promise<{ students: Array<{ id: number; code: number; maxLevel: number | null }>; studentsWithoutTeacher: number[] }> {
+        studentDataToInsert: Array<{ code: number; fullname: string; grade: number }>
+    ): Promise<{ students: Array<{ id: number; code: number }>; studentsWithoutTeacher: number[] }> {
         const studentCodes = studentDataToInsert.map((s) => s.code);
         const existingStudents = studentCodes.length > 0
-            ? await pg.selectFrom("students").select(["id", "code", "max_level"]).where("code", "in", studentCodes).execute()
+            ? await pg.selectFrom("students").select(["id", "code"]).where("code", "in", studentCodes).execute()
             : [];
         const existingCodes = new Set(existingStudents.map((s) => s.code));
         const newStudents = studentDataToInsert.filter((s) => !existingCodes.has(s.code));
@@ -539,11 +526,11 @@ export class StudentResultServicePg {
             }
             studentsWithTeacher.push({
                 code: s.code, fullname: s.fullname,
-                grade: s.grade, teacherId, schoolId, districtId, maxLevel: s.maxLevel ?? undefined,
+                grade: s.grade, teacherId, schoolId, districtId,
             });
         });
 
-        let newStudentsRows: Array<{ id: number; code: number; max_level: number | null }> = [];
+        let newStudentsRows: Array<{ id: number; code: number }> = [];
         if (studentsWithTeacher.length > 0) {
             newStudentsRows = await pg
                 .insertInto("students")
@@ -551,17 +538,13 @@ export class StudentResultServicePg {
                     studentsWithTeacher.map((s) => ({
                         code: s.code, fullname: s.fullname,
                         grade: s.grade ?? null, teacher_id: s.teacherId ?? null, school_id: s.schoolId ?? null, district_id: s.districtId ?? null,
-                        max_level: s.maxLevel ?? null,
                     }))
                 )
-                .returning(["id", "code", "max_level"])
+                .returning(["id", "code"])
                 .execute();
         }
 
-        const allStudents = [
-            ...existingStudents.map((s) => ({ id: s.id, code: s.code, maxLevel: s.max_level })),
-            ...newStudentsRows.map((s) => ({ id: s.id, code: s.code, maxLevel: s.max_level })),
-        ];
+        const allStudents = [...existingStudents, ...newStudentsRows];
 
         return { students: allStudents, studentsWithoutTeacher };
     }
@@ -582,13 +565,21 @@ export class StudentResultServicePg {
     }
 
     /**
-     * Одноразовый импорт исторических результатов из JSON — НЕ трогается по требованию ТЗ §7
-     * ("Легаси-импорт POST /student-results/import-json не трогаем"). Единственное добавление:
-     * exam_type_id (базовый тип) и level_scale_id (isim_percent) проставляются на вставке —
-     * без них у новых через этот путь строк не работал бы composite FK на level_scale_bands
-     * (level_scale_id NULL => FK не проверяется вовсе, а не "проверяется как раньше через
-     * levels"), и они выпадали бы из всего, что читает student_results по типу экзамена в
-     * будущих шагах. Логика сопоставления по ФИО, баллы, статус — не изменены.
+     * Одноразовый импорт исторических результатов из JSON — логика (сопоставление по ФИО,
+     * баллы, статус) НЕ трогается по требованию ТЗ §7 ("Легаси-импорт POST
+     * /student-results/import-json не трогаем"). Два добавления поверх исходной логики:
+     *
+     * 1. Шаг 2 (024_student_result_subject_scores.sql, IMTAHAN_NOVLERI_TASK.md): exam_type_id
+     *    (базовый тип) и level_scale_id (isim_percent) проставляются на вставке — без них
+     *    composite FK на level_scale_bands не работал бы (level_scale_id NULL => FK не
+     *    проверяется вовсе), и строки выпадали бы из всего, что читает student_results по типу
+     *    экзамена.
+     * 2. §20.2 (миграция 026): az/math/life_knowledge/logic/english и их *_count физически
+     *    снесены из student_results — писать в них стало некуда. Не "починка" бизнес-логики,
+     *    а вынужденное следствие снятия колонок: те же пять значений из resultData.disciplines
+     *    теперь идут в student_result_subject_scores (тем же фильтром по классу, что и backfill
+     *    024: lifeKnowledge/logic только 1-4, english только 5+), а не отбрасываются молча.
+     *    question_count — NULL (формат этого JSON его не содержит, как и раньше не содержал).
      */
     async importLegacyResultsFromJson(filePath: string): Promise<{
         inserted: number;
@@ -648,17 +639,17 @@ export class StudentResultServicePg {
             }
 
             try {
+                const grade = resultData.grade ?? 0;
+                // az/math/life_knowledge/logic/english(+*_count) снесены миграцией 026
+                // (IMTAHAN_NOVLERI_TASK.md §20.2) — баллы по предметам этого легаси-пути теперь
+                // идут в student_result_subject_scores, тем же фильтром по классу, что и backfill
+                // 024_student_result_subject_scores.sql (lifeKnowledge/logic только grade<=4,
+                // english только grade>=5, az/math всегда). question_count неизвестен для этого
+                // формата — NULL, как и для прочих исторических строк без счётчика.
                 const values = {
                     student_id: student.id,
                     exam_id: examIdNum,
-                    grade: resultData.grade ?? 0,
-                    az: resultData.disciplines?.az ?? 0,
-                    math: resultData.disciplines?.math ?? 0,
-                    life_knowledge: resultData.disciplines?.lifeKnowledge ?? 0,
-                    logic: resultData.disciplines?.logic ?? 0,
-                    english: resultData.disciplines?.english ?? 0,
-                    az_count: 0,
-                    math_count: 0,
+                    grade,
                     total_score: resultData.totalScore ?? 0,
                     score: resultData.score ?? 0,
                     participation_score: 0,
@@ -670,6 +661,20 @@ export class StudentResultServicePg {
                     level_scale_id: levelScale.id,
                 };
 
+                const subjectRows: Array<{ subjectCode: string; score: number; questionCount: number | null }> = [
+                    { subjectCode: "az", score: resultData.disciplines?.az ?? 0, questionCount: null },
+                    { subjectCode: "math", score: resultData.disciplines?.math ?? 0, questionCount: null },
+                ];
+                if (grade <= 4) {
+                    subjectRows.push(
+                        { subjectCode: "lifeKnowledge", score: resultData.disciplines?.lifeKnowledge ?? 0, questionCount: null },
+                        { subjectCode: "logic", score: resultData.disciplines?.logic ?? 0, questionCount: null }
+                    );
+                }
+                if (grade >= 5) {
+                    subjectRows.push({ subjectCode: "english", score: resultData.disciplines?.english ?? 0, questionCount: null });
+                }
+
                 const existing = await pg
                     .selectFrom("student_results")
                     .select("id")
@@ -677,11 +682,21 @@ export class StudentResultServicePg {
                     .where((eb) => (examIdNum === null ? eb("exam_id", "is", null) : eb("exam_id", "=", examIdNum)))
                     .executeTakeFirst();
 
-                if (existing) {
-                    await pg.updateTable("student_results").set(values).where("id", "=", existing.id).execute();
-                } else {
-                    await pg.insertInto("student_results").values(values).execute();
-                }
+                await pg.transaction().execute(async (trx) => {
+                    let resultId: number;
+                    if (existing) {
+                        await trx.updateTable("student_results").set(values).where("id", "=", existing.id).execute();
+                        resultId = existing.id;
+                    } else {
+                        const insertedRow = await trx
+                            .insertInto("student_results")
+                            .values(values)
+                            .returning("id")
+                            .executeTakeFirstOrThrow();
+                        resultId = insertedRow.id;
+                    }
+                    await this.replaceSubjectScores(trx, resultId, subjectRows);
+                });
                 inserted++;
             } catch (err: any) {
                 errors++;
