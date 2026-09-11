@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { examTypeServicePg } from "../services/examType.service.pg";
+import { resultTemplateService } from "../services/resultTemplate.service";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { ValidationUtils } from "../utils/validation.util";
 
@@ -61,6 +62,31 @@ export const updateExamType = async (req: Request, res: Response): Promise<void>
         res.status(200).json(ResponseHandler.updated(updated));
     } catch (error: any) {
         res.status(error?.status || 500).json(ResponseHandler.internalError(error?.message || "Error updating exam type", error));
+    }
+};
+
+/**
+ * GET /exam-types/:id/results-template.xlsx?sectionId=X — IMTAHAN_NOVLERI_TASK.md §18.1.
+ * Шаблон резолвится напрямую по типу+секции, без экзамена (кнопка в списке типов не привязана
+ * к конкретному экзамену). Права — как у GET /exam-types (любой авторизованный, §11 журнала ТЗ).
+ */
+export const getResultsTemplateForSection = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const examTypeId = parseInt(req.params.id, 10);
+        const sectionId = parseInt(String(req.query.sectionId), 10);
+
+        if (isNaN(examTypeId) || isNaN(sectionId)) {
+            res.status(400).json(ResponseHandler.badRequest("İmtahan növü və ya bölmə düzgün göstərilməyib"));
+            return;
+        }
+
+        const { buffer, filename } = await resultTemplateService.generateForType(examTypeId, sectionId);
+
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        res.send(buffer);
+    } catch (error: any) {
+        res.status(error?.status || 500).json(ResponseHandler.internalError(error?.message || "Error generating results template", error));
     }
 };
 
