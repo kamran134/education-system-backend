@@ -148,18 +148,25 @@ export class TeacherServicePg {
      * (PHASE3_PLAN.md п.4). Not needed for plain field edits, so it's optional there.
      */
     async update(id: number, data: Partial<TeacherCreate>, changedByUserId?: number): Promise<{ teacher: Teacher; cascadedStudentsCount: number }> {
-        const existing = await pg.selectFrom("teachers").select("code").where("id", "=", id).executeTakeFirst();
+        // KICIK_DUZELISLER_2026-09-11 п.4b: school_id нужен, чтобы отличить перевод учителя в
+        // другую школу от обычной правки полей — для перевода быстрая ветка без транзакции не
+        // годится, students.school_id/district_id тоже должны переехать вместе с учителем.
+        const existing = await pg.selectFrom("teachers").select(["code", "school_id"]).where("id", "=", id).executeTakeFirst();
         if (!existing) throw new Error("Teacher not found");
 
         const codeChanging = data.code !== undefined && data.code !== existing.code;
+        const schoolMoving = data.schoolId !== undefined && data.schoolId !== existing.school_id;
 
-        if (!codeChanging) {
+        if (!codeChanging && !schoolMoving) {
             const row = await pg.updateTable("teachers").set(this.buildTeacherSet(data)).where("id", "=", id).returningAll().executeTakeFirst();
             if (!row) throw new Error("Teacher not found");
             return { teacher: (await this.attachExtras([row]))[0], cascadedStudentsCount: 0 };
         }
 
-        if (changedByUserId === undefined) {
+        // changedByUserId нужен только когда меняется код — именно он пишется в
+        // code_change_logs; перевод школы сам по себе (после перебазировки кода в usecase)
+        // почти всегда идёт вместе со сменой кода, но проверка держится строго на codeChanging.
+        if (codeChanging && changedByUserId === undefined) {
             throw new Error("changedByUserId is required when changing a teacher's code");
         }
 
@@ -168,17 +175,34 @@ export class TeacherServicePg {
                 const updatedRow = await trx.updateTable("teachers").set(this.buildTeacherSet(data)).where("id", "=", id).returningAll().executeTakeFirst();
                 if (!updatedRow) throw new Error("Teacher not found");
 
-                await trx.insertInto("code_change_logs").values({
-                    entity_type: "teacher",
-                    entity_id: id,
-                    old_code: existing.code,
-                    new_code: data.code!,
-                    caused_by_entity_type: null,
-                    caused_by_entity_id: null,
-                    changed_by: changedByUserId,
-                }).execute();
+                let cascadedStudentsCount = 0;
 
-                const cascadedStudentsCount = await cascadeTeacherCodeToStudents(trx, id, data.code!, changedByUserId);
+                if (codeChanging) {
+                    await trx.insertInto("code_change_logs").values({
+                        entity_type: "teacher",
+                        entity_id: id,
+                        old_code: existing.code,
+                        new_code: data.code!,
+                        caused_by_entity_type: null,
+                        caused_by_entity_id: null,
+                        changed_by: changedByUserId!,
+                    }).execute();
+
+                    cascadedStudentsCount = await cascadeTeacherCodeToStudents(trx, id, data.code!, changedByUserId!);
+                }
+
+                if (schoolMoving) {
+                    // students.school_id/district_id — денормализация (см. CLAUDE.md этого
+                    // репозитория), по ней фильтруются списки и считаются виджеты профиля школы,
+                    // поэтому ученики переезжают вместе с учителем (KICIK_DUZELISLER_2026-09-11
+                    // п.4b). districtId usecase всегда подставляет от новой школы при переводе,
+                    // ?? null — подстраховка на случай отсутствующего значения.
+                    await trx.updateTable("students")
+                        .set({ school_id: data.schoolId!, district_id: data.districtId ?? null })
+                        .where("teacher_id", "=", id)
+                        .execute();
+                }
+
                 return { row: updatedRow, cascadedStudentsCount };
             });
 

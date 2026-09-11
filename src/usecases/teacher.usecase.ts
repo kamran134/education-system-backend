@@ -2,8 +2,9 @@ import * as fs from "fs";
 import { TeacherServicePg, Teacher, TeacherCreate } from "../services/teacher.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
-import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
+import { CODE_LENGTHS, CODE_DIVISORS, rebaseCode } from "../utils/entity-codes.const";
 import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
+import { pg } from "../config/pg";
 
 export class TeacherUseCase {
     constructor(private teacherService: TeacherServicePg) {}
@@ -47,6 +48,17 @@ export class TeacherUseCase {
     }
 
     async createTeacher(teacherData: TeacherCreate): Promise<Teacher> {
+        // KICIK_DUZELISLER_2026-09-11 п.4a: фронт может прислать school/district вложенными
+        // объектами (как и у школ, см. school.usecase.ts createSchool) — без нормализации в
+        // schoolId/districtId эти поля в теле отсутствовали, и новый учитель создавался
+        // без привязки к школе/району.
+        if ((teacherData as any).school && typeof (teacherData as any).school === 'object') {
+            teacherData.schoolId = (teacherData as any).school.id;
+        }
+        if ((teacherData as any).district && typeof (teacherData as any).district === 'object') {
+            teacherData.districtId = (teacherData as any).district.id;
+        }
+
         const validation = this.validateTeacherData(teacherData);
         if (!validation.isValid) {
             throw new Error(validation.errors.join(', '));
@@ -75,6 +87,44 @@ export class TeacherUseCase {
             throw new Error('Teacher not found');
         }
 
+        // KICIK_DUZELISLER_2026-09-11 п.4a: та же нормализация, что и в createTeacher выше —
+        // фронт шлёт весь Teacher целиком со вложенными school/district, а не плоскими id.
+        // Без этого schoolId/districtId из тела не читались, и смена школы молча не сохранялась
+        // (buildTeacherSet в teacher.service.pg.ts кладёт в апдейт только то, что реально пришло).
+        if ((updateData as any).school && typeof (updateData as any).school === 'object') {
+            updateData.schoolId = (updateData as any).school.id;
+        }
+        if ((updateData as any).district && typeof (updateData as any).district === 'object') {
+            updateData.districtId = (updateData as any).district.id;
+        }
+
+        // Перевод в другую школу: schoolId в теле отличается от текущего. Район всегда
+        // берётся от новой школы (а не с клиента), а код перебазируется на её префикс —
+        // инвариант school = floor(teacher / 100) (utils/entity-codes.const.ts) не должен
+        // ломаться при переводе учителя.
+        const schoolMoving = updateData.schoolId !== undefined && updateData.schoolId !== (existingTeacher.school?.id ?? null);
+        // Код той школы, префиксу которой должен соответствовать итоговый код учителя:
+        // новой — при переводе, прежней — иначе. undefined, если у учителя вообще нет школы.
+        let targetSchoolCode: number | undefined = existingTeacher.school?.code;
+
+        if (schoolMoving) {
+            const targetSchoolId = updateData.schoolId as number;
+            const school = await pg.selectFrom("schools").select(["id", "code", "district_id"]).where("id", "=", targetSchoolId).executeTakeFirst();
+            if (!school) {
+                throw new Error('Məktəb tapılmadı');
+            }
+            updateData.districtId = school.district_id;
+
+            // Клиент мог прислать код как со старым префиксом (типичный случай — форма просто
+            // отправляет то, что было), так и уже с новым (teacher-editing-dialog перебазирует
+            // его сам, см. п.4c) — в обоих случаях приводим к новому префиксу здесь.
+            const code = updateData.code ?? existingTeacher.code;
+            if (Math.floor(code / CODE_DIVISORS.TEACHER_TO_SCHOOL) !== school.code) {
+                updateData.code = rebaseCode(code, school.code, CODE_DIVISORS.TEACHER_TO_SCHOOL);
+            }
+            targetSchoolCode = school.code;
+        }
+
         if (updateData.code && updateData.code !== existingTeacher.code) {
             // Длина проверяется здесь (а не только при create): начиная с этого каскада, кривая
             // по длине правка кода портит и коды всех учеников этого учителя, не только его самого.
@@ -87,11 +137,13 @@ export class TeacherUseCase {
             // (kodun ilk 5 rəqəmi) əl ilə dəyişmək olmaz — bu, müəllimi başqa məktəbə "yamamaq"
             // demək olardı, kod vasitəsilə, FK-ni (schoolId) dəyişmədən. Məktəbi dəyişmək üçün
             // ayrıca schoolId seçilməlidir, kodun məktəb hissəsi ondan REPAIR yolu ilə yenilənir.
-            if (existingTeacher.school) {
+            // KICIK_DUZELISLER_2026-09-11 п.4a: сравниваем с targetSchoolCode (новая школа при
+            // переводе, иначе прежняя) — иначе перевод с уже перебазированным кодом отвергался бы.
+            if (targetSchoolCode !== undefined) {
                 const submittedSchoolCode = Math.floor(updateData.code / CODE_DIVISORS.TEACHER_TO_SCHOOL);
-                if (submittedSchoolCode !== existingTeacher.school.code) {
+                if (submittedSchoolCode !== targetSchoolCode) {
                     throw new Error(
-                        `Kodun məktəb hissəsini dəyişmək olmaz (${existingTeacher.school.code} olmalıdır). ` +
+                        `Kodun məktəb hissəsini dəyişmək olmaz (${targetSchoolCode} olmalıdır). ` +
                         `Yalnız fərdi hissəni (son 2 rəqəmi) dəyişin, ya da müəllimi başqa məktəbə keçirmək üçün Məktəb sahəsini dəyişin.`
                     );
                 }
@@ -99,7 +151,9 @@ export class TeacherUseCase {
 
             const codeExists = await this.teacherService.findByCode(updateData.code);
             if (codeExists) {
-                throw new Error('Teacher with this code already exists');
+                // KICIK_DUZELISLER_2026-09-11 п.4a: azərbaycanca mətn — yalnız bu budaqda
+                // (create-də mətn dəyişdirilmir).
+                throw new Error('Bu kod artıq başqa müəllimdə istifadə olunur');
             }
         }
 
