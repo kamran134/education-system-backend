@@ -209,7 +209,8 @@ export class TeacherServicePg {
             return { teacher: (await this.attachExtras([row]))[0], cascadedStudentsCount };
         } catch (error: any) {
             if (error?.code === "23505") {
-                const err: any = new Error("Bu kod artıq başqa müəllim və ya şagirddə istifadə olunur");
+                // YENI_DUZELISLER_2026-09-17 п.3: "Müəllim" → "Layihə müəllimi".
+                const err: any = new Error("Bu kod artıq başqa layihə müəllimi və ya şagirddə istifadə olunur");
                 err.status = 409;
                 throw err;
             }

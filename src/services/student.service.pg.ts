@@ -101,6 +101,12 @@ export interface StudentResultRow {
      *  → year, январь-июнь → year - 1, июль-август → null). Отдавать её обязательно: `year` — это
      *  КАЛЕНДАРНЫЙ год, и фронт, вычисляя учебный год из него сам, ошибался на весенних месяцах. */
     academicYear: number | null;
+    // YENI_DUZELISLER_2026-09-17 п.6a: тип экзамена результата — раньше выбирался (sr.exam_type_id
+    // через selectAll("sr")), но при маппинге выбрасывался. Нужен фронту, чтобы отделить результаты
+    // "не основного" типа в отдельный свёрнутый блок профиля ученика (п.6).
+    examTypeId: number | null;
+    examTypeName: string | null;
+    examTypeIsBase: boolean;
 }
 
 type StudentRow = {
@@ -137,8 +143,14 @@ export class StudentServicePg {
         const rows = await pg
             .selectFrom("student_results as sr")
             .leftJoin("exams as e", "e.id", "sr.exam_id")
+            // YENI_DUZELISLER_2026-09-17 п.6a: тип экзамена нужен, чтобы фронт отделил результаты
+            // "не основного" типа (см. StudentResultRow.examType*).
+            .leftJoin("exam_types as et", "et.id", "sr.exam_type_id")
             .selectAll("sr")
-            .select(["e.id as exam_id_full", "e.name as exam_name", "e.date as exam_date"])
+            .select([
+                "e.id as exam_id_full", "e.name as exam_name", "e.date as exam_date",
+                "et.id as exam_type_id_full", "et.name_az as exam_type_name", "et.is_base as exam_type_is_base",
+            ])
             .where("sr.student_id", "=", studentId)
             .orderBy("sr.year", "desc")
             .orderBy("sr.month", "desc")
@@ -181,6 +193,10 @@ export class StudentServicePg {
             ratingScore: (r.participation_score ?? 0) + (r.development_score ?? 0)
                 + (r.student_of_the_month_score ?? 0) + (r.republic_wide_student_of_the_month_score ?? 0),
             month: r.month, year: r.year, academicYear: r.academic_year,
+            // YENI_DUZELISLER_2026-09-17 п.6a: результат без типа (старые строки до 023-й миграции)
+            // считаем базовым, чтобы не пропасть из основной таблицы профиля ученика.
+            examTypeId: r.exam_type_id_full, examTypeName: r.exam_type_name,
+            examTypeIsBase: r.exam_type_is_base ?? true,
         }));
     }
 

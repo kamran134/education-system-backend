@@ -87,8 +87,11 @@ export class StudentUseCase {
                 const submittedTeacherCode = Math.floor(updateData.code / CODE_DIVISORS.STUDENT_TO_TEACHER);
                 if (submittedTeacherCode !== existingStudent.teacher.code) {
                     throw new Error(
+                        // YENI_DUZELISLER_2026-09-17 п.3: "başqa müəllimə" — самостоятельное упоминание
+                        // сущности → "layihə müəlliminə" (дат. падеж); "müəllim hissəsini"/"Müəllim sahəsini" —
+                        // составные (как "müəllim kodu" в списке исключений), не трогаем.
                         `Kodun müəllim hissəsini dəyişmək olmaz (${existingStudent.teacher.code} olmalıdır). ` +
-                        `Yalnız fərdi hissəni (son 3 rəqəmi) dəyişin, ya da şagirdi başqa müəllimə keçirmək üçün Müəllim sahəsini dəyişin.`
+                        `Yalnız fərdi hissəni (son 3 rəqəmi) dəyişin, ya da şagirdi başqa layihə müəlliminə keçirmək üçün Müəllim sahəsini dəyişin.`
                     );
                 }
             }

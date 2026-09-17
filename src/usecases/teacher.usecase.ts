@@ -143,8 +143,10 @@ export class TeacherUseCase {
                 const submittedSchoolCode = Math.floor(updateData.code / CODE_DIVISORS.TEACHER_TO_SCHOOL);
                 if (submittedSchoolCode !== targetSchoolCode) {
                     throw new Error(
+                        // YENI_DUZELISLER_2026-09-17 п.3: "müəllimi" (вин. падеж, самостоятельное
+                        // упоминание сущности) → "layihə müəllimini".
                         `Kodun məktəb hissəsini dəyişmək olmaz (${targetSchoolCode} olmalıdır). ` +
-                        `Yalnız fərdi hissəni (son 2 rəqəmi) dəyişin, ya da müəllimi başqa məktəbə keçirmək üçün Məktəb sahəsini dəyişin.`
+                        `Yalnız fərdi hissəni (son 2 rəqəmi) dəyişin, ya da layihə müəllimini başqa məktəbə keçirmək üçün Məktəb sahəsini dəyişin.`
                     );
                 }
             }
@@ -153,7 +155,8 @@ export class TeacherUseCase {
             if (codeExists) {
                 // KICIK_DUZELISLER_2026-09-11 п.4a: azərbaycanca mətn — yalnız bu budaqda
                 // (create-də mətn dəyişdirilmir).
-                throw new Error('Bu kod artıq başqa müəllimdə istifadə olunur');
+                // YENI_DUZELISLER_2026-09-17 п.3: "müəllimdə" (местн. падеж) → "layihə müəllimində".
+                throw new Error('Bu kod artıq başqa layihə müəllimində istifadə olunur');
             }
         }
 

@@ -18,6 +18,10 @@ export interface StudentResultStatRow {
     examId: number | null;
     grade: number;
     totalScore: number;
+    // YENI_DUZELISLER_2026-09-17 п.5a: процент, если бэк знает число вопросов результата
+    // (score_percent считается в studentResult.service.pg.ts::computeScoreSummary); null — если
+    // знаменателя нет (напр. 1-4 классы 2024/25 и 2025/26), тогда фронт показывает сырой totalScore.
+    scorePercent: number | null;
     level: string;
     status: string | null;
     developmentScore: number | null;
@@ -427,6 +431,9 @@ export class StatsServicePg {
             .where("sr.exam_id", "in", examIds)
             .select([
                 "sr.id as id", "sr.exam_id as exam_id", "sr.grade as grade", "sr.total_score as total_score",
+                // YENI_DUZELISLER_2026-09-17 п.5a: месячные вкладки /stats и /type-ratings раньше не
+                // получали процент — только /exam-results и профиль ученика (там он уже отдавался).
+                "sr.score_percent as score_percent",
                 "sr.level as level", "sr.status as status", "sr.development_score as development_score",
                 "sr.student_of_the_month_score as student_of_the_month_score",
                 "sr.republic_wide_student_of_the_month_score as republic_wide_student_of_the_month_score",
@@ -498,7 +505,10 @@ export class StatsServicePg {
         const rows = await query.execute();
 
         return rows.map((r: any) => ({
-            id: r.id, examId: r.exam_id, grade: r.grade, totalScore: r.total_score, level: r.level, status: r.status,
+            id: r.id, examId: r.exam_id, grade: r.grade, totalScore: r.total_score,
+            // YENI_DUZELISLER_2026-09-17 п.5a: numeric приходит строкой из pg, приводим как рядом с rating_score.
+            scorePercent: r.score_percent == null ? null : Number(r.score_percent),
+            level: r.level, status: r.status,
             developmentScore: r.development_score, studentOfTheMonthScore: r.student_of_the_month_score,
             republicWideStudentOfTheMonthScore: r.republic_wide_student_of_the_month_score,
             month: r.month, year: r.year, score: Number(r.rating_score ?? 0),

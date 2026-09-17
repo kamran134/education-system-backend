@@ -57,7 +57,8 @@ export const createUser = async (req: Request, res: Response) => {
         }
 
         if (newUser.role === 'teacher' && !newUser.teacherId) {
-            res.status(400).json({ message: "Müəllim üçün müəllim profili seçilməlidir" });
+            // YENI_DUZELISLER_2026-09-17 п.3: "Müəllim" → "Layihə müəllimi" (составное "müəllim profili" не трогаем).
+            res.status(400).json({ message: "Layihə müəllimi üçün müəllim profili seçilməlidir" });
             return;
         }
 
@@ -143,7 +144,8 @@ export const updateUser = async (req: Request, res: Response) => {
         }
 
         if (updateRole === 'teacher' && !updateData.teacherId) {
-            res.status(400).json({ message: "Müəllim üçün müəllim profili seçilməlidir" });
+            // YENI_DUZELISLER_2026-09-17 п.3: "Müəllim" → "Layihə müəllimi" (составное "müəllim profili" не трогаем).
+            res.status(400).json({ message: "Layihə müəllimi üçün müəllim profili seçilməlidir" });
             return;
         }
 

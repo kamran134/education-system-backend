@@ -228,7 +228,8 @@ export class TeacherController {
     repairTeachers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const result = await this.teacherUseCase.repairTeachers();
-            res.json(ResponseHandler.success(result, `${result.repairedTeachers.length} müəllim uğurla bərpa edildi`));
+            // YENI_DUZELISLER_2026-09-17 п.3: "Müəllim" → "Layihə müəllimi" по всему приложению.
+            res.json(ResponseHandler.success(result, `${result.repairedTeachers.length} layihə müəllimi uğurla bərpa edildi`));
         } catch (error) {
             next(error);
         }
@@ -280,7 +281,8 @@ export class TeacherController {
             const avatarUrl = await saveEntityAvatarPg('teachers', parseInt(id, 10), req.file, '/uploads/teachers/avatars');
 
             if (!avatarUrl) {
-                res.status(404).json(ResponseHandler.notFound('Müəllim tapılmadı'));
+                // YENI_DUZELISLER_2026-09-17 п.3: "Müəllim" → "Layihə müəllimi".
+                res.status(404).json(ResponseHandler.notFound('Layihə müəllimi tapılmadı'));
                 return;
             }
 
@@ -302,7 +304,8 @@ export class TeacherController {
             const found = await removeEntityAvatarPg('teachers', parseInt(id, 10));
 
             if (!found) {
-                res.status(404).json(ResponseHandler.notFound('Müəllim tapılmadı'));
+                // YENI_DUZELISLER_2026-09-17 п.3: "Müəllim" → "Layihə müəllimi".
+                res.status(404).json(ResponseHandler.notFound('Layihə müəllimi tapılmadı'));
                 return;
             }
 
