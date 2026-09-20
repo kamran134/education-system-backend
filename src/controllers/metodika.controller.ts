@@ -19,25 +19,13 @@ function trimStrings(value: any): any {
 /**
  * Лёгкая валидация — не поле-в-поле по всей модели (в проекте так не принято, см. соседние
  * usecase/ValidationUtils), а только то, что реально может сломать вёрстку публичной страницы:
- * тело должно быть объектом, disciplines/levels — непустые массивы с корректными типами.
+ * тело должно быть объектом, levels — непустой массив с корректными типами.
+ * (disciplines проверялись до 20.09.2026 — карточка состава экзамена снята с публичной страницы
+ * по просьбе заказчика; старые сохранённые данные с этим полем принимаются и игнорируются.)
  */
 function validateMetodikaContent(body: any): string | null {
     if (!body || typeof body !== "object" || Array.isArray(body)) {
         return "Məzmun obyekt formatında olmalıdır";
-    }
-
-    const disciplines = body.part1?.disciplines;
-    if (!Array.isArray(disciplines) || disciplines.length === 0) {
-        return "Ən azı bir fənn göstərilməlidir";
-    }
-    for (const d of disciplines) {
-        const questions = Number(d?.questions);
-        if (!d?.name || typeof d.name !== "string" || !d.name.trim()) {
-            return "Fənnin adı boş ola bilməz";
-        }
-        if (!Number.isInteger(questions) || questions <= 0) {
-            return "Sual sayı 0-dan böyük tam ədəd olmalıdır";
-        }
     }
 
     const levels = body.part1?.levels;
@@ -76,13 +64,6 @@ export class MetodikaController {
             }
 
             const sanitized = trimStrings(req.body);
-            // disciplines[].questions/levels — числа, trimStrings их не трогает, но приводим
-            // questions к целому явно на случай, если с фронта пришла строка.
-            sanitized.part1.disciplines = sanitized.part1.disciplines.map((d: any) => ({
-                ...d,
-                questions: parseInt(d.questions, 10),
-            }));
-
             const userId = parseInt(req.user!.userId, 10);
             await setMetodikaContent(sanitized, userId);
             res.json(ResponseHandler.updated({ content: sanitized }, "Metodika səhifəsi yadda saxlanıldı"));
