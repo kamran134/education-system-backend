@@ -30,6 +30,7 @@ export class ExamResultsController {
                 teacherIds: req.query.teacherIds ? (req.query.teacherIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
                 studentIds: undefined as number[] | undefined,
                 grades: req.query.grades ? (req.query.grades as string).split(',').map(g => parseInt(g)) : undefined,
+                examTypeId: req.query.examTypeId ? parseInt(req.query.examTypeId as string, 10) : undefined,
                 sortColumn: sort.sortColumn,
                 sortDirection: sort.sortDirection as 'asc' | 'desc',
                 page: pagination.page,

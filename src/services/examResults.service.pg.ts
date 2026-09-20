@@ -1,6 +1,7 @@
 import { sql } from "kysely";
 import { pg } from "../config/pg";
 import { escapeRegex } from "../utils/validation.util";
+import { resolveExamTypeId } from "./examType.service.pg";
 
 export interface ExamResultsFilterPg {
     search?: string;
@@ -13,6 +14,10 @@ export interface ExamResultsFilterPg {
     teacherIds?: number[];
     studentIds?: number[];
     grades?: number[];
+    // IMTAHAN_NOVLERI_TASK.md — экран Nəticələr (fixes 20.09.2026): без него resolveExamTypeId()
+    // подставляет базовый тип, чтобы результаты разных типов экзамена не смешивались в одной
+    // таблице (у каждого свой набор предметов/шкала, общий список был бы мусором).
+    examTypeId?: number;
 }
 
 export interface ExamResultRow {
@@ -69,7 +74,9 @@ export class ExamResultsServicePg {
                 join.onRef("lvl.scale_id", "=", "sr.level_scale_id").onRef("lvl.code", "=", "sr.level")
             );
 
-        query = this.applyFilter(query, filters);
+        // Без examTypeId — базовый тип (см. комментарий у ExamResultsFilterPg.examTypeId выше).
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
+        query = this.applyFilter(query, { ...filters, examTypeId });
 
         const countRow = await query
             .select(({ fn }) => [fn.countAll().as("count")])
@@ -192,6 +199,7 @@ export class ExamResultsServicePg {
     private applyFilter<Q extends { where: any }>(query: Q, filters: ExamResultsFilterPg): Q {
         let q = query;
 
+        if (filters.examTypeId !== undefined) q = q.where("sr.exam_type_id" as any, "=", filters.examTypeId);
         if (filters.examIds && filters.examIds.length > 0) q = q.where("sr.exam_id" as any, "in", filters.examIds);
         if (filters.grades && filters.grades.length > 0) q = q.where("sr.grade" as any, "in", filters.grades);
         if (filters.dateFrom) q = q.where("e.date" as any, ">=", new Date(filters.dateFrom));
