@@ -30,7 +30,7 @@ export interface YearlyStatistics {
     studentsOfMonth: StatusStatistics; // Ayın şagirdləri
     republicStudentsOfMonth: StatusStatistics; // Respublika üzrə ayın şagirdləri
     developingStudents: StatusStatistics; // İnkişaf edən şagirdlər
-    averageScore: number; // Orta bal
+    averageScore: number; // Orta xal
     levelStatistics: LevelStatistics; // Статистика по уровням
     // IMTAHAN_NOVLERI_TASK.md §14: тип экзамена, по которому реально посчитаны цифры выше
     // (примененный examTypeId — переданный или дефолтный базовый). Фронт использует это для

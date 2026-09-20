@@ -375,7 +375,7 @@ export class StudentResultServicePg {
                     const rawScore = row[col.colIdx];
                     const score = rawScore == null || String(rawScore).trim() === "" ? 0 : Number(rawScore);
                     if (isNaN(score)) {
-                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: bal ədəd deyil ("${rawScore}")` });
+                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: xal ədəd deyil ("${rawScore}")` });
                         hasError = true;
                         break;
                     }
@@ -394,7 +394,7 @@ export class StudentResultServicePg {
                     }
 
                     if (score > questionCount) {
-                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: bal (${score}) sual sayından (${questionCount}) çoxdur` });
+                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: xal (${score}) sual sayından (${questionCount}) çoxdur` });
                         hasError = true;
                         break;
                     }
@@ -798,7 +798,7 @@ export class StudentResultServicePg {
                 throw this.importError(`${cfg.nameAz}: sual sayı göstərilməyib`);
             }
             if (d.score > questionCount) {
-                throw this.importError(`${cfg.nameAz}: bal (${d.score}) sual sayından (${questionCount}) çoxdur`);
+                throw this.importError(`${cfg.nameAz}: xal (${d.score}) sual sayından (${questionCount}) çoxdur`);
             }
             totalScore += d.score;
             totalQuestionCount += questionCount;
