@@ -63,6 +63,9 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 const app = express();
+// За nginx-proxy: без этого req.ip = IP прокси, и rate-limit считает ВСЕХ пользователей
+// как один клиент (массовый вход учителей упирался в общий лимит). 1 = доверяем одному хопу.
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 // Middleware
@@ -103,8 +106,9 @@ const generalLimiter = rateLimit({
 // Строгий лимит только для login/register (защита от брутфорса)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 минут
-    max: 20, // 20 попыток за 15 минут
+    max: 30, // 30 неудачных попыток с одного IP за 15 минут (школы сидят за общим NAT)
     message: { success: false, message: 'Çox sayda giriş cəhdi. Zəhmət olmasa bir az gözləyin.' },
+    skipSuccessfulRequests: true, // успешные входы не считаем
     standardHeaders: true,
     legacyHeaders: false,
     // Не считаем refresh, me, logout — только login/register

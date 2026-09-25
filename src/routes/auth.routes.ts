@@ -8,9 +8,12 @@ const router = express.Router();
 // Строгий лимит только для логина (защита от брутфорса)
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 минут
-    max: 10, // Максимум 10 попыток логина за 15 минут
+    max: 10, // Максимум 10 неудачных попыток на один аккаунт с одного IP за 15 минут
     message: { success: false, message: 'Çox sayda giriş cəhdi. Zəhmət olmasa bir az gözləyin.' },
     skipSuccessfulRequests: true, // Не считаем успешные попытки
+    // Ключ IP+email: учитель, ошибившийся паролем, не блокирует коллег за тем же NAT.
+    // Перебор по многим аккаунтам с одного IP режет authLimiter в index.ts.
+    keyGenerator: (req) => `${req.ip}|${String(req.body?.email ?? '').trim().toLowerCase()}`,
     standardHeaders: true,
     legacyHeaders: false,
 });
