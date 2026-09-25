@@ -54,7 +54,10 @@ export class UserServicePg {
     }
 
     async findByEmail(email: string): Promise<User | null> {
-        const row = await pg.selectFrom("users").selectAll().where("email", "=", email).executeTakeFirst();
+        // Без учёта регистра и пробелов: в базе много email с заглавными буквами,
+        // а пользователи вводят строчными — точное сравнение давало "Yanlış məlumatlar!".
+        const normalized = String(email ?? "").trim().toLowerCase();
+        const row = await pg.selectFrom("users").selectAll().where(sql<string>`lower(trim(email))`, "=", normalized).executeTakeFirst();
         return row ? this.toUser(row) : null;
     }
 
