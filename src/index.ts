@@ -29,6 +29,8 @@ import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import jwt from "jsonwebtoken";
+import { JWT_SECRET } from "./config/env";
 import { errorHandler } from "./middleware/errorHandler";
 import { startTokenCleanupScheduler } from "./services/token.service.pg";
 import { loadLevelScaleBandsCache } from "./services/levels.cache";
@@ -96,10 +98,19 @@ const generalLimiter = rateLimit({
     message: { success: false, message: 'Çox sayda sorğu göndərdiniz. Zəhmət olmasa bir az gözləyin.' },
     standardHeaders: true,
     legacyHeaders: false,
+    // Пропускаем только токен с нашей подписью: раньше хватало любого "Bearer x", и лимит
+    // обходился одним заголовком. Срок не проверяем намеренно — подпись уже доказывает, что
+    // токен выдан логином, а маршруты просроченный токен всё равно не пустит authMiddleware;
+    // иначе пачка 401 + refresh при истечении токена уходила бы в анонимный счётчик школы.
     skip: (req) => {
-        // Autentifikasiya olunmuş requestləri say — onlar artıq loginə görə yoxlanılıb
         const authHeader = req.headers.authorization;
-        return !!(authHeader && authHeader.startsWith('Bearer '));
+        if (!authHeader || !authHeader.startsWith('Bearer ')) return false;
+        try {
+            jwt.verify(authHeader.substring(7), JWT_SECRET, { ignoreExpiration: true });
+            return true;
+        } catch {
+            return false;
+        }
     },
 });
 
