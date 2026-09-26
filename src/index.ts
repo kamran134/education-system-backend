@@ -106,7 +106,10 @@ const generalLimiter = rateLimit({
 // Строгий лимит только для login/register (защита от брутфорса)
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 минут
-    max: 30, // 30 неудачных попыток с одного IP за 15 минут (школы сидят за общим NAT)
+    // Ключ — голый IP, то есть счётчик общий на всю школу за NAT: на 30 попытках падала
+    // вся школа разом. Перебор одного аккаунта режет loginLimiter (10 на IP+email),
+    // здесь остаётся только защита от спрея по многим аккаунтам — ей хватает высокого потолка.
+    max: 200,
     message: { success: false, message: 'Çox sayda giriş cəhdi. Zəhmət olmasa bir az gözləyin.' },
     skipSuccessfulRequests: true, // успешные входы не считаем
     standardHeaders: true,
