@@ -428,6 +428,9 @@ CREATE TABLE users (
     updated_at       timestamptz NOT NULL DEFAULT now(),
     legacy_mongo_id  text UNIQUE
 );
+-- Вход регистронезависимый (findByEmail ищет по lower(trim(email))), поэтому и уникальность
+-- по тому же выражению — иначе 'A@x.com' и 'a@x.com' сосуществуют (миграция 029).
+CREATE UNIQUE INDEX users_email_ci_key ON users (lower(trim(email)));
 
 -- Массив refreshTokens[] на документе пользователя → строки. Лимит 5 сессий остаётся в коде.
 CREATE TABLE user_refresh_tokens (
