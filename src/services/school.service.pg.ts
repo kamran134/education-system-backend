@@ -7,6 +7,7 @@ import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_RANGES, CODE_DIVISORS } from "../utils/entity-codes.const";
 import { cascadeSchoolCodeToTeachers } from "../utils/code-cascade.util";
+import { deleteLinkedUsers } from "../utils/linked-users.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
 import { resolveExamTypeId } from "./examType.service.pg";
 
@@ -196,23 +197,43 @@ export class SchoolServicePg {
         }
     }
 
-    /** Каскад: учителя → результаты учеников → ученики → школа. Одна транзакция. */
+    /**
+     * Каскад: связанные users → результаты учеников → ученики → учителя → школа. Одна транзакция.
+     *
+     * DUZELISLER_2026-09-29 п.1: учителя удаляются ПОСЛЕ учеников (не до, как раньше) — иначе, если
+     * в школе есть и учителя, и ученики, DELETE учителей падал с students_teacher_id_fkey (ученик
+     * ссылается на ещё не удалённого учителя). studentIds — не только school_id = id, но и ученики
+     * ЧУЖОЙ школы, привязанные к учителю ЭТОЙ школы (teacher_id in teacherIds): такой ученик иначе
+     * остался бы с висящим teacher_id при удалении учителей, и тот же FK упал бы.
+     */
     async delete(id: number): Promise<void> {
         await pg.transaction().execute(async (trx) => {
             const teachers = await trx.selectFrom("teachers").select("id").where("school_id", "=", id).execute();
             const teacherIds = teachers.map((t) => t.id);
 
-            const students = await trx.selectFrom("students").select("id").where("school_id", "=", id).execute();
+            const students = await trx
+                .selectFrom("students")
+                .select("id")
+                .where(({ eb, or }) => {
+                    const conditions = [eb("school_id", "=", id)];
+                    if (teacherIds.length > 0) conditions.push(eb("teacher_id", "in", teacherIds));
+                    return or(conditions);
+                })
+                .execute();
             const studentIds = students.map((s) => s.id);
+
+            // users.school_id/teacher_id/student_id → schools/teachers/students без ON DELETE
+            // (users_school_id_fkey и т.п.) — без этого шага удаление падало на аккаунте директора
+            // школы (users.role='schoolDirector', school_id=id), даже если у школы нет ни учителей,
+            // ни учеников.
+            await deleteLinkedUsers(trx, { schoolIds: [id], teacherIds, studentIds });
 
             if (studentIds.length > 0) {
                 await trx.deleteFrom("student_results").where("student_id", "in", studentIds).execute();
+                await trx.deleteFrom("students").where("id", "in", studentIds).execute();
             }
             if (teacherIds.length > 0) {
                 await trx.deleteFrom("teachers").where("school_id", "=", id).execute();
-            }
-            if (studentIds.length > 0) {
-                await trx.deleteFrom("students").where("school_id", "=", id).execute();
             }
 
             const result = await trx.deleteFrom("schools").where("id", "=", id).executeTakeFirst();

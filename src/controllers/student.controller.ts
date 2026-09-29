@@ -109,7 +109,14 @@ export class StudentController {
             console.error('Error in updateStudent:', error);
             if (error.message === 'Student not found') {
                 res.status(404).json(ResponseHandler.notFound(error.message));
-            } else if (error.message.includes('already exists') || error.message.includes('valid id') || error.message.includes('required')) {
+            } else if (
+                error.message.includes('already exists') || error.message.includes('valid id') || error.message.includes('required')
+                // DUZELISLER_2026-09-29 п.2b: бизнес-ошибки валидации (учитель по коду/id не найден,
+                // дубликат кода, длина кода — ValidationUtils.validateCode) раньше отдавались как 500
+                // ("Kodun müəllim hissəsini dəyişmək olmaz..." и т.п.), фронт показывал общий тост
+                // вместо текста ошибки.
+                || error.message.includes('tapılmadı') || error.message.includes('istifadə olunur') || error.message.includes('must be between')
+            ) {
                 res.status(400).json(ResponseHandler.badRequest(error.message));
             } else {
                 res.status(500).json(ResponseHandler.internalError('Error updating student', error));

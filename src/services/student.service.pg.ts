@@ -5,6 +5,7 @@ import { PaginationOptions, FilterOptionsPg, SortOptions, BulkOperationResult } 
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_DIVISORS } from "../utils/entity-codes.const";
+import { deleteLinkedUsers } from "../utils/linked-users.util";
 import { getCurrentAcademicYear, parseMonthFilter } from "../utils/academic-year.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
 import { resolveExamTypeId } from "./examType.service.pg";
@@ -269,6 +270,9 @@ export class StudentServicePg {
     /** Удаляет ученика вместе с его результатами — одна транзакция (вместо двух вызовов сервисов в Mongo-версии). */
     async delete(id: number): Promise<void> {
         await pg.transaction().execute(async (trx) => {
+            // users.student_id → students без ON DELETE (users_student_id_fkey, DUZELISLER_2026-09-29
+            // п.1) — ученик тоже может иметь собственный аккаунт (users.role='student').
+            await deleteLinkedUsers(trx, { studentIds: [id] });
             await trx.deleteFrom("student_results").where("student_id", "=", id).execute();
             const result = await trx.deleteFrom("students").where("id", "=", id).executeTakeFirst();
             if (Number(result.numDeletedRows) === 0) throw new Error("Student not found");
@@ -277,6 +281,8 @@ export class StudentServicePg {
 
     async deleteBulk(ids: number[]): Promise<BulkOperationResult> {
         const result = await pg.transaction().execute(async (trx) => {
+            // users.student_id → students без ON DELETE — та же причина, что и в delete() выше.
+            await deleteLinkedUsers(trx, { studentIds: ids });
             await trx.deleteFrom("student_results").where("student_id", "in", ids).execute();
             return await trx.deleteFrom("students").where("id", "in", ids).executeTakeFirst();
         });

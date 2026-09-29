@@ -2,8 +2,9 @@ import * as fs from "fs";
 import { StudentServicePg, Student, StudentCreate, StudentResultRow } from "../services/student.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
-import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
+import { CODE_LENGTHS, CODE_DIVISORS, rebaseCode } from "../utils/entity-codes.const";
 import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
+import { pg } from "../config/pg";
 
 export class StudentUseCase {
     constructor(private studentService: StudentServicePg) {}
@@ -73,32 +74,80 @@ export class StudentUseCase {
             throw new Error('Student not found');
         }
 
+        // DUZELISLER_2026-09-29 п.2: фронт (как в teacher.usecase.ts/school.usecase.ts) может
+        // прислать teacher/school/district вложенными объектами вместо плоских id — без этой
+        // нормализации выбор другого учителя в диалоге молча не сохранялся бы, т.к.
+        // studentService.update() читает только плоские *Id-поля. schoolId/districtId с клиента
+        // не принимаются вовсе — у ученика они всегда выводятся из учителя (см. ниже).
+        const anyUpdateData = updateData as any;
+        if (anyUpdateData.teacher && typeof anyUpdateData.teacher === 'object') {
+            updateData.teacherId = anyUpdateData.teacher.id;
+        }
+        // Сравнение ниже строгое (!==) — строковый id с клиента дал бы ложный «перевод» к тому же
+        // учителю, и код молча перебазировался бы обратно на старый префикс.
+        if (updateData.teacherId != null) updateData.teacherId = Number(updateData.teacherId);
+        if (anyUpdateData.school && typeof anyUpdateData.school === 'object') {
+            updateData.schoolId = anyUpdateData.school.id;
+        }
+        if (anyUpdateData.district && typeof anyUpdateData.district === 'object') {
+            updateData.districtId = anyUpdateData.district.id;
+        }
+        delete updateData.schoolId;
+        delete updateData.districtId;
+
+        const currentTeacherId = existingStudent.teacher?.id ?? null;
+        let code = updateData.code ?? existingStudent.code;
+
         if (updateData.code && updateData.code !== existingStudent.code) {
             // Uzunluq yalnız create-də deyil, edit-də də yoxlanılmalıdır (teacher/school ilə eyni səbəb).
             const lengthError = ValidationUtils.validateCode(updateData.code, CODE_LENGTHS.STUDENT, CODE_LENGTHS.STUDENT);
             if (lengthError) {
                 throw new Error(lengthError);
             }
+        }
 
-            // Kod yalnız müəllim daxilində fərdi hissədən ibarət ola bilər: müəllim prefiksini
-            // (kodun ilk 7 rəqəmi) əl ilə dəyişmək olmaz — şagirdi başqa müəllimə keçirmək üçün
-            // ayrıca Müəllim sahəsi seçilməlidir (teacher.usecase.ts/school.usecase.ts ilə eyni qayda).
-            if (existingStudent.teacher) {
-                const submittedTeacherCode = Math.floor(updateData.code / CODE_DIVISORS.STUDENT_TO_TEACHER);
-                if (submittedTeacherCode !== existingStudent.teacher.code) {
-                    throw new Error(
-                        // YENI_DUZELISLER_2026-09-17 п.3: "başqa müəllimə" — самостоятельное упоминание
-                        // сущности → "layihə müəlliminə" (дат. падеж); "müəllim hissəsini"/"Müəllim sahəsini" —
-                        // составные (как "müəllim kodu" в списке исключений), не трогаем.
-                        `Kodun müəllim hissəsini dəyişmək olmaz (${existingStudent.teacher.code} olmalıdır). ` +
-                        `Yalnız fərdi hissəni (son 3 rəqəmi) dəyişin, ya da şagirdi başqa layihə müəlliminə keçirmək üçün Müəllim sahəsini dəyişin.`
-                    );
-                }
+        // DUZELISLER_2026-09-29 п.2: старый запрет "Kodun müəllim hissəsini dəyişmək olmaz" убран
+        // целиком. Требование заказчика: если поменяли префикс кода на код другого учителя,
+        // ученик автоматически переводится к НЕМУ — отдельно менять поле «Layihə müəllimi» не
+        // обязательно, достаточно поправить код.
+        if (updateData.teacherId != null && updateData.teacherId !== currentTeacherId) {
+            // Перевод через явно выбранное в диалоге поле «Layihə müəllimi».
+            const teacher = await pg.selectFrom("teachers").select(["id", "code", "school_id", "district_id"]).where("id", "=", updateData.teacherId).executeTakeFirst();
+            if (!teacher) {
+                throw new Error('Layihə müəllimi tapılmadı');
             }
+            if (Math.floor(code / CODE_DIVISORS.STUDENT_TO_TEACHER) !== teacher.code) {
+                code = rebaseCode(code, teacher.code, CODE_DIVISORS.STUDENT_TO_TEACHER);
+            }
+            updateData.teacherId = teacher.id;
+            updateData.schoolId = teacher.school_id;
+            updateData.districtId = teacher.district_id;
+            updateData.code = code;
+        } else if (
+            Math.floor(code / CODE_DIVISORS.STUDENT_TO_TEACHER) !== existingStudent.teacher?.code
+            // Ученик без учителя и с нетронутым кодом (правят только ФИО/класс) — не переводим и не падаем.
+            && (existingStudent.teacher || code !== existingStudent.code)
+        ) {
+            // Перевод по коду: поле «Layihə müəllimi» не трогали, но префикс кода указывает на
+            // другого учителя — ищем его по коду (заказчик: 1152301034 → перевод к 1152301).
+            const prefix = Math.floor(code / CODE_DIVISORS.STUDENT_TO_TEACHER);
+            const teacher = await pg.selectFrom("teachers").select(["id", "code", "school_id", "district_id"]).where("code", "=", prefix).executeTakeFirst();
+            if (!teacher) {
+                throw new Error(`${prefix} kodlu layihə müəllimi tapılmadı`);
+            }
+            updateData.teacherId = teacher.id;
+            updateData.schoolId = teacher.school_id;
+            updateData.districtId = teacher.district_id;
+            updateData.code = code;
+        } else {
+            // Перевода нет — учитель тот же, что и был.
+            delete updateData.teacherId;
+        }
 
-            const codeExists = await this.studentService.findByCode(updateData.code);
-            if (codeExists) {
-                throw new Error('Student with this code already exists');
+        if (code !== existingStudent.code) {
+            const codeExists = await this.studentService.findByCode(code);
+            if (codeExists && codeExists.id !== existingStudent.id) {
+                throw new Error('Bu kod artıq başqa şagirddə istifadə olunur');
             }
         }
 

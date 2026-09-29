@@ -7,6 +7,7 @@ import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_DIVISORS } from "../utils/entity-codes.const";
 import { cascadeTeacherCodeToStudents } from "../utils/code-cascade.util";
+import { deleteLinkedUsers } from "../utils/linked-users.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
 import { resolveExamTypeId } from "./examType.service.pg";
 
@@ -218,11 +219,16 @@ export class TeacherServicePg {
         }
     }
 
-    /** Каскад: результаты учеников → ученики → учитель. Одна транзакция. */
+    /** Каскад: связанные users → результаты учеников → ученики → учитель. Одна транзакция. */
     async delete(id: number): Promise<void> {
         await pg.transaction().execute(async (trx) => {
             const students = await trx.selectFrom("students").select("id").where("teacher_id", "=", id).execute();
             const studentIds = students.map((s) => s.id);
+
+            // users.teacher_id/student_id → teachers/students без ON DELETE (users_teacher_id_fkey
+            // и т.п., DUZELISLER_2026-09-29 п.1) — 715 учителей в проде имеют собственный аккаунт
+            // (users.role='teacher', teacher_id=id), без этого шага DELETE учителя падал на нём же.
+            await deleteLinkedUsers(trx, { teacherIds: [id], studentIds });
 
             if (studentIds.length > 0) {
                 await trx.deleteFrom("student_results").where("student_id", "in", studentIds).execute();
