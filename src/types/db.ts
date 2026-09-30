@@ -406,6 +406,14 @@ export interface TeacherYearRatings {
   exam_type_id: number;
 }
 
+export interface UserLoginEvents {
+  id: Generated<number>;
+  ip: string | null;
+  logged_in_at: Generated<Timestamp>;
+  user_agent: string | null;
+  user_id: number;
+}
+
 export interface UserRefreshTokens {
   created_at: Generated<Timestamp>;
   id: Generated<number>;
@@ -420,6 +428,7 @@ export interface Users {
   id: Generated<number>;
   is_approved: Generated<boolean>;
   last_login_at: Timestamp | null;
+  last_seen_at: Timestamp | null;
   legacy_mongo_id: string | null;
   password_hash: string;
   region_id: number | null;
@@ -656,6 +665,7 @@ export interface DB {
   subjects: Subjects;
   teacher_year_ratings: TeacherYearRatings;
   teachers: Teachers;
+  user_login_events: UserLoginEvents;
   user_refresh_tokens: UserRefreshTokens;
   user_settings: UserSettings;
   users: Users;

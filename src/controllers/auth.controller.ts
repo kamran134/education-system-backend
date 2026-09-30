@@ -80,7 +80,14 @@ export const login = async (req: Request, res: Response) => {
 
         // Сохраняем refresh token в базе данных и обновляем время последнего входа
         await TokenServicePg.addToken(user.id, refreshToken);
-        await pg.updateTable("users").set({ last_login_at: new Date() }).where("id", "=", user.id).execute();
+        const now = new Date();
+        await pg.updateTable("users").set({ last_login_at: now, last_seen_at: now }).where("id", "=", user.id).execute();
+        await pg.insertInto("user_login_events").values({
+            user_id: user.id,
+            logged_in_at: now,
+            ip: req.ip ?? null,
+            user_agent: req.get("user-agent")?.slice(0, 500) ?? null,
+        }).execute();
 
         console.log('[LOGIN] Saved refresh token to database');
 

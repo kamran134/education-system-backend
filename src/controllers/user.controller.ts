@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { userServicePg } from '../services/user.service.pg';
 import { RequestParser } from '../utils/request-parser.util';
+import { userActivityServicePg, ActivityStatus } from '../services/userActivity.service.pg';
+import { ResponseHandler } from '../utils/response-handler.util';
 import bcrypt from "bcrypt";
 
 export const getUsers = async (req: Request, res: Response) => {
@@ -230,3 +232,55 @@ export const deleteUser = async (req: Request, res: Response) => {
         res.status(500).json({ message: `Server xətası. ${error}` });
     }
 }
+
+const ACTIVITY_STATUSES: ActivityStatus[] = ['never', 'online', 'all'];
+const USER_ROLES = ['superadmin', 'admin', 'moderator', 'districtRepresenter', 'schoolDirector', 'teacher', 'student', 'regionRepresenter'];
+
+/** GET /api/users/activity-stats — login/online aggregates for the admin "Giriş statistikası" page. */
+export const getActivityStats = async (_req: Request, res: Response) => {
+    try {
+        const data = await userActivityServicePg.getStats();
+        res.status(200).json(ResponseHandler.success(data));
+    } catch (error) {
+        console.error("Giriş statistikasının alınmasında xəta:", error);
+        res.status(500).json(ResponseHandler.internalError("Internal server error", error));
+    }
+};
+
+/** GET /api/users/activity-stats/users — who never logged in / who is online now. */
+export const getActivityUsers = async (req: Request, res: Response) => {
+    try {
+        const statusRaw = String(req.query.status ?? 'never');
+        if (!ACTIVITY_STATUSES.includes(statusRaw as ActivityStatus)) {
+            res.status(400).json(ResponseHandler.badRequest("Invalid status"));
+            return;
+        }
+        const roleRaw = typeof req.query.role === 'string' ? req.query.role.trim() : '';
+        if (roleRaw && !USER_ROLES.includes(roleRaw)) {
+            res.status(400).json(ResponseHandler.badRequest("Invalid role"));
+            return;
+        }
+        const districtRaw = typeof req.query.districtId === 'string' ? req.query.districtId.trim() : '';
+        const districtId = districtRaw ? parseInt(districtRaw, 10) : undefined;
+        if (districtRaw && (districtId === undefined || Number.isNaN(districtId))) {
+            res.status(400).json(ResponseHandler.badRequest("Invalid districtId"));
+            return;
+        }
+        const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+
+        const pagination = RequestParser.parsePagination(req);
+        const data = await userActivityServicePg.getUsers(
+            {
+                status: statusRaw as ActivityStatus,
+                role: roleRaw || undefined,
+                districtId,
+                search: search || undefined,
+            },
+            pagination
+        );
+        res.status(200).json(ResponseHandler.success(data));
+    } catch (error) {
+        console.error("Giriş statistikası istifadəçi siyahısının alınmasında xəta:", error);
+        res.status(500).json(ResponseHandler.internalError("Internal server error", error));
+    }
+};

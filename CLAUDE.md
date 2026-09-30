@@ -80,6 +80,10 @@ student               → only their own record
 
 Auth: JWT access + refresh, refresh tokens stored server-side (max 5 sessions) and sent as an httpOnly cookie. `controllers/auth.controller.ts` + `services/token.service.pg.ts`.
 
+### Login/activity statistics (admin only)
+
+`GET /api/users/activity-stats` and `/activity-stats/users` (`checkAdminRole`, declared before `/:id` in `user.routes.ts`) → `user.controller.ts::getActivityStats/getActivityUsers` → `services/userActivity.service.pg.ts` (raw `sql` aggregates, days in `Asia/Baku`). Data comes from `users.last_login_at`/`last_seen_at` (bumped by `middleware/activity.middleware.ts`) and `user_login_events` (migration `030`); "online" = seen within `ONLINE_WINDOW_MINUTES` (5). A user's district is `COALESCE(u.district_id, s.district_id, t.district_id, ts.district_id)` — `users.district_id` is set only for `districtRepresenter`. Spec: `GIRIS_STATISTIKASI_TASK.md` (parent directory).
+
 ### Uploads
 
 `config/multer.ts` now has a generic per-entity avatar upload factory (`makeAvatarStorage(entityFolder)`) and exports one instance per entity: `avatarUpload` (students), `teacherAvatarUpload`, `schoolAvatarUpload`, `districtAvatarUpload`, `regionAvatarUpload` — wired into `student.routes.ts`, `teacher.routes.ts`, `school.routes.ts`, `district.routes.ts`, `region.routes.ts`. All five entities have `avatar_url` in `schema.sql`. Face-aware crop is `utils/smart-crop.util.ts` (via `sharp`). Files are written to local disk under `uploads/<entityFolder>/avatars/`, served statically from `index.ts`. There is no S3/cloud storage, so uploads do not survive a container with an ephemeral filesystem.

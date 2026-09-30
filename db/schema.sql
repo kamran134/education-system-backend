@@ -419,7 +419,8 @@ CREATE TABLE users (
                                      'schoolDirector','teacher','student','regionRepresenter')),
     is_approved      boolean NOT NULL DEFAULT false,
     last_login_at    timestamptz,
-    region_id        bigint REFERENCES regions(id),
+    last_seen_at     timestamptz,  -- 030: bumped by activity.middleware.ts, max once/min
+    region_id       bigint REFERENCES regions(id),
     district_id      bigint REFERENCES districts(id),
     school_id        bigint REFERENCES schools(id),
     teacher_id       bigint REFERENCES teachers(id),
@@ -439,6 +440,17 @@ CREATE TABLE user_refresh_tokens (
     token       text   NOT NULL UNIQUE,
     created_at  timestamptz NOT NULL DEFAULT now()
 );
+
+-- 030: one row per successful login (auth.controller.ts::login); empty before 2026-09-30.
+CREATE TABLE user_login_events (
+    id            bigserial PRIMARY KEY,
+    user_id       bigint      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    logged_in_at  timestamptz NOT NULL DEFAULT now(),
+    ip            text,
+    user_agent    text
+);
+CREATE INDEX user_login_events_logged_in_at_idx ON user_login_events (logged_in_at);
+CREATE INDEX user_login_events_user_id_idx ON user_login_events (user_id, logged_in_at);
 
 CREATE TABLE user_settings (
     id                           bigserial PRIMARY KEY,

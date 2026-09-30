@@ -32,6 +32,7 @@ import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import { JWT_SECRET } from "./config/env";
 import { errorHandler } from "./middleware/errorHandler";
+import { trackActivity } from "./middleware/activity.middleware";
 import { startTokenCleanupScheduler } from "./services/token.service.pg";
 import { loadLevelScaleBandsCache } from "./services/levels.cache";
 import { academicYearClosureServicePg } from "./services/academicYearClosure.service.pg";
@@ -85,6 +86,8 @@ app.use(cors({ origin: corsOrigins, credentials: true }));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use(cookieParser());
+// Bumps users.last_seen_at for "online now" stats; never blocks a request (activity.middleware.ts).
+app.use("/api", trackActivity);
 
 // Статические файлы для аватаров
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
