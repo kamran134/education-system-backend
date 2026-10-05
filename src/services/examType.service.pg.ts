@@ -136,12 +136,7 @@ export class ExamTypeServicePg {
 
             return (await this.findById(id))!;
         } catch (e: any) {
-            if (e.code === "23505") {
-                const err: any = new Error("Əsas imtahan növü artıq mövcuddur");
-                err.status = 409;
-                throw err;
-            }
-            throw e;
+            throw mapExamTypeDbError(e);
         }
     }
 
@@ -193,16 +188,25 @@ export class ExamTypeServicePg {
 
             return (await this.findById(id))!;
         } catch (e: any) {
-            if (e.code === "23505") {
-                const err: any = new Error("Əsas imtahan növü artıq mövcuddur");
-                err.status = 409;
-                throw err;
-            }
-            throw e;
+            throw mapExamTypeDbError(e);
         }
     }
 
     async delete(id: number): Promise<void> {
+        // Every rating screen resolves through the base type (resolveExamTypeId below) — deleting
+        // it, even while it has no exams, would leave zero base types.
+        const target = await pg.selectFrom("exam_types").select("is_base").where("id", "=", id).executeTakeFirst();
+        if (!target) {
+            const err: any = new Error("İmtahan növü tapılmadı");
+            err.status = 404;
+            throw err;
+        }
+        if (target.is_base) {
+            const err: any = new Error("Əsas imtahan növünü silmək olmaz");
+            err.status = 409;
+            throw err;
+        }
+
         const used = await pg
             .selectFrom("exams")
             .select(({ fn }) => [fn.countAll().as("count")])
@@ -312,6 +316,20 @@ export class ExamTypeServicePg {
             await trx.deleteFrom("exam_type_sections").where("id", "in", toDelete).execute();
         }
 
+        // EXCLUDE (exam_type_id, grade range) is checked per statement, not at commit: moving a
+        // boundary (1-4/5-11 -> 1-5/6-11) by updating sections one by one would overlap the
+        // not-yet-updated neighbour. Park every kept section on a unique negative range first
+        // ([-id, -id] never meets a real grade or another parked section), then write real ranges.
+        for (const section of sections) {
+            if (section.id !== undefined) {
+                await trx
+                    .updateTable("exam_type_sections")
+                    .set({ grade_from: -section.id, grade_to: -section.id })
+                    .where("id", "=", section.id)
+                    .execute();
+            }
+        }
+
         for (const section of sections) {
             let sectionId: number;
             if (section.id !== undefined) {
@@ -381,6 +399,30 @@ export class ExamTypeServicePg {
 }
 
 export const examTypeServicePg = new ExamTypeServicePg();
+
+/** Constraint violations from 023 → 4xx with a message the admin can act on, instead of a raw 500. */
+function mapExamTypeDbError(e: any): any {
+    const fail = (message: string, status: number) => {
+        const err: any = new Error(message);
+        err.status = status;
+        return err;
+    };
+    switch (e?.code) {
+        case "23505":
+            if (e.constraint === "exam_types_single_base") return fail("Əsas imtahan növü artıq mövcuddur", 409);
+            if (e.constraint === "exam_types_code_key") return fail("Bu kodla imtahan növü artıq mövcuddur", 409);
+            if (e.constraint === "exam_type_section_subjects_pkey") return fail("Bölmədə eyni fənn bir neçə dəfə seçilib", 400);
+            return fail("Təkrarlanan məlumat", 409);
+        case "23P01":
+            return fail("Bölmələrin sinif aralıqları üst-üstə düşür", 400);
+        case "23514":
+            return fail("Bölmənin sinif aralığı düzgün deyil", 400);
+        case "23503":
+            return fail("Seçilmiş fənn və ya pillə meyarı tapılmadı", 400);
+        default:
+            return e;
+    }
+}
 
 /**
  * IMTAHAN_NOVLERI_TASK.md §5 шаг 3: единственное место, где решается "какой тип экзамена

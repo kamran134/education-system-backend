@@ -2,6 +2,13 @@ import { ExamServicePg, Exam, ExamCreate } from "../services/exam.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, FileProcessingResult, BulkOperationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 
+/** Error carrying status 400 — the global errorHandler responds with `err.status || 500`. */
+function badRequest(message: string): Error {
+    const err: any = new Error(message);
+    err.status = 400;
+    return err;
+}
+
 export class ExamUseCase {
     constructor(private examService: ExamServicePg) {}
 
@@ -20,17 +27,20 @@ export class ExamUseCase {
     }
 
     async createExam(examData: ExamCreate): Promise<Exam> {
-        ValidationUtils.validateRequired(examData.name, 'Exam name');
-        ValidationUtils.validateRequired(examData.date, 'Exam date');
-        ValidationUtils.validateRequired(examData.examTypeId, 'Exam type');
+        const errors: string[] = [];
+        if (typeof examData.name !== 'string' || examData.name.trim() === '') errors.push('İmtahanın adı göstərilməyib');
+        if (ValidationUtils.validateRequired(examData.date, 'date')) errors.push('İmtahanın tarixi göstərilməyib');
+        if (ValidationUtils.validateRequired(examData.examTypeId, 'examTypeId')) errors.push('İmtahan növü seçilməyib');
+        if (errors.length > 0) throw badRequest(errors.join(', '));
 
         // Парсим дату как UTC midnight чтобы избежать смещения timezone.
         // Фронт присылает строку "YYYY-MM-DD".
         if (typeof examData.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(examData.date as any)) {
             examData.date = new Date((examData.date as any) + 'T00:00:00.000Z') as any;
         }
+        if (isNaN(new Date(examData.date).getTime())) throw badRequest('İmtahanın tarixi düzgün deyil');
 
-        return await this.examService.create(examData);
+        return await this.examService.create({ ...examData, name: examData.name.trim() });
     }
 
     async updateExam(id: string, updateData: Partial<ExamCreate>): Promise<Exam> {
@@ -41,6 +51,9 @@ export class ExamUseCase {
 
         if (updateData.date && typeof updateData.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(updateData.date as any)) {
             updateData.date = new Date((updateData.date as any) + 'T00:00:00.000Z') as any;
+        }
+        if (updateData.date !== undefined && isNaN(new Date(updateData.date).getTime())) {
+            throw badRequest('İmtahanın tarixi düzgün deyil');
         }
 
         return await this.examService.update(parseInt(id, 10), updateData);

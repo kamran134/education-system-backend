@@ -4,13 +4,13 @@ import { createAllResults, deleteResults, getStudentResults, updateStudentResult
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 
 const router = express.Router();
-const upload = multer({ dest: "uploads/temp/" });
+const upload = multer({ dest: "uploads/temp/", limits: { fileSize: 50 * 1024 * 1024 } });
 
 router.route("/").get(authMiddleware([]), getStudentResults);
 router.route("/import-json")
-    .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), importLegacyResults);
+    .post(authMiddleware(["superadmin", "admin"]), upload.single("file"), importLegacyResults);
 router.route("/upload")
-    .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), createAllResults);
+    .post(authMiddleware(["superadmin", "admin"]), upload.single("file"), createAllResults);
 router.route("/:id")
     .put(authMiddleware(["superadmin", "admin", "moderator"]), updateStudentResult)
     .delete(canDelete, deleteStudentResult);

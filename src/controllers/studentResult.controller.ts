@@ -109,7 +109,7 @@ export class StudentResultController {
             }
 
             const { examId } = req.body;
-            if (!examId) {
+            if (!examId || isNaN(parseInt(examId, 10))) {
                 res.status(400).json(ResponseHandler.badRequest("İmtahan seçilməyib!"));
                 return;
             }

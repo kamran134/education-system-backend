@@ -14,6 +14,11 @@ export interface Exam {
     examTypeName: string;
 }
 
+/** Calendar day (YYYY-MM-DD) of a timestamp in Baku time. */
+function bakuDay(d: Date): string {
+    return d.toLocaleDateString("en-CA", { timeZone: "Asia/Baku" });
+}
+
 export interface ExamCreate {
     name: string;
     date: Date;
@@ -58,14 +63,21 @@ export class ExamServicePg {
     }
 
     async create(data: ExamCreate): Promise<Exam> {
-        const inserted = await pg
-            .insertInto("exams")
-            .values({
-                name: data.name, date: data.date, active: data.active ?? true,
-                exam_type_id: data.examTypeId,
-            })
-            .returning(["id"])
-            .executeTakeFirstOrThrow();
+        await this.assertExamTypeUsable(Number(data.examTypeId));
+
+        let inserted: { id: number };
+        try {
+            inserted = await pg
+                .insertInto("exams")
+                .values({
+                    name: data.name, date: data.date, active: data.active ?? true,
+                    exam_type_id: data.examTypeId,
+                })
+                .returning(["id"])
+                .executeTakeFirstOrThrow();
+        } catch (e: any) {
+            throw this.mapUniqueViolation(e);
+        }
 
         const exam = await this.findById(inserted.id);
         if (!exam) throw new Error("Exam not found immediately after insert — this is a bug");
@@ -73,41 +85,84 @@ export class ExamServicePg {
     }
 
     async update(id: number, data: Partial<ExamCreate>): Promise<Exam> {
-        // Смена exam_type_id у экзамена, у которого уже есть результаты, запрещена —
-        // иначе результаты остаются привязаны к типу, набор предметов/шкала которого им
-        // больше не соответствуют (IMTAHAN_NOVLERI_TASK.md §5, exam.service.pg.ts).
-        if (data.examTypeId !== undefined) {
-            const current = await this.findById(id);
-            if (!current) throw new Error("Exam not found");
+        const current = await this.findById(id);
+        if (!current) {
+            const err: any = new Error("İmtahan tapılmadı");
+            err.status = 404;
+            throw err;
+        }
 
-            if (data.examTypeId !== current.examTypeId) {
-                const hasResults = await pg
-                    .selectFrom("student_results")
-                    .select(({ fn }) => [fn.countAll().as("count")])
-                    .where("exam_id", "=", id)
-                    .executeTakeFirstOrThrow();
-                if (Number(hasResults.count) > 0) {
-                    const err: any = new Error("Bu imtahanın artıq nəticələri var — növünü dəyişmək olmaz");
-                    err.status = 409;
-                    throw err;
-                }
+        const typeChanged = data.examTypeId !== undefined && Number(data.examTypeId) !== current.examTypeId;
+        // The edit dialog used to send a local-midnight Date, so many rows sit at 20:00Z of the
+        // previous day. Compare calendar days in Baku time: re-saving the same day is not a change
+        // and must not trip the lock below (nor rewrite the stored timestamp).
+        const dateChanged = data.date !== undefined && bakuDay(new Date(data.date)) !== bakuDay(new Date(current.date));
+
+        if (typeChanged) await this.assertExamTypeUsable(Number(data.examTypeId));
+
+        // Тип и дата экзамена с результатами не меняются (IMTAHAN_NOVLERI_AUDIT_2026-10-05_TASK.md Р1):
+        // тип — набор предметов/шкала результатов перестали бы ему соответствовать (IMTAHAN_NOVLERI_TASK.md §5);
+        // дата — student_results.month/year копируются из неё при импорте и уехали бы в чужой
+        // месяц/учебный год вместе с месячными наградами.
+        if (typeChanged || dateChanged) {
+            const hasResults = await pg
+                .selectFrom("student_results")
+                .select(({ fn }) => [fn.countAll().as("count")])
+                .where("exam_id", "=", id)
+                .executeTakeFirstOrThrow();
+            if (Number(hasResults.count) > 0) {
+                const what = typeChanged && dateChanged ? "növünü və tarixini" : typeChanged ? "növünü" : "tarixini";
+                const err: any = new Error(`Bu imtahanın artıq nəticələri var — ${what} dəyişmək olmaz`);
+                err.status = 409;
+                throw err;
             }
         }
 
-        await pg
-            .updateTable("exams")
-            .set({
-                ...(data.name !== undefined && { name: data.name }),
-                ...(data.date !== undefined && { date: data.date }),
-                ...(data.active !== undefined && { active: data.active }),
-                ...(data.examTypeId !== undefined && { exam_type_id: data.examTypeId }),
-            })
-            .where("id", "=", id)
-            .execute();
+        try {
+            await pg
+                .updateTable("exams")
+                .set({
+                    ...(data.name !== undefined && { name: data.name }),
+                    ...(dateChanged && { date: data.date }),
+                    ...(data.active !== undefined && { active: data.active }),
+                    ...(typeChanged && { exam_type_id: data.examTypeId }),
+                })
+                .where("id", "=", id)
+                .execute();
+        } catch (e: any) {
+            throw this.mapUniqueViolation(e);
+        }
 
         const row = await this.findById(id);
         if (!row) throw new Error("Exam not found");
         return row;
+    }
+
+    /** New exams (and type changes) may only point at an existing, active exam type. */
+    private async assertExamTypeUsable(examTypeId: number): Promise<void> {
+        const type = isNaN(examTypeId)
+            ? undefined
+            : await pg.selectFrom("exam_types").select(["active"]).where("id", "=", examTypeId).executeTakeFirst();
+        if (!type) {
+            const err: any = new Error("İmtahan növü tapılmadı");
+            err.status = 400;
+            throw err;
+        }
+        if (!type.active) {
+            const err: any = new Error("Bu imtahan növü aktiv deyil");
+            err.status = 400;
+            throw err;
+        }
+    }
+
+    /** exams_name_date_key (IMTAHAN_KODU_TASK.md) → 409 with a readable message instead of a raw 500. */
+    private mapUniqueViolation(e: any): any {
+        if (e?.code === "23505") {
+            const err: any = new Error("Bu adda və tarixdə imtahan artıq mövcuddur");
+            err.status = 409;
+            return err;
+        }
+        return e;
     }
 
     /**

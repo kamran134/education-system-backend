@@ -5,13 +5,13 @@ import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 import { schoolAvatarUpload } from "../config/multer";
 
 const router = express.Router();
-const upload = multer({ dest: "uploads/temp/" });
+const upload = multer({ dest: "uploads/temp/", limits: { fileSize: 50 * 1024 * 1024 } });
 
 router.route("/").get(authMiddleware([]), getSchools).post(authMiddleware(["superadmin", "admin", "moderator"]), createSchool);
 router.route("/filter").get(authMiddleware([]), getSchoolsForFilter);
 router.route("/search").get(authMiddleware([]), getSchools); // Allow all authenticated users
-router.route("/upload").post(upload.single("file"), authMiddleware(["superadmin", "admin"]), createAllSchools);
-router.route("/legacy-import").post(upload.single("file"), authMiddleware(["superadmin", "admin"]), importLegacySchools);
+router.route("/upload").post(authMiddleware(["superadmin", "admin"]), upload.single("file"), createAllSchools);
+router.route("/legacy-import").post(authMiddleware(["superadmin", "admin"]), upload.single("file"), importLegacySchools);
 router.route("/repair").get(authMiddleware(["superadmin", "admin"]), repairSchools);
 router.route("/delete/:schoolIds").delete(canDelete, deleteSchools);
 router.route("/:id")

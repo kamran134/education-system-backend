@@ -326,6 +326,17 @@ export class StudentResultServicePg {
             const dataRows = rows.slice(1);
             const sectionConfigByGrade = new Map<number, SectionConfig | null>();
 
+            // A code that appears more than once is ambiguous (which row is right is unknown), so
+            // every occurrence is rejected rather than letting the last row silently win — or, for
+            // a brand-new student, failing the whole import on the students.code unique key.
+            const codeOccurrences = new Map<number, number>();
+            for (const row of dataRows) {
+                if (!Array.isArray(row)) continue;
+                const code = Number(row[0]);
+                if (code) codeOccurrences.set(code, (codeOccurrences.get(code) ?? 0) + 1);
+            }
+            const reportedDuplicateCodes = new Set<number>();
+
             const invalidStudentCodes: number[] = [];
             const studentsWithIncorrectResults: Array<{ code: number; reason: string }> = [];
             const parsedRows: Array<{
@@ -342,6 +353,14 @@ export class StudentResultServicePg {
 
                 if (!code || isNaN(code) || code < CODE_RANGES.STUDENT_MIN || code > CODE_RANGES.STUDENT_MAX) {
                     invalidStudentCodes.push(code);
+                    continue;
+                }
+                const occurrences = codeOccurrences.get(code) ?? 1;
+                if (occurrences > 1) {
+                    if (!reportedDuplicateCodes.has(code)) {
+                        reportedDuplicateCodes.add(code);
+                        studentsWithIncorrectResults.push({ code, reason: `Şagird kodu faylda ${occurrences} dəfə təkrarlanır` });
+                    }
                     continue;
                 }
                 if (!grade || isNaN(grade)) {
@@ -379,6 +398,11 @@ export class StudentResultServicePg {
                         hasError = true;
                         break;
                     }
+                    if (score < 0) {
+                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: bal mənfi ola bilməz (${score})` });
+                        hasError = true;
+                        break;
+                    }
 
                     // IMTAHAN_NOVLERI_TASK.md §16: sual sayı artıq konfiqdən deyil, məhz bu fayldan
                     // (bu sətirdən) oxunur — məxrəc konkret işin xassəsidir, imtahan növünün deyil.
@@ -389,6 +413,11 @@ export class StudentResultServicePg {
                     const questionCount = rawCount == null || String(rawCount).trim() === "" ? NaN : Number(rawCount);
                     if (isNaN(questionCount) || questionCount <= 0) {
                         studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: sual sayı göstərilməyib` });
+                        hasError = true;
+                        break;
+                    }
+                    if (!Number.isInteger(questionCount)) {
+                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: sual sayı tam ədəd olmalıdır (${questionCount})` });
                         hasError = true;
                         break;
                     }
@@ -788,21 +817,39 @@ export class StudentResultServicePg {
         let totalScore = 0;
         let totalQuestionCount = 0;
         const subjectRows: Array<{ subjectCode: string; score: number; questionCount: number }> = [];
+        const seenSubjects = new Set<string>();
         for (const d of disciplines) {
             const cfg = config.subjects.get(d.subjectCode);
             if (!cfg) {
                 throw this.importError(`"${d.subjectCode}" fənni bu bölmənin tərkibinə daxil deyil`);
             }
-            const questionCount = d.questionCount ?? null;
-            if (questionCount == null || questionCount <= 0) {
+            if (seenSubjects.has(d.subjectCode)) {
+                throw this.importError(`${cfg.nameAz}: fənn bir neçə dəfə göstərilib`);
+            }
+            seenSubjects.add(d.subjectCode);
+
+            // The body is client JSON: coerce explicitly, otherwise a string score would turn
+            // `totalScore += score` into string concatenation.
+            const score = Number(d.score);
+            if (d.score == null || String(d.score).trim() === "" || !Number.isFinite(score)) {
+                throw this.importError(`${cfg.nameAz}: bal ədəd deyil`);
+            }
+            if (score < 0) {
+                throw this.importError(`${cfg.nameAz}: bal mənfi ola bilməz (${score})`);
+            }
+            const questionCount = d.questionCount == null ? NaN : Number(d.questionCount);
+            if (!Number.isFinite(questionCount) || questionCount <= 0) {
                 throw this.importError(`${cfg.nameAz}: sual sayı göstərilməyib`);
             }
-            if (d.score > questionCount) {
-                throw this.importError(`${cfg.nameAz}: bal (${d.score}) sual sayından (${questionCount}) çoxdur`);
+            if (!Number.isInteger(questionCount)) {
+                throw this.importError(`${cfg.nameAz}: sual sayı tam ədəd olmalıdır (${questionCount})`);
             }
-            totalScore += d.score;
+            if (score > questionCount) {
+                throw this.importError(`${cfg.nameAz}: bal (${score}) sual sayından (${questionCount}) çoxdur`);
+            }
+            totalScore += score;
             totalQuestionCount += questionCount;
-            subjectRows.push({ subjectCode: d.subjectCode, score: d.score, questionCount });
+            subjectRows.push({ subjectCode: d.subjectCode, score, questionCount });
         }
 
         const examType = await examTypeServicePg.findById(examTypeId);
@@ -850,6 +897,20 @@ export class StudentResultServicePg {
         const byName = new Map(subjects.map((s) => [s.nameAz.trim(), s.code]));
         const countSuffix = " (sual sayı)";
         const columns: Array<{ colIdx: number; subjectCode: string; nameAz: string; isCount: boolean }> = [];
+        // A repeated subject column would be summed twice and then hit the
+        // student_result_subject_scores primary key halfway through the import.
+        const seenColumns = new Map<string, number>();
+        const addColumn = (col: { colIdx: number; subjectCode: string; nameAz: string; isCount: boolean }, text: string) => {
+            const key = `${col.subjectCode}|${col.isCount}`;
+            const firstIdx = seenColumns.get(key);
+            if (firstIdx !== undefined) {
+                throw this.importError(
+                    `"${text}" sütunu faylda təkrarlanır (${this.colLabel(firstIdx)} və ${this.colLabel(col.colIdx)})`
+                );
+            }
+            seenColumns.set(key, col.colIdx);
+            columns.push(col);
+        };
 
         for (let i = startIdx; i < headerRow.length; i++) {
             const raw = headerRow[i];
@@ -860,13 +921,13 @@ export class StudentResultServicePg {
                 const subjectName = text.slice(0, -countSuffix.length).trim();
                 const code = byName.get(subjectName);
                 if (!code) throw this.importError(`Naməlum sütun (${this.colLabel(i)}): "${text}"`);
-                columns.push({ colIdx: i, subjectCode: code, nameAz: subjectName, isCount: true });
+                addColumn({ colIdx: i, subjectCode: code, nameAz: subjectName, isCount: true }, text);
                 continue;
             }
 
             const code = byName.get(text);
             if (!code) throw this.importError(`Naməlum sütun (${this.colLabel(i)}): "${text}"`);
-            columns.push({ colIdx: i, subjectCode: code, nameAz: text, isCount: false });
+            addColumn({ colIdx: i, subjectCode: code, nameAz: text, isCount: false }, text);
         }
 
         return columns;

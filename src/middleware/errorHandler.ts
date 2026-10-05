@@ -38,6 +38,15 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
         return;
     }
 
+    // multer limits (routes/*.routes.ts: 50 MB per uploaded file)
+    if (err.code === 'LIMIT_FILE_SIZE') {
+        res.status(413).json({
+            success: false,
+            message: 'Fayl çox böyükdür: maksimum 50 MB icazə verilir'
+        });
+        return;
+    }
+
     // Default error
     res.status(err.status || 500).json({ 
         success: false,

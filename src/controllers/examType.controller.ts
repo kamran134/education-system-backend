@@ -4,6 +4,71 @@ import { resultTemplateService } from "../services/resultTemplate.service";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { ValidationUtils } from "../utils/validation.util";
 
+const MIN_GRADE = 1;
+const MAX_GRADE = 11;
+
+/**
+ * Body of POST/PUT /exam-types. Checked here, before the transaction, so the admin gets every
+ * problem at once in Azerbaijani instead of the first constraint violation as a raw 500.
+ */
+function validateExamTypeBody(body: any): string[] {
+    const errors: string[] = [];
+    const isBlank = (v: unknown) => typeof v !== "string" || v.trim() === "";
+
+    if (isBlank(body?.code)) errors.push("Kod göstərilməyib");
+    if (isBlank(body?.nameAz)) errors.push("Ad göstərilməyib");
+    if (ValidationUtils.validateRequired(body?.levelScaleId, "levelScaleId")) errors.push("Pillə meyarı seçilməyib");
+    if (body?.monthAwardMinRank != null && !Number.isInteger(body.monthAwardMinRank)) {
+        errors.push("Ayın şagirdi üçün minimal pillə düzgün deyil");
+    }
+
+    const sections = body?.sections;
+    if (!Array.isArray(sections) || sections.length === 0) {
+        errors.push("Ən azı bir bölmə əlavə edilməlidir");
+        return errors;
+    }
+
+    const ranges: Array<{ name: string; from: number; to: number }> = [];
+    sections.forEach((section: any, i: number) => {
+        const label = isBlank(section?.nameAz) ? `Bölmə №${i + 1}` : `"${section.nameAz.trim()}" bölməsi`;
+        if (isBlank(section?.nameAz)) errors.push(`Bölmə №${i + 1}: ad göstərilməyib`);
+        if (section?.id !== undefined && !Number.isInteger(section.id)) errors.push(`${label}: id düzgün deyil`);
+
+        const from = section?.gradeFrom;
+        const to = section?.gradeTo;
+        if (!Number.isInteger(from) || !Number.isInteger(to) || from < MIN_GRADE || to > MAX_GRADE || from > to) {
+            errors.push(`${label}: sinif aralığı ${MIN_GRADE}-${MAX_GRADE} daxilində və başlanğıc ≤ son olmalıdır`);
+        } else {
+            ranges.push({ name: label, from, to });
+        }
+
+        if (!Array.isArray(section?.subjects)) {
+            errors.push(`${label}: fənlər siyahısı yoxdur`);
+            return;
+        }
+        const seen = new Set<string>();
+        section.subjects.forEach((subject: any) => {
+            if (isBlank(subject?.subjectCode)) {
+                errors.push(`${label}: fənn seçilməmiş sətir var`);
+            } else if (seen.has(subject.subjectCode)) {
+                errors.push(`${label}: "${subject.nameAz || subject.subjectCode}" fənni bir neçə dəfə seçilib`);
+            } else {
+                seen.add(subject.subjectCode);
+            }
+        });
+    });
+
+    for (let a = 0; a < ranges.length; a++) {
+        for (let b = a + 1; b < ranges.length; b++) {
+            if (ranges[a].from <= ranges[b].to && ranges[b].from <= ranges[a].to) {
+                errors.push(`${ranges[a].name} və ${ranges[b].name}: sinif aralıqları üst-üstə düşür`);
+            }
+        }
+    }
+
+    return errors;
+}
+
 export const getExamTypes = async (req: Request, res: Response): Promise<void> => {
     try {
         const data = await examTypeServicePg.findAll();
@@ -15,15 +80,7 @@ export const getExamTypes = async (req: Request, res: Response): Promise<void> =
 
 export const createExamType = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { code, nameAz, levelScaleId, sections } = req.body;
-        const errors = [
-            ValidationUtils.validateRequired(code, "code"),
-            ValidationUtils.validateRequired(nameAz, "nameAz"),
-            ValidationUtils.validateRequired(levelScaleId, "levelScaleId"),
-        ].filter((e): e is string => e !== null);
-        if (!Array.isArray(sections) || sections.length === 0) {
-            errors.push("sections must be a non-empty array");
-        }
+        const errors = validateExamTypeBody(req.body);
         if (errors.length > 0) {
             res.status(400).json(ResponseHandler.badRequest(errors.join(", ")));
             return;
@@ -44,15 +101,7 @@ export const updateExamType = async (req: Request, res: Response): Promise<void>
             return;
         }
 
-        const { code, nameAz, levelScaleId, sections } = req.body;
-        const errors = [
-            ValidationUtils.validateRequired(code, "code"),
-            ValidationUtils.validateRequired(nameAz, "nameAz"),
-            ValidationUtils.validateRequired(levelScaleId, "levelScaleId"),
-        ].filter((e): e is string => e !== null);
-        if (!Array.isArray(sections) || sections.length === 0) {
-            errors.push("sections must be a non-empty array");
-        }
+        const errors = validateExamTypeBody(req.body);
         if (errors.length > 0) {
             res.status(400).json(ResponseHandler.badRequest(errors.join(", ")));
             return;

@@ -43,12 +43,10 @@ export class StudentResultUseCase {
         return await this.studentResultService.delete(parseInt(id, 10));
     }
 
+    // No wrapping: the service throws Azerbaijani messages with `status = 400` for file/header
+    // problems, and a new Error here would drop that status and turn them into English 500s.
     async processStudentResultsFromExcel(filePath: string, examId: string): Promise<StudentResultFileProcessingResult> {
-        try {
-            return await this.studentResultService.processStudentResultsFromExcel(filePath, parseInt(examId, 10));
-        } catch (error) {
-            throw new Error(`Failed to process student results from Excel: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
+        return await this.studentResultService.processStudentResultsFromExcel(filePath, parseInt(examId, 10));
     }
 
     async deleteResultsByExamId(examId: string): Promise<{ deletedCount: number }> {

@@ -5,7 +5,7 @@ import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 import { teacherAvatarUpload } from "../config/multer";
 
 const router = express.Router();
-const upload = multer({ dest: "uploads/temp/" });
+const upload = multer({ dest: "uploads/temp/", limits: { fileSize: 50 * 1024 * 1024 } });
 
 router.route("/")
     .get(authMiddleware([]), getTeachers) // Allow all authenticated users
@@ -15,9 +15,9 @@ router.route("/filter")
 router.route("/search")
     .get(authMiddleware([]), getTeachers); // Allow all authenticated users
 router.route("/upload")
-    .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), createAllTeachers);
+    .post(authMiddleware(["superadmin", "admin"]), upload.single("file"), createAllTeachers);
 router.route("/legacy-import")
-    .post(upload.single("file"), authMiddleware(["superadmin", "admin"]), importLegacyTeachers);
+    .post(authMiddleware(["superadmin", "admin"]), upload.single("file"), importLegacyTeachers);
 router.route("/repair")
     .get(authMiddleware(["superadmin", "admin"]), repairTeachers);
 router.route("/update-stats")

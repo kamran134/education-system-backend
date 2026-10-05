@@ -11,14 +11,14 @@ import {
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 
 const router = express.Router();
-const upload = multer({ dest: "uploads/temp/" });
+const upload = multer({ dest: "uploads/temp/", limits: { fileSize: 50 * 1024 * 1024 } });
 
 router.route("/")
     .get(authMiddleware([]), getBooklets)
     .post(authMiddleware(["superadmin", "admin", "moderator"]), createBooklet);
 
 router.route("/upload")
-    .post(upload.single("file"), authMiddleware(["superadmin", "admin", "moderator"]), uploadBooklets);
+    .post(authMiddleware(["superadmin", "admin", "moderator"]), upload.single("file"), uploadBooklets);
 
 // Public route — no auth required
 router.route("/public/:id")
