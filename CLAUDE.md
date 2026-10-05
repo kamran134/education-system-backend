@@ -105,7 +105,14 @@ Auth: JWT access + refresh, refresh tokens stored server-side (max 5 sessions) a
 
 ## Excel
 
-Reading is server-side via `services/excel.service.ts` (`readExcel`, `xlsx` package). **Students are created as a side effect of importing exam results**: `services/studentResult.service.pg.ts` inserts any student code it doesn't find (deriving teacher/school/district from the code itself via `assignTeacherToStudent`). There is no standalone "register students" importer, and student codes always arrive from the file — nothing generates them server-side.
+Reading is server-side via `services/excel.service.ts` (`readExcel`, `xlsx` package). **Students are created as a side effect of importing exam results**: `services/studentResult.service.pg.ts` inserts any student code it doesn't find (deriving teacher/school/district from the code itself — teacher = code / 1000, resolved in one batched query). There is no standalone "register students" importer, and student codes always arrive from the file — nothing generates them server-side.
+
+Results import (`processStudentResultsFromExcel`, rules from `IMTAHAN_NOVLERI_AUDIT_2026-10-05_TASK.md` group 2 in the parent directory):
+- **One file = one section.** Rows whose grades fall into different sections of the exam type fail the whole file; the file's subject columns must equal the section's subject set exactly (a missing subject used to shrink the percent denominator silently). Headers match subject `name_az` case- and whitespace-insensitively.
+- Row-level problems come back in `studentsWithIncorrectResults` as `{ row, code, reason }` (`row` = Excel row number, `code` null when the code cell itself was bad); valid rows still import. `questionCountWarnings` flags rows whose question count differs from the file's most common value for that subject — a warning only, §16 allows different lengths.
+- The write is **one transaction** and batched (chunked multi-row upsert, prior band ranks in one query via `levelScale.service.pg.ts::maxPriorBandRanks`, bands from the startup cache via `resolveBandCached`): a failure leaves neither results nor newly created students. The response carries `processedCount`, not the result rows.
+- `month`/`year` of the results are the exam's calendar day in `Asia/Baku`, not `getUTCMonth()` — most exams are stored at 20:00Z of the previous day.
+- `POST /student-results/import-json` (one-off legacy JSON import) is gone — it failed on every record (`month: 0` vs the CHECK).
 
 ## Commit style
 

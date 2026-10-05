@@ -424,7 +424,7 @@ export class StatsServicePg {
             )
             // levels снесена миграцией 026 (IMTAHAN_NOVLERI_TASK.md §20) — level_scale_bands,
             // композитный джойн по (scale_id, code), тем же критерием, что и student_results
-            // FK level_band_fkey (024) и maxPriorBandRank (levelScale.service.pg.ts, §15).
+            // FK level_band_fkey (024) и maxPriorBandRanks (levelScale.service.pg.ts, §15).
             .leftJoin("level_scale_bands as lvl", (join) =>
                 join.onRef("lvl.scale_id", "=", "sr.level_scale_id").onRef("lvl.code", "=", "sr.level")
             )

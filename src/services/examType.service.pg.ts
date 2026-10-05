@@ -316,6 +316,26 @@ export class ExamTypeServicePg {
             await trx.deleteFrom("exam_type_sections").where("id", "in", toDelete).execute();
         }
 
+        // A kept section must still cover every result already filed under it — otherwise those
+        // results would point at a section whose grade range no longer contains their grade.
+        for (const section of sections) {
+            if (section.id === undefined) continue;
+            const outside = await trx
+                .selectFrom("student_results")
+                .select(({ fn }) => [fn.countAll().as("count"), fn.min("grade").as("minGrade"), fn.max("grade").as("maxGrade")])
+                .where("section_id", "=", section.id)
+                .where((eb) => eb.or([eb("grade", "<", section.gradeFrom), eb("grade", ">", section.gradeTo)]))
+                .executeTakeFirstOrThrow();
+            if (Number(outside.count) > 0) {
+                const err: any = new Error(
+                    `"${section.nameAz}" bölməsində yeni aralıqdan (${section.gradeFrom}-${section.gradeTo}) kənarda qalan ` +
+                    `${outside.count} nəticə var (siniflər ${outside.minGrade}-${outside.maxGrade}) — aralığı daraltmaq olmaz`
+                );
+                err.status = 409;
+                throw err;
+            }
+        }
+
         // EXCLUDE (exam_type_id, grade range) is checked per statement, not at commit: moving a
         // boundary (1-4/5-11 -> 1-5/6-11) by updating sections one by one would overlap the
         // not-yet-updated neighbour. Park every kept section on a unique negative range first

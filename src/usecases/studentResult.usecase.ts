@@ -1,12 +1,5 @@
-import { StudentResultServicePg, StudentResult, StudentResultCreate } from "../services/studentResult.service.pg";
+import { StudentResultServicePg, StudentResult, StudentResultCreate, StudentResultImportSummary } from "../services/studentResult.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions } from "../types/common.types";
-
-export interface StudentResultFileProcessingResult {
-    processedData: StudentResult[];
-    studentsWithoutTeacher: any[];
-    incorrectStudentCodes: number[];
-    studentsWithIncorrectResults: any[];
-}
 
 export class StudentResultUseCase {
     constructor(private studentResultService: StudentResultServicePg) {}
@@ -45,7 +38,7 @@ export class StudentResultUseCase {
 
     // No wrapping: the service throws Azerbaijani messages with `status = 400` for file/header
     // problems, and a new Error here would drop that status and turn them into English 500s.
-    async processStudentResultsFromExcel(filePath: string, examId: string): Promise<StudentResultFileProcessingResult> {
+    async processStudentResultsFromExcel(filePath: string, examId: string): Promise<StudentResultImportSummary> {
         return await this.studentResultService.processStudentResultsFromExcel(filePath, parseInt(examId, 10));
     }
 
@@ -54,19 +47,6 @@ export class StudentResultUseCase {
             return await this.studentResultService.deleteResultsByExamId(parseInt(examId, 10));
         } catch (error) {
             throw new Error(`Failed to delete results by exam ID: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-    }
-
-    async importLegacyResults(filePath: string): Promise<{
-        inserted: number;
-        skipped: number;
-        errors: number;
-        details: { skippedCodes: any[]; errorMessages: string[] };
-    }> {
-        try {
-            return await this.studentResultService.importLegacyResultsFromJson(filePath);
-        } catch (error) {
-            throw new Error(`Failed to import legacy results: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
 }

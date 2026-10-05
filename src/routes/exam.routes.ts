@@ -15,6 +15,6 @@ router.route("/filter")
     .get(authMiddleware([]), getExamsForFilter)
 // IMTAHAN_NOVLERI_TASK.md §7 — тот же доступ, что и на импорт результатов (studentResult.routes.ts /upload).
 router.route("/:id/results-template.xlsx")
-    .get(authMiddleware(["superadmin", "admin", "moderator"]), getResultsTemplate);
+    .get(authMiddleware(["superadmin", "admin"]), getResultsTemplate);
 
 export default router;

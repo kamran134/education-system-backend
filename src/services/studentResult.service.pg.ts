@@ -4,18 +4,48 @@ import { pg } from "../config/pg";
 import { DB } from "../types/db";
 import { studentServicePg, StudentCreate } from "./student.service.pg";
 import { examTypeServicePg } from "./examType.service.pg";
-import { levelScaleServicePg, maxPriorBandRank } from "./levelScale.service.pg";
+import { levelScaleServicePg, maxPriorBandRanks } from "./levelScale.service.pg";
 import { subjectServicePg } from "./subject.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions } from "../types/common.types";
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
-import { CODE_RANGES } from "../utils/entity-codes.const";
+import { CODE_DIVISORS, CODE_RANGES } from "../utils/entity-codes.const";
 
 // SAGIRD_FULLNAME_TASK.md §5: заголовок col 2 файла импорта, распознаваемый как ОДНА колонка ФИО
 // (а не первая из трёх legacy-колонок Soyadı/Adı/Ata adı). "Soyadı, adı, ata adı" — заголовок,
 // который генерирует resultTemplate.service.ts; "Şagirdin adı" — синоним, который заказчик
 // использует в части уже существующих у районов файлов. Сравнение регистронезависимое.
 const SINGLE_FULLNAME_HEADERS = new Set(["soyadı, adı, ata adı", "şagirdin adı"]);
+
+/** Заголовок для сравнения: регистр (по-азербайджански) и пробелы не важны — "riyaziyyat " == "Riyaziyyat". */
+function normalizeHeader(value: unknown): string {
+    return String(value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("az");
+}
+
+/** Построчная проблема импорта; `row` — номер строки в Excel (заголовок — строка 1). */
+export interface ImportRowIssue {
+    row: number;
+    code: number | null;
+    reason: string;
+}
+
+/** Число вопросов предмета в строке отличается от самого частого по файлу — не ошибка, предупреждение. */
+export interface QuestionCountWarning {
+    row: number;
+    code: number;
+    subject: string;
+    count: number;
+    usual: number;
+}
+
+export interface StudentResultImportSummary {
+    processedCount: number;
+    sectionName: string | null;
+    studentsWithoutTeacher: number[];
+    incorrectStudentCodes: number[];
+    studentsWithIncorrectResults: ImportRowIssue[];
+    questionCountWarnings: QuestionCountWarning[];
+}
 
 /**
  * Баллы по одному предмету одного результата. Заменяет пятиколоночный StudentResultDisciplines
@@ -106,6 +136,7 @@ type StudentResultRowRaw = {
  */
 interface SectionConfig {
     sectionId: number;
+    nameAz: string;
     subjects: Map<string, { nameAz: string; sortOrder: number }>;
 }
 
@@ -192,9 +223,23 @@ export class StudentResultServicePg {
         let scoreFields: Record<string, any> = {};
         let subjectRows: Array<{ subjectCode: string; score: number; questionCount: number | null }> | null = null;
 
-        if (data.disciplines !== undefined) {
+        // A new grade or exam can move the result into another section/type, so section, percent
+        // and pillə are recomputed even when the client sent no disciplines — from the stored ones.
+        const placementChanged = (data.grade !== undefined && data.grade !== current.grade)
+            || (data.examId !== undefined && data.examId !== current.exam_id);
+        let disciplines = data.disciplines;
+        if (disciplines === undefined && placementChanged) {
+            const stored = await pg
+                .selectFrom("student_result_subject_scores")
+                .select(["subject_code", "score", "question_count"])
+                .where("result_id", "=", id)
+                .execute();
+            disciplines = stored.map((s) => ({ subjectCode: s.subject_code, score: s.score, questionCount: s.question_count }));
+        }
+
+        if (disciplines !== undefined) {
             const examTypeId = await this.resolveExamTypeId(examId);
-            const summary = await this.computeScoreSummary(examTypeId, grade, data.disciplines);
+            const summary = await this.computeScoreSummary(examTypeId, grade, disciplines);
             scoreFields = {
                 exam_type_id: examTypeId,
                 section_id: summary.sectionId,
@@ -262,18 +307,23 @@ export class StudentResultServicePg {
     }
 
     /**
-     * Импорт результатов экзамена из Excel (IMTAHAN_NOVLERI_TASK.md §7). Формат: строка 1 —
-     * заголовки (`Şagird kodu | Sinif | Soyad | Ad | Ata adı | <Predmet> | <Predmet> (sual sayı) | ...`,
-     * ровно то, что генерирует `GET /exams/:id/results-template.xlsx`), данные — со строки 2.
-     * Предмет опознаётся по `name_az`, набор и лимиты — из секции, в которую попадает класс
-     * строки. total_score/score_percent/level/participation_score считает сервер.
+     * Импорт результатов экзамена из Excel (IMTAHAN_NOVLERI_TASK.md §7, аудит 05.10.2026 —
+     * IMTAHAN_NOVLERI_AUDIT_2026-10-05_TASK.md, группа 2). Формат: строка 1 — заголовки
+     * (`Şagird kodu | Sinif | Soyadı, adı, ata adı | <Fənn>... | <Fənn> (sual sayı)...`, ровно то,
+     * что генерирует resultTemplate.service.ts), данные — со строки 2.
+     *
+     * Правила:
+     *  - **один файл — одна секция** (решение Р2): строки классов разных секций типа — ошибка на
+     *    весь файл, с перечислением секций и классов;
+     *  - колонки файла должны совпадать с составом секции: недостающий предмет больше не
+     *    уменьшает знаменатель молча (раньше это завышало процент и pillə), лишний — ошибка;
+     *  - построчные проблемы (код, класс, баллы, повтор кода) — в `studentsWithIncorrectResults`
+     *    с номером строки Excel, остальные строки импортируются;
+     *  - расхождение числа вопросов предмета с самым частым значением по файлу — только
+     *    предупреждение (§16: число вопросов — свойство работы, бывает разным законно);
+     *  - запись — одной транзакцией и пакетно: либо файл загружен целиком, либо ничего.
      */
-    async processStudentResultsFromExcel(filePath: string, examId: number): Promise<{
-        processedData: StudentResult[];
-        studentsWithoutTeacher: number[];
-        incorrectStudentCodes: number[];
-        studentsWithIncorrectResults: Array<{ code: number; reason: string }>;
-    }> {
+    async processStudentResultsFromExcel(filePath: string, examId: number): Promise<StudentResultImportSummary> {
         try {
             const rows: any[] = readExcel(filePath);
             if (rows.length < 2) {
@@ -287,71 +337,58 @@ export class StudentResultServicePg {
             if (!examType) throw this.importError("İmtahan növü tapılmadı!");
 
             const examDate = new Date(exam.date);
-            const month = examDate.getUTCMonth() + 1;
-            const year = examDate.getUTCFullYear();
+            // Месяц/год — по календарному дню в Баку: большинство экзаменов хранится на 20:00Z
+            // предыдущего дня (полночь по Баку), и getUTCMonth() отнёс бы экзамен 1-го числа к
+            // прошлому месяцу. month/year результата решают месячные награды и учебный год.
+            const [year, month] = examDate.toLocaleDateString("en-CA", { timeZone: "Asia/Baku" }).split("-").map(Number);
             // IMTAHAN_NOVLERI_TASK.md §15: то же определение учебного года, что использует
-            // markDevelopingStudents() (stats.service.pg.ts) — единый экзамен, поэтому считается
-            // один раз для всего импорта, а не на строку.
+            // markDevelopingStudents() (stats.service.pg.ts) — от month/year результата.
             const academicYearStart = month >= 9 ? year : year - 1;
 
             const subjects = await subjectServicePg.findAll();
             const headerRow: any[] = Array.isArray(rows[0]) ? rows[0] : [];
             // SAGIRD_FULLNAME_TASK.md §5: заголовок col 2 решает формат имени — одна колонка ФИО
-            // (шаблон с шага 3, resultTemplate.service.ts) или три legacy-колонки (файлы, которые
-            // уже лежат у районов с шага 2). Предметы начинаются сразу после имени — col 3 в
-            // первом случае, col 5 (как раньше) во втором. Если файл почему-то содержит оба
-            // варианта — побеждает одна колонка, о расхождении не ругаемся (§5 ТЗ).
-            const nameHeader = String(headerRow[2] ?? "").trim().toLocaleLowerCase("az");
+            // (шаблон resultTemplate.service.ts) или три legacy-колонки. Предметы начинаются сразу
+            // после имени — col 3 в первом случае, col 5 во втором.
+            const nameHeader = normalizeHeader(headerRow[2]);
             const isSingleNameColumn = SINGLE_FULLNAME_HEADERS.has(nameHeader);
             const subjectsStartIdx = isSingleNameColumn ? 3 : 5;
 
             const subjectColumns = this.parseHeaderColumns(headerRow, subjects, subjectsStartIdx);
-            if (subjectColumns.filter((c) => !c.isCount).length === 0) {
+            const scoreColByCode = new Map(subjectColumns.filter((c) => !c.isCount).map((c) => [c.subjectCode, c]));
+            const countColByCode = new Map(subjectColumns.filter((c) => c.isCount).map((c) => [c.subjectCode, c]));
+            if (scoreColByCode.size === 0) {
                 throw this.importError("Fayl başlıqlarında fənn sütunları tapılmadı");
             }
-            const countColByCode = new Map(subjectColumns.filter((c) => c.isCount).map((c) => [c.subjectCode, c.colIdx]));
-            const scoreColumns = subjectColumns.filter((c) => !c.isCount);
 
-            // IMTAHAN_NOVLERI_TASK.md §16: сual sayı sütunu hər fənn üçün MÜTLƏQdir — bu artıq
-            // konfiqin deyil, faylın öz məsuliyyətidir (məxrəc faylın özündən oxunur). Sütun
-            // ümumiyyətlə yoxdursa — bu struktur uyğunsuzluqdur, bütün idxal dayanır (sətir-sətir
-            // "sual sayı göstərilməyib" xətası ilə qarışdırılmamalıdır — həmin hal aşağıda, sətir
-            // səviyyəsində, konkret dəyər boş/sıfır olduqda yoxlanılır).
-            for (const col of scoreColumns) {
-                if (!countColByCode.has(col.subjectCode)) {
-                    throw this.importError(`"${col.nameAz}" fənni üçün sual sayı sütunu yoxdur`);
-                }
-            }
-
-            const dataRows = rows.slice(1);
-            const sectionConfigByGrade = new Map<number, SectionConfig | null>();
+            const issues: ImportRowIssue[] = [];
+            const invalidStudentCodes: number[] = [];
 
             // A code that appears more than once is ambiguous (which row is right is unknown), so
-            // every occurrence is rejected rather than letting the last row silently win — or, for
-            // a brand-new student, failing the whole import on the students.code unique key.
+            // every occurrence is rejected rather than letting the last row silently win.
             const codeOccurrences = new Map<number, number>();
-            for (const row of dataRows) {
+            for (const row of rows.slice(1)) {
                 if (!Array.isArray(row)) continue;
                 const code = Number(row[0]);
                 if (code) codeOccurrences.set(code, (codeOccurrences.get(code) ?? 0) + 1);
             }
             const reportedDuplicateCodes = new Set<number>();
 
-            const invalidStudentCodes: number[] = [];
-            const studentsWithIncorrectResults: Array<{ code: number; reason: string }> = [];
-            const parsedRows: Array<{
-                grade: number; studentCode: number; fullname: string;
-                subjectScores: Array<{ subjectCode: string; score: number; questionCount: number }>;
-                totalScore: number; sectionId: number; maxQuestions: number;
-            }> = [];
-
-            for (const row of dataRows) {
+            // Проход 1: код, класс, секция. Строки, прошедшие его, — кандидаты.
+            const sectionConfigByGrade = new Map<number, SectionConfig | null>();
+            const candidates: Array<{ rowNumber: number; row: any[]; code: number; grade: number; config: SectionConfig }> = [];
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                const rowNumber = i + 1; // номер строки в Excel (заголовок — строка 1)
                 if (!Array.isArray(row) || row.every((c) => c == null || String(c).trim() === "")) continue;
 
-                const code = Number(row[0]);
-                const grade = Number(row[1]);
-
-                if (!code || isNaN(code) || code < CODE_RANGES.STUDENT_MIN || code > CODE_RANGES.STUDENT_MAX) {
+                const rawCode = row[0];
+                const code = Number(rawCode);
+                if (rawCode == null || String(rawCode).trim() === "" || isNaN(code)) {
+                    issues.push({ row: rowNumber, code: null, reason: `Şagird kodu düzgün deyil ("${rawCode ?? ""}")` });
+                    continue;
+                }
+                if (!Number.isInteger(code) || code < CODE_RANGES.STUDENT_MIN || code > CODE_RANGES.STUDENT_MAX) {
                     invalidStudentCodes.push(code);
                     continue;
                 }
@@ -359,12 +396,14 @@ export class StudentResultServicePg {
                 if (occurrences > 1) {
                     if (!reportedDuplicateCodes.has(code)) {
                         reportedDuplicateCodes.add(code);
-                        studentsWithIncorrectResults.push({ code, reason: `Şagird kodu faylda ${occurrences} dəfə təkrarlanır` });
+                        issues.push({ row: rowNumber, code, reason: `Şagird kodu faylda ${occurrences} dəfə təkrarlanır` });
                     }
                     continue;
                 }
-                if (!grade || isNaN(grade)) {
-                    studentsWithIncorrectResults.push({ code, reason: "Sinif düzgün deyil" });
+
+                const grade = Number(row[1]);
+                if (!grade || !Number.isInteger(grade)) {
+                    issues.push({ row: rowNumber, code, reason: `Sinif düzgün deyil ("${row[1] ?? ""}")` });
                     continue;
                 }
 
@@ -374,149 +413,189 @@ export class StudentResultServicePg {
                     sectionConfigByGrade.set(grade, config);
                 }
                 if (config === null) {
-                    studentsWithIncorrectResults.push({ code, reason: `${grade}-ci sinif üçün bu imtahan növündə bölmə tapılmadı` });
+                    issues.push({ row: rowNumber, code, reason: `${grade}-ci sinif üçün bu imtahan növündə bölmə tapılmadı` });
                     continue;
                 }
 
-                let hasError = false;
+                candidates.push({ rowNumber, row, code, grade, config });
+            }
+
+            // Р2: один файл — одна секция.
+            const sectionsInFile = new Map<number, { config: SectionConfig; grades: Set<number>; rows: number }>();
+            for (const c of candidates) {
+                const entry = sectionsInFile.get(c.config.sectionId) ?? { config: c.config, grades: new Set<number>(), rows: 0 };
+                entry.grades.add(c.grade);
+                entry.rows++;
+                sectionsInFile.set(c.config.sectionId, entry);
+            }
+            if (sectionsInFile.size > 1) {
+                const parts = [...sectionsInFile.values()].map((s) =>
+                    `${s.config.nameAz} — siniflər: ${[...s.grades].sort((a, b) => a - b).join(", ")} (${s.rows} sətir)`
+                );
+                throw this.importError(
+                    `Faylda müxtəlif bölmələrin şagirdləri var: ${parts.join("; ")}. Hər bölmə üçün ayrıca fayl yükləyin.`
+                );
+            }
+
+            const section = sectionsInFile.size === 1 ? [...sectionsInFile.values()][0].config : null;
+            if (section) {
+                // Колонки файла = состав секции, в обе стороны.
+                for (const col of scoreColByCode.values()) {
+                    if (!section.subjects.has(col.subjectCode)) {
+                        throw this.importError(`"${col.nameAz}" fənni "${section.nameAz}" bölməsinin tərkibinə daxil deyil`);
+                    }
+                }
+                for (const col of countColByCode.values()) {
+                    if (!scoreColByCode.has(col.subjectCode)) {
+                        throw this.importError(`"${col.nameAz}" fənni üçün bal sütunu yoxdur`);
+                    }
+                }
+                const missing = [...section.subjects.entries()].filter(([code]) => !scoreColByCode.has(code)).map(([, s]) => `"${s.nameAz}"`);
+                if (missing.length > 0) {
+                    throw this.importError(`"${section.nameAz}" bölməsinin fənləri faylda yoxdur: ${missing.join(", ")}`);
+                }
+                // IMTAHAN_NOVLERI_TASK.md §16: sual sayı sütunu hər fənn üçün mütləqdir.
+                for (const [code, s] of section.subjects) {
+                    if (!countColByCode.has(code)) {
+                        throw this.importError(`"${s.nameAz}" fənni üçün sual sayı sütunu yoxdur`);
+                    }
+                }
+            }
+
+            // Проход 2: баллы и число вопросов.
+            const orderedSubjects = section
+                ? [...section.subjects.entries()].sort((a, b) => a[1].sortOrder - b[1].sortOrder)
+                : [];
+            const parsedRows: Array<{
+                rowNumber: number; grade: number; studentCode: number; fullname: string;
+                subjectScores: Array<{ subjectCode: string; score: number; questionCount: number }>;
+                totalScore: number; sectionId: number; maxQuestions: number;
+            }> = [];
+
+            for (const c of candidates) {
+                let error: string | null = null;
                 let totalScore = 0;
                 let totalQuestionCount = 0;
                 const subjectScores: Array<{ subjectCode: string; score: number; questionCount: number }> = [];
 
-                for (const col of scoreColumns) {
-                    const cfg = config.subjects.get(col.subjectCode);
-                    if (!cfg) {
-                        // Структурное несоответствие шаблона и конфига секции — не за что зацепиться
-                        // построчно, весь импорт останавливается (§7 ТЗ).
-                        throw this.importError(`"${col.nameAz}" fənni ${grade}-ci sinif bölməsinin tərkibinə daxil deyil`);
-                    }
-
-                    const rawScore = row[col.colIdx];
+                for (const [subjectCode, cfg] of orderedSubjects) {
+                    const rawScore = c.row[scoreColByCode.get(subjectCode)!.colIdx];
                     const score = rawScore == null || String(rawScore).trim() === "" ? 0 : Number(rawScore);
-                    if (isNaN(score)) {
-                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: bal ədəd deyil ("${rawScore}")` });
-                        hasError = true;
-                        break;
-                    }
-                    if (score < 0) {
-                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: bal mənfi ola bilməz (${score})` });
-                        hasError = true;
-                        break;
-                    }
+                    if (isNaN(score)) { error = `${cfg.nameAz}: bal ədəd deyil ("${rawScore}")`; break; }
+                    if (score < 0) { error = `${cfg.nameAz}: bal mənfi ola bilməz (${score})`; break; }
 
-                    // IMTAHAN_NOVLERI_TASK.md §16: sual sayı artıq konfiqdən deyil, məhz bu fayldan
-                    // (bu sətirdən) oxunur — məxrəc konkret işin xassəsidir, imtahan növünün deyil.
-                    // Sütunun MÖVCUDLUĞU yuxarıda yoxlanıldı (struktur), burada isə KONKRET DƏYƏR:
-                    // boş/ədəd olmayan/sıfır/mənfi — sətir səviyyəsində xəta, sükutla sıfır olmaz.
-                    const countColIdx = countColByCode.get(col.subjectCode)!;
-                    const rawCount = row[countColIdx];
+                    // §16: sual sayı bu sətirdən oxunur — boş/ədəd olmayan/sıfır/mənfi/kəsr — sətir xətası.
+                    const rawCount = c.row[countColByCode.get(subjectCode)!.colIdx];
                     const questionCount = rawCount == null || String(rawCount).trim() === "" ? NaN : Number(rawCount);
-                    if (isNaN(questionCount) || questionCount <= 0) {
-                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: sual sayı göstərilməyib` });
-                        hasError = true;
-                        break;
-                    }
-                    if (!Number.isInteger(questionCount)) {
-                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: sual sayı tam ədəd olmalıdır (${questionCount})` });
-                        hasError = true;
-                        break;
-                    }
-
-                    if (score > questionCount) {
-                        studentsWithIncorrectResults.push({ code, reason: `${cfg.nameAz}: bal (${score}) sual sayından (${questionCount}) çoxdur` });
-                        hasError = true;
-                        break;
-                    }
+                    if (isNaN(questionCount) || questionCount <= 0) { error = `${cfg.nameAz}: sual sayı göstərilməyib`; break; }
+                    if (!Number.isInteger(questionCount)) { error = `${cfg.nameAz}: sual sayı tam ədəd olmalıdır (${questionCount})`; break; }
+                    if (score > questionCount) { error = `${cfg.nameAz}: bal (${score}) sual sayından (${questionCount}) çoxdur`; break; }
 
                     totalScore += score;
                     totalQuestionCount += questionCount;
-                    subjectScores.push({ subjectCode: col.subjectCode, score, questionCount });
+                    subjectScores.push({ subjectCode, score, questionCount });
                 }
 
-                if (hasError) continue;
-
+                if (error) { issues.push({ row: c.rowNumber, code: c.code, reason: error }); continue; }
                 if (totalScore <= 0) {
-                    studentsWithIncorrectResults.push({ code, reason: "Sıfır xal: şagird heç bir sual cavablandırmayıb" });
+                    issues.push({ row: c.rowNumber, code: c.code, reason: "Sıfır xal: şagird heç bir sual cavablandırmayıb" });
                     continue;
                 }
 
                 const fullname = isSingleNameColumn
-                    ? String(row[2] ?? "").trim()
-                    : [row[2], row[3], row[4]].map((v) => String(v ?? "").trim()).filter(Boolean).join(" ");
+                    ? String(c.row[2] ?? "").trim()
+                    : [c.row[2], c.row[3], c.row[4]].map((v) => String(v ?? "").trim()).filter(Boolean).join(" ");
 
                 parsedRows.push({
-                    grade,
-                    studentCode: code,
-                    fullname,
-                    subjectScores,
-                    totalScore,
-                    sectionId: config.sectionId,
-                    maxQuestions: totalQuestionCount,
+                    rowNumber: c.rowNumber, grade: c.grade, studentCode: c.code, fullname, subjectScores,
+                    totalScore, sectionId: c.config.sectionId, maxQuestions: totalQuestionCount,
                 });
             }
 
-            const studentDataToInsert = parsedRows.map((r) => ({
-                code: r.studentCode, fullname: r.fullname, grade: r.grade,
-            }));
-            const { students, studentsWithoutTeacher } = await this.processStudentResults(studentDataToInsert);
-            const studentByCode = new Map(students.map((s) => [s.code, s]));
+            const questionCountWarnings = this.questionCountWarnings(parsedRows, section);
 
-            const inserted: StudentResult[] = [];
+            // Запись — одной транзакцией.
+            const { processedCount, studentsWithoutTeacher } = await pg.transaction().execute(async (trx) => {
+                const { students, studentsWithoutTeacher } = await this.processStudentResults(
+                    trx, parsedRows.map((r) => ({ code: r.studentCode, fullname: r.fullname, grade: r.grade }))
+                );
+                const studentByCode = new Map(students.map((s) => [s.code, s]));
+                const toWrite = parsedRows.filter((r) => studentByCode.has(r.studentCode));
 
-            for (const r of parsedRows) {
-                const student = studentByCode.get(r.studentCode);
-                if (!student) continue; // studentsWithoutTeacher — уже учтено
+                const priorRanks = await maxPriorBandRanks(
+                    trx, toWrite.map((r) => studentByCode.get(r.studentCode)!.id), exam.exam_type_id, academicYearStart, examDate
+                );
 
-                const scorePercent = r.maxQuestions > 0 ? (r.totalScore / r.maxQuestions) * 100 : 0;
-                const band = await levelScaleServicePg.resolveBand(examType.levelScaleId, scorePercent);
+                const resultRows = toWrite.map((r) => {
+                    const studentId = studentByCode.get(r.studentCode)!.id;
+                    const scorePercent = r.maxQuestions > 0 ? (r.totalScore / r.maxQuestions) * 100 : 0;
+                    const band = levelScaleServicePg.resolveBandCached(examType.levelScaleId, scorePercent);
+                    // §15: развитие — рост ранга бэнда относительно более ранних результатов этого же
+                    // ученика по этому же типу в этом учебном году (как markDevelopingStudents).
+                    const priorMaxRank = priorRanks.get(studentId) ?? null;
+                    return {
+                        values: {
+                            student_id: studentId, exam_id: examId, grade: r.grade,
+                            exam_type_id: exam.exam_type_id, section_id: r.sectionId, level_scale_id: examType.levelScaleId,
+                            max_questions: r.maxQuestions, score_percent: Number(scorePercent.toFixed(3)),
+                            total_score: r.totalScore, level: band.code, participation_score: band.participationScore,
+                            development_score: priorMaxRank !== null && band.rank > priorMaxRank ? 10 : 0,
+                            score: 1, month, year,
+                        },
+                        subjectScores: r.subjectScores,
+                    };
+                });
 
-                // IMTAHAN_NOVLERI_TASK.md §15: developmentScore больше НЕ сравнивается со
-                // students.max_level (lifetime, без разбивки по типу экзамена — очки разных типов
-                // смешивались бы, решение №6 §2 ТЗ: ученик мог дорасти до C на базовом типе, взять
-                // A на другом типе, вернуться на базовый и вырасти до B — не получая награду,
-                // потому что 4 < 5). Критерий — тот же, что в markDevelopingStudents()
-                // (stats.service.pg.ts): максимальный ранг бэнда среди БОЛЕЕ РАННИХ результатов
-                // ЭТОГО ЖЕ ученика по ЭТОМУ ЖЕ типу экзамена в этом же учебном году.
-                const priorMaxRank = await maxPriorBandRank(student.id, exam.exam_type_id, academicYearStart, examDate);
-                const developmentScore = priorMaxRank !== null && band.rank > priorMaxRank ? 10 : 0;
-
-                const scorePercentRounded = Number(scorePercent.toFixed(3));
-
-                const row = await pg.transaction().execute(async (trx) => {
+                const CHUNK = 500;
+                for (let i = 0; i < resultRows.length; i += CHUNK) {
+                    const chunk = resultRows.slice(i, i + CHUNK);
                     const upserted = await trx
                         .insertInto("student_results")
-                        .values({
-                            student_id: student.id, exam_id: examId, grade: r.grade,
-                            exam_type_id: exam.exam_type_id, section_id: r.sectionId, level_scale_id: examType.levelScaleId,
-                            max_questions: r.maxQuestions, score_percent: scorePercentRounded,
-                            total_score: r.totalScore, level: band.code, participation_score: band.participationScore,
-                            development_score: developmentScore, score: 1, month, year,
-                        })
+                        .values(chunk.map((r) => r.values))
                         .onConflict((oc) =>
-                            oc.columns(["student_id", "exam_id"]).doUpdateSet({
-                                grade: r.grade, exam_type_id: exam.exam_type_id, section_id: r.sectionId,
-                                level_scale_id: examType.levelScaleId, max_questions: r.maxQuestions,
-                                score_percent: scorePercentRounded, total_score: r.totalScore, level: band.code,
-                                participation_score: band.participationScore, development_score: developmentScore,
-                            })
+                            oc.columns(["student_id", "exam_id"]).doUpdateSet((eb) => ({
+                                grade: eb.ref("excluded.grade"),
+                                exam_type_id: eb.ref("excluded.exam_type_id"),
+                                section_id: eb.ref("excluded.section_id"),
+                                level_scale_id: eb.ref("excluded.level_scale_id"),
+                                max_questions: eb.ref("excluded.max_questions"),
+                                score_percent: eb.ref("excluded.score_percent"),
+                                total_score: eb.ref("excluded.total_score"),
+                                level: eb.ref("excluded.level"),
+                                participation_score: eb.ref("excluded.participation_score"),
+                                development_score: eb.ref("excluded.development_score"),
+                            }))
                         )
-                        .returningAll()
-                        .executeTakeFirstOrThrow();
+                        .returning(["id", "student_id"])
+                        .execute();
 
-                    await this.replaceSubjectScores(trx, upserted.id, r.subjectScores);
-                    return upserted;
-                });
+                    const resultIdByStudent = new Map(upserted.map((u) => [u.student_id, u.id]));
+                    const resultIds = upserted.map((u) => u.id);
+                    await trx.deleteFrom("student_result_subject_scores").where("result_id", "in", resultIds).execute();
+                    const subjectValues = chunk.flatMap((r) =>
+                        r.subjectScores.map((s) => ({
+                            result_id: resultIdByStudent.get(r.values.student_id)!,
+                            subject_code: s.subjectCode, score: s.score, question_count: s.questionCount,
+                        }))
+                    );
+                    if (subjectValues.length > 0) {
+                        await trx.insertInto("student_result_subject_scores").values(subjectValues).execute();
+                    }
+                }
 
-                inserted.push((await this.attachRefs([row]))[0]);
-            }
+                return { processedCount: resultRows.length, studentsWithoutTeacher };
+            });
 
             await deleteFile(filePath).catch(() => {});
 
+            issues.sort((a, b) => a.row - b.row);
             return {
-                processedData: inserted,
+                processedCount,
+                sectionName: section?.nameAz ?? null,
                 studentsWithoutTeacher,
                 incorrectStudentCodes: [...new Set(invalidStudentCodes)],
-                studentsWithIncorrectResults,
+                studentsWithIncorrectResults: issues,
+                questionCountWarnings,
             };
         } catch (error) {
             await deleteFile(filePath).catch(() => {});
@@ -525,57 +604,91 @@ export class StudentResultServicePg {
     }
 
     /**
+     * Строки, где число вопросов предмета отличается от самого частого значения по файлу —
+     * типичная опечатка (51 вместо 15). Только предупреждение: §16 допускает разные длины работы.
+     * Мода считается, только если она встречается хотя бы дважды.
+     */
+    private questionCountWarnings(
+        parsedRows: Array<{ rowNumber: number; studentCode: number; subjectScores: Array<{ subjectCode: string; questionCount: number }> }>,
+        section: SectionConfig | null
+    ): QuestionCountWarning[] {
+        if (!section) return [];
+        const warnings: QuestionCountWarning[] = [];
+        for (const [subjectCode, cfg] of section.subjects) {
+            const freq = new Map<number, number>();
+            for (const r of parsedRows) {
+                const qc = r.subjectScores.find((s) => s.subjectCode === subjectCode)?.questionCount;
+                if (qc !== undefined) freq.set(qc, (freq.get(qc) ?? 0) + 1);
+            }
+            if (freq.size < 2) continue;
+            const [usual, usualFreq] = [...freq.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
+            if (usualFreq < 2) continue;
+            for (const r of parsedRows) {
+                const qc = r.subjectScores.find((s) => s.subjectCode === subjectCode)?.questionCount;
+                if (qc !== undefined && qc !== usual) {
+                    warnings.push({ row: r.rowNumber, code: r.studentCode, subject: cfg.nameAz, count: qc, usual });
+                }
+            }
+        }
+        return warnings.sort((a, b) => a.row - b.row);
+    }
+
+    /**
      * Создаёт недостающих учеников (по коду), назначая учителя арифметикой кода — как и раньше.
      * Ученики, для которых учитель не резолвится, НЕ создаются (studentsWithoutTeacher).
-     * students.max_level снесён миграцией 026 (IMTAHAN_NOVLERI_TASK.md §20.2/§15) — раньше сюда
-     * прокидывался lifetime-максимум участия, но ни одно решение (development_score,
-     * levelStatistics) его уже не читало с шага §15, только записывало для обратной
-     * совместимости колонки. Запись убрана вместе с колонкой.
+     * Пишет в переданную транзакцию импорта. students.max_level снесён миграцией 026
+     * (IMTAHAN_NOVLERI_TASK.md §20.2/§15).
      */
     private async processStudentResults(
+        trx: Transaction<DB>,
         studentDataToInsert: Array<{ code: number; fullname: string; grade: number }>
     ): Promise<{ students: Array<{ id: number; code: number }>; studentsWithoutTeacher: number[] }> {
         const studentCodes = studentDataToInsert.map((s) => s.code);
         const existingStudents = studentCodes.length > 0
-            ? await pg.selectFrom("students").select(["id", "code"]).where("code", "in", studentCodes).execute()
+            ? await trx.selectFrom("students").select(["id", "code"]).where("code", "in", studentCodes).execute()
             : [];
         const existingCodes = new Set(existingStudents.map((s) => s.code));
         const newStudents = studentDataToInsert.filter((s) => !existingCodes.has(s.code));
 
-        const resolved = await Promise.all(newStudents.map((s) => studentServicePg.assignTeacherToStudent(s.code)));
+        // Учителя — одним запросом по всем кодам учителей (код ученика / 1000), а не по запросу на ученика.
+        const teacherCodes = [...new Set(newStudents.map((s) => Math.floor(s.code / CODE_DIVISORS.STUDENT_TO_TEACHER)))];
+        const teachers = teacherCodes.length > 0
+            ? await trx.selectFrom("teachers").select(["id", "code", "school_id", "district_id"]).where("code", "in", teacherCodes).execute()
+            : [];
+        const teacherByCode = new Map(teachers.map((t) => [t.code, t]));
 
-        const studentsWithTeacher: Array<StudentCreate & { code: number }> = [];
+        const studentsWithTeacher: Array<{ code: number; fullname: string; grade: number; teacherId: number; schoolId: number | null; districtId: number | null }> = [];
         const studentsWithoutTeacher: number[] = [];
 
-        newStudents.forEach((s, i) => {
-            const { teacherId, schoolId, districtId } = resolved[i];
-            if (!teacherId) {
+        for (const s of newStudents) {
+            const teacher = teacherByCode.get(Math.floor(s.code / CODE_DIVISORS.STUDENT_TO_TEACHER));
+            if (!teacher) {
                 studentsWithoutTeacher.push(s.code);
-                return;
+                continue;
             }
             studentsWithTeacher.push({
-                code: s.code, fullname: s.fullname,
-                grade: s.grade, teacherId, schoolId, districtId,
+                code: s.code, fullname: s.fullname, grade: s.grade,
+                teacherId: teacher.id, schoolId: teacher.school_id, districtId: teacher.district_id,
             });
-        });
+        }
 
         let newStudentsRows: Array<{ id: number; code: number }> = [];
-        if (studentsWithTeacher.length > 0) {
-            newStudentsRows = await pg
+        const CHUNK = 1000;
+        for (let i = 0; i < studentsWithTeacher.length; i += CHUNK) {
+            const inserted = await trx
                 .insertInto("students")
                 .values(
-                    studentsWithTeacher.map((s) => ({
+                    studentsWithTeacher.slice(i, i + CHUNK).map((s) => ({
                         code: s.code, fullname: s.fullname,
-                        grade: s.grade ?? null, teacher_id: s.teacherId ?? null, school_id: s.schoolId ?? null, district_id: s.districtId ?? null,
+                        grade: s.grade ?? null, teacher_id: s.teacherId, school_id: s.schoolId ?? null, district_id: s.districtId ?? null,
                     }))
                 )
                 .returning(["id", "code"])
                 .execute();
+            newStudentsRows = newStudentsRows.concat(inserted);
         }
 
-        const allStudents = [...existingStudents, ...newStudentsRows];
-
-        return { students: allStudents, studentsWithoutTeacher };
+        return { students: [...existingStudents, ...newStudentsRows], studentsWithoutTeacher };
     }
 
     /** Удаляет результаты экзамена и очищает `status` у затронутых учеников. Баллы по предметам
@@ -591,149 +704,6 @@ export class StudentResultServicePg {
         }
 
         return { deletedCount: Number(deleteResult.numDeletedRows) };
-    }
-
-    /**
-     * Одноразовый импорт исторических результатов из JSON — логика (сопоставление по ФИО,
-     * баллы, статус) НЕ трогается по требованию ТЗ §7 ("Легаси-импорт POST
-     * /student-results/import-json не трогаем"). Два добавления поверх исходной логики:
-     *
-     * 1. Шаг 2 (024_student_result_subject_scores.sql, IMTAHAN_NOVLERI_TASK.md): exam_type_id
-     *    (базовый тип) и level_scale_id (isim_percent) проставляются на вставке — без них
-     *    composite FK на level_scale_bands не работал бы (level_scale_id NULL => FK не
-     *    проверяется вовсе), и строки выпадали бы из всего, что читает student_results по типу
-     *    экзамена.
-     * 2. §20.2 (миграция 026): az/math/life_knowledge/logic/english и их *_count физически
-     *    снесены из student_results — писать в них стало некуда. Не "починка" бизнес-логики,
-     *    а вынужденное следствие снятия колонок: те же пять значений из resultData.disciplines
-     *    теперь идут в student_result_subject_scores (тем же фильтром по классу, что и backfill
-     *    024: lifeKnowledge/logic только 1-4, english только 5+), а не отбрасываются молча.
-     *    question_count — NULL (формат этого JSON его не содержит, как и раньше не содержал).
-     */
-    async importLegacyResultsFromJson(filePath: string): Promise<{
-        inserted: number;
-        skipped: number;
-        errors: number;
-        details: { skippedCodes: any[]; errorMessages: string[] };
-    }> {
-        let inserted = 0, skipped = 0, errors = 0;
-        const skippedNames: string[] = [];
-        const errorMessages: string[] = [];
-
-        let records: any[];
-        try {
-            const content = fs.readFileSync(filePath, "utf-8");
-            records = JSON.parse(content);
-        } finally {
-            await deleteFile(filePath).catch(() => {});
-        }
-
-        const [allStudents, baseType, levelScale] = await Promise.all([
-            // fullname, а не склейка трёх легаси-колонок (SAGIRD_FULLNAME_TASK.md): значение
-            // побайтно то же самое — 025b заполнила fullname ровно этой склейкой, — но так
-            // здесь не остаётся последнего живого читателя last_name/first_name/middle_name,
-            // и миграция сноса этих колонок не потребует правок в этом файле.
-            pg.selectFrom("students").select(["id", "fullname"]).execute(),
-            pg.selectFrom("exam_types").select("id").where("is_base", "=", true).executeTakeFirstOrThrow(),
-            pg.selectFrom("level_scales").select("id").where("code", "=", "isim_percent").executeTakeFirstOrThrow(),
-        ]);
-        const studentMap = new Map<string, { id: number }>();
-        for (const student of allStudents) {
-            const fullName = (student.fullname ?? "").trim();
-            if (fullName) studentMap.set(fullName, { id: student.id });
-        }
-
-        for (const record of records) {
-            const { fullName, examId, ...resultData } = record;
-
-            if (!fullName || typeof fullName !== "string") {
-                skipped++;
-                skippedNames.push("(no fullName)");
-                continue;
-            }
-
-            const normalizedName = fullName.trim();
-            const student = studentMap.get(normalizedName);
-            if (!student) {
-                skipped++;
-                skippedNames.push(normalizedName);
-                continue;
-            }
-
-            const examIdNum = examId ? parseInt(examId, 10) : null;
-            if (examId && (examIdNum === null || isNaN(examIdNum))) {
-                errors++;
-                errorMessages.push(`${normalizedName}: invalid examId "${examId}"`);
-                continue;
-            }
-
-            try {
-                const grade = resultData.grade ?? 0;
-                // az/math/life_knowledge/logic/english(+*_count) снесены миграцией 026
-                // (IMTAHAN_NOVLERI_TASK.md §20.2) — баллы по предметам этого легаси-пути теперь
-                // идут в student_result_subject_scores, тем же фильтром по классу, что и backfill
-                // 024_student_result_subject_scores.sql (lifeKnowledge/logic только grade<=4,
-                // english только grade>=5, az/math всегда). question_count неизвестен для этого
-                // формата — NULL, как и для прочих исторических строк без счётчика.
-                const values = {
-                    student_id: student.id,
-                    exam_id: examIdNum,
-                    grade,
-                    total_score: resultData.totalScore ?? 0,
-                    score: resultData.score ?? 0,
-                    participation_score: 0,
-                    level: resultData.level ?? "",
-                    status: resultData.status ?? null,
-                    month: 0,
-                    year: 2024,
-                    exam_type_id: baseType.id,
-                    level_scale_id: levelScale.id,
-                };
-
-                const subjectRows: Array<{ subjectCode: string; score: number; questionCount: number | null }> = [
-                    { subjectCode: "az", score: resultData.disciplines?.az ?? 0, questionCount: null },
-                    { subjectCode: "math", score: resultData.disciplines?.math ?? 0, questionCount: null },
-                ];
-                if (grade <= 4) {
-                    subjectRows.push(
-                        { subjectCode: "lifeKnowledge", score: resultData.disciplines?.lifeKnowledge ?? 0, questionCount: null },
-                        { subjectCode: "logic", score: resultData.disciplines?.logic ?? 0, questionCount: null }
-                    );
-                }
-                if (grade >= 5) {
-                    subjectRows.push({ subjectCode: "english", score: resultData.disciplines?.english ?? 0, questionCount: null });
-                }
-
-                const existing = await pg
-                    .selectFrom("student_results")
-                    .select("id")
-                    .where("student_id", "=", student.id)
-                    .where((eb) => (examIdNum === null ? eb("exam_id", "is", null) : eb("exam_id", "=", examIdNum)))
-                    .executeTakeFirst();
-
-                await pg.transaction().execute(async (trx) => {
-                    let resultId: number;
-                    if (existing) {
-                        await trx.updateTable("student_results").set(values).where("id", "=", existing.id).execute();
-                        resultId = existing.id;
-                    } else {
-                        const insertedRow = await trx
-                            .insertInto("student_results")
-                            .values(values)
-                            .returning("id")
-                            .executeTakeFirstOrThrow();
-                        resultId = insertedRow.id;
-                    }
-                    await this.replaceSubjectScores(trx, resultId, subjectRows);
-                });
-                inserted++;
-            } catch (err: any) {
-                errors++;
-                errorMessages.push(`${normalizedName}: ${err.message}`);
-            }
-        }
-
-        return { inserted, skipped, errors, details: { skippedCodes: skippedNames, errorMessages } };
     }
 
     /** Резолвит exam_type_id для ручного создания/правки результата: из exams по examId, либо
@@ -756,7 +726,7 @@ export class StudentResultServicePg {
     private async resolveSectionConfig(examTypeId: number, grade: number): Promise<SectionConfig | null> {
         const section = await pg
             .selectFrom("exam_type_sections")
-            .select(["id"])
+            .select(["id", "name_az"])
             .where("exam_type_id", "=", examTypeId)
             .where("grade_from", "<=", grade)
             .where("grade_to", ">=", grade)
@@ -778,7 +748,7 @@ export class StudentResultServicePg {
             subjectRows.map((r) => [r.subject_code, { nameAz: r.name_az, sortOrder: r.sort_order }])
         );
 
-        return { sectionId: section.id, subjects };
+        return { sectionId: section.id, nameAz: section.name_az, subjects };
     }
 
     /**
@@ -894,8 +864,8 @@ export class StudentResultServicePg {
         subjects: Array<{ code: string; nameAz: string }>,
         startIdx: number
     ): Array<{ colIdx: number; subjectCode: string; nameAz: string; isCount: boolean }> {
-        const byName = new Map(subjects.map((s) => [s.nameAz.trim(), s.code]));
-        const countSuffix = " (sual sayı)";
+        const byName = new Map(subjects.map((s) => [normalizeHeader(s.nameAz), s]));
+        const countSuffix = normalizeHeader(" (sual sayı)");
         const columns: Array<{ colIdx: number; subjectCode: string; nameAz: string; isCount: boolean }> = [];
         // A repeated subject column would be summed twice and then hit the
         // student_result_subject_scores primary key halfway through the import.
@@ -917,17 +887,17 @@ export class StudentResultServicePg {
             const text = raw == null ? "" : String(raw).trim();
             if (text === "") continue;
 
-            if (text.endsWith(countSuffix)) {
-                const subjectName = text.slice(0, -countSuffix.length).trim();
-                const code = byName.get(subjectName);
-                if (!code) throw this.importError(`Naməlum sütun (${this.colLabel(i)}): "${text}"`);
-                addColumn({ colIdx: i, subjectCode: code, nameAz: subjectName, isCount: true }, text);
+            const key = normalizeHeader(text);
+            if (key.endsWith(countSuffix)) {
+                const subject = byName.get(key.slice(0, -countSuffix.length).trim());
+                if (!subject) throw this.importError(`Naməlum sütun (${this.colLabel(i)}): "${text}"`);
+                addColumn({ colIdx: i, subjectCode: subject.code, nameAz: subject.nameAz, isCount: true }, text);
                 continue;
             }
 
-            const code = byName.get(text);
-            if (!code) throw this.importError(`Naməlum sütun (${this.colLabel(i)}): "${text}"`);
-            addColumn({ colIdx: i, subjectCode: code, nameAz: text, isCount: false }, text);
+            const subject = byName.get(key);
+            if (!subject) throw this.importError(`Naməlum sütun (${this.colLabel(i)}): "${text}"`);
+            addColumn({ colIdx: i, subjectCode: subject.code, nameAz: subject.nameAz, isCount: false }, text);
         }
 
         return columns;

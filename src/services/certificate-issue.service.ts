@@ -202,7 +202,7 @@ export class CertificateIssueService {
         // та же логика, что prior_max в markDevelopingStudents() (stats.service.pg.ts).
         // levels снесена миграцией 026 (IMTAHAN_NOVLERI_TASK.md §20) — level_scale_bands,
         // композитный джойн по (scale_id, code), тем же критерием, что и остальной код
-        // (maxPriorBandRank, stats.service.pg.ts, examResults.service.pg.ts).
+        // (maxPriorBandRanks, stats.service.pg.ts, examResults.service.pg.ts).
         const prevLevel = await sql<{ code: string | null }>`
             SELECT lvl.code
             FROM student_results sr2

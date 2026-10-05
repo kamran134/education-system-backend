@@ -1,5 +1,7 @@
-import { sql } from "kysely";
+import { Kysely, sql } from "kysely";
 import { pg } from "../config/pg";
+import { DB } from "../types/db";
+import { getBands } from "./levels.cache";
 
 export interface LevelScaleBand {
     code: string;
@@ -71,8 +73,22 @@ export class LevelScaleServicePg {
      * (см. комментарий к level_scale_bands в 023-й миграции).
      */
     async resolveBand(scaleId: number, percent: number): Promise<LevelScaleBand> {
+        if (getBands(scaleId).length > 0) return this.resolveBandCached(scaleId, percent);
         const scale = await this.findById(scaleId);
         const band = scale?.bands.find((b) => b.minPercent <= percent && percent < b.maxPercent);
+        if (!band) {
+            throw new Error(`Şkala (id=${scaleId}) üçün ${percent}% heç bir bənddə deyil`);
+        }
+        return band;
+    }
+
+    /**
+     * Same as resolveBand, from the startup cache (levels.cache.ts) — no query per row. Bands
+     * have no runtime editor, so the cache is current; the Excel import resolves thousands of
+     * rows and used to reload every scale from the DB for each one.
+     */
+    resolveBandCached(scaleId: number, percent: number): LevelScaleBand {
+        const band = getBands(scaleId).find((b) => b.minPercent <= percent && percent < b.maxPercent);
         if (!band) {
             throw new Error(`Şkala (id=${scaleId}) üçün ${percent}% heç bir bənddə deyil`);
         }
@@ -90,31 +106,39 @@ export class LevelScaleServicePg {
  * заменяет students.max_level (не различала тип экзамена, не учитывала учебный год — очки
  * разных типов смешивались, решение №6 §2 ТЗ).
  *
- * null — более ранних результатов этого типа в этом учебном году ещё не было (первый результат
+ * Пакетно, ключ — student_id. Ученика нет в Map — более ранних результатов этого типа в этом учебном году ещё не было (первый результат
  * года по этому типу никогда не считается развитием — так же, как в markDevelopingStudents).
  *
  * Только результаты, привязанные к реальному экзамену (exam_id NOT NULL, есть дата) — INNER JOIN
  * на exams исключает легаси-импорт без exam_id, тем же ограничением, что несёт markDevelopingStudents.
  */
-export async function maxPriorBandRank(
-    studentId: number,
+export async function maxPriorBandRanks(
+    db: Kysely<DB>,
+    studentIds: number[],
     examTypeId: number,
     academicYearStart: number,
     beforeDate: Date
-): Promise<number | null> {
-    const row = await pg
-        .selectFrom("student_results as sr2")
-        .innerJoin("exams as e2", "e2.id", "sr2.exam_id")
-        .innerJoin("level_scale_bands as b2", (join) =>
-            join.onRef("b2.scale_id", "=", "sr2.level_scale_id").onRef("b2.code", "=", "sr2.level")
-        )
-        .select(() => [sql<number | null>`max(b2.rank)`.as("maxRank")])
-        .where("sr2.student_id", "=", studentId)
-        .where("sr2.exam_type_id", "=", examTypeId)
-        .where("e2.date", "<", beforeDate)
-        .where("e2.date", ">=", new Date(Date.UTC(academicYearStart, 8, 1)))
-        .executeTakeFirst();
-    return row?.maxRank != null ? Number(row.maxRank) : null;
+): Promise<Map<number, number>> {
+    const result = new Map<number, number>();
+    if (studentIds.length === 0) return result;
+    const CHUNK = 5000;
+    for (let i = 0; i < studentIds.length; i += CHUNK) {
+        const rows = await db
+            .selectFrom("student_results as sr2")
+            .innerJoin("exams as e2", "e2.id", "sr2.exam_id")
+            .innerJoin("level_scale_bands as b2", (join) =>
+                join.onRef("b2.scale_id", "=", "sr2.level_scale_id").onRef("b2.code", "=", "sr2.level")
+            )
+            .select(["sr2.student_id", sql<number>`max(b2.rank)`.as("maxRank")])
+            .where("sr2.student_id", "in", studentIds.slice(i, i + CHUNK))
+            .where("sr2.exam_type_id", "=", examTypeId)
+            .where("e2.date", "<", beforeDate)
+            .where("e2.date", ">=", new Date(Date.UTC(academicYearStart, 8, 1)))
+            .groupBy("sr2.student_id")
+            .execute();
+        for (const r of rows) result.set(r.student_id, Number(r.maxRank));
+    }
+    return result;
 }
 
 export const levelScaleServicePg = new LevelScaleServicePg();

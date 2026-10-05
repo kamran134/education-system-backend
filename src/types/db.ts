@@ -270,7 +270,7 @@ export interface StudentResultSubjectScores {
 }
 
 // last_name/first_name/middle_name (легаси, вытеснены fullname в 025b) и max_level (перестал
-// влиять на решения после IMTAHAN_NOVLERI_TASK.md §15, maxPriorBandRank) снесены миграцией
+// влиять на решения после IMTAHAN_NOVLERI_TASK.md §15, maxPriorBandRanks) снесены миграцией
 // 026_drop_legacy_subject_columns.sql (§20.2).
 export interface Students {
   avatar_url: string | null;
