@@ -299,6 +299,10 @@ export class ExamServicePg {
             q = q.where("e.active", "=", filters.active);
         }
 
+        if (filters.examTypeId) {
+            q = q.where("e.exam_type_id", "=", filters.examTypeId);
+        }
+
         if (filters.search && filters.search.trim() !== "") {
             const term = filters.search.trim();
             q = q.where(sql`e.name`, "ilike", `%${escapeRegex(term)}%`);

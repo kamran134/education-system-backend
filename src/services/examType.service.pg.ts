@@ -49,6 +49,8 @@ export interface ExamTypeRow {
     isBase: boolean;
     active: boolean;
     sortOrder: number;
+    /** Exams of this type — the list shows it and hides "delete" when > 0 (delete() refuses anyway). */
+    examCount: number;
     sections: ExamTypeSectionRow[];
 }
 
@@ -59,7 +61,7 @@ export interface ExamTypeRow {
 export class ExamTypeServicePg {
     /** Все типы (включая неактивные), с вложенными секциями и предметами. */
     async findAll(): Promise<ExamTypeRow[]> {
-        const [typeRows, sectionRows, subjectRows] = await Promise.all([
+        const [typeRows, sectionRows, subjectRows, examCounts] = await Promise.all([
             pg
                 .selectFrom("exam_types")
                 .select([
@@ -67,6 +69,9 @@ export class ExamTypeServicePg {
                     "month_award_min_rank", "is_base", "active", "sort_order",
                 ])
                 .orderBy("sort_order", "asc")
+                // Equal sort_order (all 0 by default): base type first, then creation order.
+                .orderBy("is_base", "desc")
+                .orderBy("id", "asc")
                 .execute(),
             pg
                 .selectFrom("exam_type_sections")
@@ -79,7 +84,13 @@ export class ExamTypeServicePg {
                 .select(["ss.section_id", "ss.subject_code", "s.name_az as name_az", "ss.sort_order"])
                 .orderBy("ss.sort_order", "asc")
                 .execute(),
+            pg
+                .selectFrom("exams")
+                .select(({ fn }) => ["exam_type_id", fn.countAll().as("count")])
+                .groupBy("exam_type_id")
+                .execute(),
         ]);
+        const examCountByType = new Map(examCounts.map((r) => [r.exam_type_id, Number(r.count)]));
 
         return typeRows.map((t) => ({
             id: t.id,
@@ -90,6 +101,7 @@ export class ExamTypeServicePg {
             isBase: t.is_base,
             active: t.active,
             sortOrder: t.sort_order,
+            examCount: examCountByType.get(t.id) ?? 0,
             sections: sectionRows
                 .filter((sec) => sec.exam_type_id === t.id)
                 .map((sec) => ({

@@ -82,7 +82,9 @@ const corsOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
     : ['http://localhost:4200', 'http://localhost:5173', 'https://isim.kpm.az', 'https://newisim.kpm.az'];
 
-app.use(cors({ origin: corsOrigins, credentials: true }));
+// exposedHeaders: the frontend takes the download name of generated .xlsx templates from
+// Content-Disposition — readable cross-origin (local dev) only when exposed.
+app.use(cors({ origin: corsOrigins, credentials: true, exposedHeaders: ["Content-Disposition"] }));
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 app.use(cookieParser());
