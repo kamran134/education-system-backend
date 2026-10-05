@@ -38,6 +38,24 @@ export interface QuestionCountWarning {
     usual: number;
 }
 
+/**
+ * One line of the downloadable error report (frontend builds an .xlsx from these): every problem
+ * the import found, with the Excel row, the column (letter + header text), the student and the cell
+ * value — so a district can fix its file without the dialog open. Old per-kind lists stay alongside
+ * for the dialog.
+ */
+export interface ImportIssue {
+    row: number;
+    column: string | null;      // Excel column letter, e.g. "E"
+    columnName: string | null;  // header text of that column, e.g. "Riyaziyyat"
+    code: number | null;
+    fullname: string | null;
+    value: string | null;       // the offending cell value as written in the file
+    kind: string;               // short Azerbaijani category: "Şagird kodu", "Bal", "Sual sayı", ...
+    message: string;
+    severity: "error" | "warning";
+}
+
 export interface StudentResultImportSummary {
     processedCount: number;
     sectionName: string | null;
@@ -45,6 +63,7 @@ export interface StudentResultImportSummary {
     incorrectStudentCodes: number[];
     studentsWithIncorrectResults: ImportRowIssue[];
     questionCountWarnings: QuestionCountWarning[];
+    issues: ImportIssue[];
 }
 
 /**
@@ -363,6 +382,24 @@ export class StudentResultServicePg {
 
             const issues: ImportRowIssue[] = [];
             const invalidStudentCodes: number[] = [];
+            const report: ImportIssue[] = [];
+            const rowFullname = (row: any[]) => (isSingleNameColumn
+                ? String(row[2] ?? "").trim()
+                : [row[2], row[3], row[4]].map((v) => String(v ?? "").trim()).filter(Boolean).join(" ")) || null;
+            const addReport = (
+                row: any[], rowNumber: number, colIdx: number | null, code: number | null,
+                kind: string, message: string, severity: "error" | "warning" = "error"
+            ) => {
+                const cell = colIdx === null ? null : row[colIdx];
+                report.push({
+                    row: rowNumber,
+                    column: colIdx === null ? null : this.colLabel(colIdx),
+                    columnName: colIdx === null ? null : String(headerRow[colIdx] ?? "").trim() || null,
+                    code, fullname: rowFullname(row),
+                    value: cell == null || String(cell).trim() === "" ? null : String(cell),
+                    kind, message, severity,
+                });
+            };
 
             // A code that appears more than once is ambiguous (which row is right is unknown), so
             // every occurrence is rejected rather than letting the last row silently win.
@@ -386,14 +423,20 @@ export class StudentResultServicePg {
                 const code = Number(rawCode);
                 if (rawCode == null || String(rawCode).trim() === "" || isNaN(code)) {
                     issues.push({ row: rowNumber, code: null, reason: `Şagird kodu düzgün deyil ("${rawCode ?? ""}")` });
+                    addReport(row, rowNumber, 0, null, "Şagird kodu",
+                        rawCode == null || String(rawCode).trim() === "" ? "Şagird kodu boşdur" : "Şagird kodu ədəd deyil");
                     continue;
                 }
                 if (!Number.isInteger(code) || code < CODE_RANGES.STUDENT_MIN || code > CODE_RANGES.STUDENT_MAX) {
                     invalidStudentCodes.push(code);
+                    addReport(row, rowNumber, 0, code, "Şagird kodu", "Şagird kodu 10 rəqəmli tam ədəd olmalıdır");
                     continue;
                 }
                 const occurrences = codeOccurrences.get(code) ?? 1;
                 if (occurrences > 1) {
+                    // Every occurrence goes to the report, so all of them can be found in the file.
+                    addReport(row, rowNumber, 0, code, "Təkrarlanan kod",
+                        `Bu kod faylda ${occurrences} dəfə var — heç bir sətri yüklənmədi, birini saxlayın`);
                     if (!reportedDuplicateCodes.has(code)) {
                         reportedDuplicateCodes.add(code);
                         issues.push({ row: rowNumber, code, reason: `Şagird kodu faylda ${occurrences} dəfə təkrarlanır` });
@@ -404,6 +447,7 @@ export class StudentResultServicePg {
                 const grade = Number(row[1]);
                 if (!grade || !Number.isInteger(grade)) {
                     issues.push({ row: rowNumber, code, reason: `Sinif düzgün deyil ("${row[1] ?? ""}")` });
+                    addReport(row, rowNumber, 1, code, "Sinif", "Sinif tam ədəd olmalıdır");
                     continue;
                 }
 
@@ -414,6 +458,7 @@ export class StudentResultServicePg {
                 }
                 if (config === null) {
                     issues.push({ row: rowNumber, code, reason: `${grade}-ci sinif üçün bu imtahan növündə bölmə tapılmadı` });
+                    addReport(row, rowNumber, 1, code, "Sinif", `${grade}-ci sinif bu imtahan növünün heç bir bölməsinə aid deyil`);
                     continue;
                 }
 
@@ -473,32 +518,39 @@ export class StudentResultServicePg {
             }> = [];
 
             for (const c of candidates) {
-                let error: string | null = null;
+                let error: { message: string; colIdx: number; kind: string } | null = null;
                 let totalScore = 0;
                 let totalQuestionCount = 0;
                 const subjectScores: Array<{ subjectCode: string; score: number; questionCount: number }> = [];
 
                 for (const [subjectCode, cfg] of orderedSubjects) {
-                    const rawScore = c.row[scoreColByCode.get(subjectCode)!.colIdx];
+                    const scoreIdx = scoreColByCode.get(subjectCode)!.colIdx;
+                    const countIdx = countColByCode.get(subjectCode)!.colIdx;
+                    const rawScore = c.row[scoreIdx];
                     const score = rawScore == null || String(rawScore).trim() === "" ? 0 : Number(rawScore);
-                    if (isNaN(score)) { error = `${cfg.nameAz}: bal ədəd deyil ("${rawScore}")`; break; }
-                    if (score < 0) { error = `${cfg.nameAz}: bal mənfi ola bilməz (${score})`; break; }
+                    if (isNaN(score)) { error = { message: `${cfg.nameAz}: bal ədəd deyil ("${rawScore}")`, colIdx: scoreIdx, kind: "Bal" }; break; }
+                    if (score < 0) { error = { message: `${cfg.nameAz}: bal mənfi ola bilməz (${score})`, colIdx: scoreIdx, kind: "Bal" }; break; }
 
                     // §16: sual sayı bu sətirdən oxunur — boş/ədəd olmayan/sıfır/mənfi/kəsr — sətir xətası.
-                    const rawCount = c.row[countColByCode.get(subjectCode)!.colIdx];
+                    const rawCount = c.row[countIdx];
                     const questionCount = rawCount == null || String(rawCount).trim() === "" ? NaN : Number(rawCount);
-                    if (isNaN(questionCount) || questionCount <= 0) { error = `${cfg.nameAz}: sual sayı göstərilməyib`; break; }
-                    if (!Number.isInteger(questionCount)) { error = `${cfg.nameAz}: sual sayı tam ədəd olmalıdır (${questionCount})`; break; }
-                    if (score > questionCount) { error = `${cfg.nameAz}: bal (${score}) sual sayından (${questionCount}) çoxdur`; break; }
+                    if (isNaN(questionCount) || questionCount <= 0) { error = { message: `${cfg.nameAz}: sual sayı göstərilməyib`, colIdx: countIdx, kind: "Sual sayı" }; break; }
+                    if (!Number.isInteger(questionCount)) { error = { message: `${cfg.nameAz}: sual sayı tam ədəd olmalıdır (${questionCount})`, colIdx: countIdx, kind: "Sual sayı" }; break; }
+                    if (score > questionCount) { error = { message: `${cfg.nameAz}: bal (${score}) sual sayından (${questionCount}) çoxdur`, colIdx: scoreIdx, kind: "Bal" }; break; }
 
                     totalScore += score;
                     totalQuestionCount += questionCount;
                     subjectScores.push({ subjectCode, score, questionCount });
                 }
 
-                if (error) { issues.push({ row: c.rowNumber, code: c.code, reason: error }); continue; }
+                if (error) {
+                    issues.push({ row: c.rowNumber, code: c.code, reason: error.message });
+                    addReport(c.row, c.rowNumber, error.colIdx, c.code, error.kind, error.message);
+                    continue;
+                }
                 if (totalScore <= 0) {
                     issues.push({ row: c.rowNumber, code: c.code, reason: "Sıfır xal: şagird heç bir sual cavablandırmayıb" });
+                    addReport(c.row, c.rowNumber, null, c.code, "Bal", "Bütün fənlər üzrə bal 0-dır — nəticə yüklənmədi");
                     continue;
                 }
 
@@ -513,6 +565,14 @@ export class StudentResultServicePg {
             }
 
             const questionCountWarnings = this.questionCountWarnings(parsedRows, section);
+            const candidateByRow = new Map(candidates.map((c) => [c.rowNumber, c]));
+            for (const w of questionCountWarnings) {
+                const c = candidateByRow.get(w.row)!;
+                const subjectCode = [...(section?.subjects.entries() ?? [])].find(([, s]) => s.nameAz === w.subject)?.[0];
+                const colIdx = subjectCode ? countColByCode.get(subjectCode)!.colIdx : null;
+                addReport(c.row, w.row, colIdx, w.code, "Sual sayı",
+                    `${w.subject}: sual sayı ${w.count}, faylda adətən ${w.usual} — yükləndi, yoxlayın`, "warning");
+            }
 
             // Запись — одной транзакцией.
             const { processedCount, studentsWithoutTeacher } = await pg.transaction().execute(async (trx) => {
@@ -588,6 +648,15 @@ export class StudentResultServicePg {
 
             await deleteFile(filePath).catch(() => {});
 
+            const candidateByCode = new Map(candidates.map((c) => [c.code, c]));
+            for (const code of studentsWithoutTeacher) {
+                const c = candidateByCode.get(code);
+                if (!c) continue;
+                addReport(c.row, c.rowNumber, 0, code, "Layihə müəllimi",
+                    `Kodun müəllim hissəsi (${Math.floor(code / CODE_DIVISORS.STUDENT_TO_TEACHER)}) sistemdə yoxdur — şagird yaradılmadı, nəticə yüklənmədi`);
+            }
+            report.sort((a, b) => a.row - b.row || (a.column ?? "").localeCompare(b.column ?? ""));
+
             issues.sort((a, b) => a.row - b.row);
             return {
                 processedCount,
@@ -596,6 +665,7 @@ export class StudentResultServicePg {
                 incorrectStudentCodes: [...new Set(invalidStudentCodes)],
                 studentsWithIncorrectResults: issues,
                 questionCountWarnings,
+                issues: report,
             };
         } catch (error) {
             await deleteFile(filePath).catch(() => {});
