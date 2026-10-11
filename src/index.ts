@@ -36,6 +36,7 @@ import { trackActivity } from "./middleware/activity.middleware";
 import { startTokenCleanupScheduler } from "./services/token.service.pg";
 import { loadLevelScaleBandsCache } from "./services/levels.cache";
 import { academicYearClosureServicePg } from "./services/academicYearClosure.service.pg";
+import { statsServicePg } from "./services/stats.service.pg";
 
 dotenv.config();
 
@@ -178,6 +179,7 @@ Promise.all([loadLevelScaleBandsCache()])
     .then(async () => {
         // Авто-закрытие учебных годов (ACADEMIC_YEAR_ARCHIVE_TASK.md §3) — не фатально:
         // это предохранитель поверх ручного закрытия, не критичная для старта функциональность.
+        academicYearClosureServicePg.setFinalRecompute((year) => statsServicePg.updateAllStats(year));
         try {
             const closed = await academicYearClosureServicePg.ensureFinishedYearsClosed();
             if (closed.length > 0) {

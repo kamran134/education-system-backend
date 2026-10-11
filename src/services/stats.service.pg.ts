@@ -133,12 +133,13 @@ export class StatsServicePg {
         return 200;
     }
 
-    /** Полный пересчёт учебного года — сентябрь-июнь, плюс учителя/школы/районы. */
-    async updateAllStats(): Promise<number> {
-        const now = new Date();
-        const currentMonth = now.getMonth() + 1;
-        const currentYear = now.getFullYear();
-        const academicYearStart = currentMonth >= 9 ? currentYear : currentYear - 1;
+    /**
+     * Полный пересчёт учебного года — сентябрь-июнь, плюс учителя/школы/районы. По умолчанию —
+     * текущий учебный год; явный год передаёт только финальный пересчёт перед авто-закрытием
+     * (index.ts → academicYearClosureServicePg.ensureFinishedYearsClosed).
+     */
+    async updateAllStats(year?: number): Promise<number> {
+        const academicYearStart = year ?? getCurrentAcademicYear();
         const academicYearEnd = academicYearStart + 1;
 
         await academicYearClosureServicePg.assertYearNotClosed(academicYearStart);

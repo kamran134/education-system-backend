@@ -24,6 +24,16 @@ export function isGradePromotionWindowOpen(now: Date = new Date()): boolean {
 }
 
 /**
+ * Окно ручного закрытия учебного года: июнь-август. Закрывается getCurrentAcademicYear(), а с
+ * сентября это уже НОВЫЙ, только начавшийся год — закрыть его по ошибке значило бы заморозить
+ * пустые рейтинги и запретить их пересчёт на весь год.
+ */
+export function isYearClosureWindowOpen(now: Date = new Date()): boolean {
+    const month = now.getMonth() + 1; // 1–12
+    return month >= 6 && month <= 8;
+}
+
+/**
  * Учебный год, В КОТОРЫЙ повышаются ученики (год начала нового учебного года).
  * Действителен только внутри окна июль-август — вызывающий код должен сначала
  * проверить isGradePromotionWindowOpen().

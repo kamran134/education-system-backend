@@ -4,7 +4,7 @@ import { GradePromotionServicePg } from "../services/gradePromotion.service.pg";
 import { academicYearClosureServicePg } from "../services/academicYearClosure.service.pg";
 import { statsServicePg } from "../services/stats.service.pg";
 import { setRatingYearActivated } from "../services/ratingYear.service.pg";
-import { getCurrentAcademicYear } from "../utils/academic-year.util";
+import { getCurrentAcademicYear, isYearClosureWindowOpen } from "../utils/academic-year.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 
 export class GradePromotionController {
@@ -53,6 +53,7 @@ export class GradePromotionController {
 
             res.json(ResponseHandler.success({
                 academicYear,
+                windowOpen: isYearClosureWindowOpen(),
                 alreadyClosed: !!existing,
                 closedAt: existing?.closedAt ?? null,
                 closedBy: existing?.closedByEmail ?? null,
@@ -71,13 +72,20 @@ export class GradePromotionController {
                 return;
             }
 
+            // С сентября getCurrentAcademicYear() — уже новый год: закрыть его значило бы
+            // заморозить пустые рейтинги и запретить их пересчёт до следующего лета.
+            if (!isYearClosureWindowOpen()) {
+                res.status(409).json(ResponseHandler.badRequest("Tədris ilini yalnız iyun-avqust aylarında bağlamaq olar"));
+                return;
+            }
+
             const academicYear = getCurrentAcademicYear();
             const userId = parseInt(req.user!.userId, 10);
             const note: string | undefined = typeof req.body?.note === "string" ? req.body.note : undefined;
 
             // Финальный пересчёт ДО заморозки — год ещё не закрыт, значит updateAllStats()
             // пройдёт (assertYearNotClosed внутри него проверяет то же самое academicYear).
-            await statsServicePg.updateAllStats();
+            await statsServicePg.updateAllStats(academicYear);
             await academicYearClosureServicePg.closeManually(academicYear, userId, note);
             res.json(ResponseHandler.success({ academicYear }, `${academicYear}/${academicYear + 1} tədris ili bağlandı`));
         } catch (error) {

@@ -88,6 +88,18 @@ export class GradePromotionServicePg {
         // если исполнение растянется по времени.
         const outgoingYear = academicYear - 1;
 
+        // Порядок «сначала закрыть год, потом повышать» — обязательный, а не совет: рейтинги
+        // учителей/школ считаются по живым связям учеников, и после повышения финальный пересчёт
+        // уходящего года уже невозможен. В 2026 году повысили 03.08 без закрытия, авто-закрытие
+        // 01.09 опломбировало недосчитанный архив (032_reseal_2025_closure_checksums.sql).
+        if (!(await academicYearClosureServicePg.getClosure(outgoingYear))) {
+            const err: any = new Error(
+                `Əvvəlcə ${outgoingYear}/${outgoingYear + 1} tədris ilini bağlayın, sonra sinifləri yüksəldin`
+            );
+            err.status = 409;
+            throw err;
+        }
+
         // Вся операция — одна транзакция. Раньше это были отдельные запросы, а "битый" one-shot
         // замок подчищался DELETE-ом в catch; проблема в том, что падение ПОСЛЕ UPDATE students
         // снимало замок с уже повышенных учеников — повторный запуск повышал их второй раз.

@@ -118,12 +118,26 @@ export class AcademicYearClosureServicePg {
         }
     }
 
+    /** Финальный пересчёт года перед пломбой — регистрирует index.ts (statsServicePg.updateAllStats).
+     *  Через регистрацию, а не импорт: stats.service.pg.ts сам импортирует этот сервис. */
+    private finalRecompute: ((year: number) => Promise<unknown>) | null = null;
+
+    setFinalRecompute(fn: (year: number) => Promise<unknown>): void {
+        this.finalRecompute = fn;
+    }
+
     /**
      * Закрывает все учебные годы, у которых уже есть строки в *_year_ratings, они меньше
-     * текущего учебного года и ещё не закрыты. ПЕРЕСЧЁТА ЗДЕСЬ НЕТ И БЫТЬ НЕ ДОЛЖНО: к моменту
-     * авто-закрытия (первое обращение к бэкенду после 1 сентября) классы уже повышены —
-     * пересчёт сломал бы то, что мы замораживаем. Идемпотентно: гонка параллельных вызовов
+     * текущего учебного года и ещё не закрыты. Идемпотентно: гонка параллельных вызовов
      * разрешается через PRIMARY KEY (23505 просто игнорируется — кто-то успел раньше).
+     *
+     * Финальный пересчёт перед пломбой — ТОЛЬКО для только что закончившегося года и ТОЛЬКО если
+     * классы на новый год ещё не повышены. Рейтинги учителей/школ считаются по живым связям
+     * учеников, и после повышения пересчёт исказил бы то, что мы замораживаем; более старые годы
+     * посчитаны по правилам своего времени (2025/2026 — pillə из файла по числу правильных ответов)
+     * и не пересчитываются никогда. Без пересчёта пломба снимается с таблиц как есть — так было
+     * с 2025/2026 (повышение 03.08 без закрытия, 032_reseal_2025_closure_checksums.sql); теперь
+     * повышение без закрытия запрещено (gradePromotion.service.pg.ts::execute).
      */
     async ensureFinishedYearsClosed(): Promise<number[]> {
         const currentYear = getCurrentAcademicYear();
@@ -142,6 +156,19 @@ export class AcademicYearClosureServicePg {
 
         const closed: number[] = [];
         for (const { year } of rows.rows) {
+            if (year === currentYear - 1 && this.finalRecompute) {
+                const promoted = await pg
+                    .selectFrom("grade_promotion_logs")
+                    .select("id")
+                    .where("academic_year", "=", currentYear)
+                    .where("status", "=", "completed")
+                    .executeTakeFirst();
+                if (promoted) {
+                    console.warn(`Auto-closing ${year}/${year + 1} without a final recompute: grades were already promoted`);
+                } else {
+                    await this.finalRecompute(year);
+                }
+            }
             const checksums = await this.computeChecksums(year);
             try {
                 // Каждый год — своя транзакция: гонка на ОДНОМ годе (23505, кто-то успел
