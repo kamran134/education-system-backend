@@ -155,12 +155,17 @@ export class StatsServicePg {
             // IS NULL (июль/август, вне какого-либо учебного года) — законно продолжает обновляться,
             // NOT IN с NULL в списке закрытых лет здесь не встаёт: сравнение с NULL слева отфильтровано
             // отдельным условием IS NULL, а не полагается на поведение NOT IN.
+            // Месяц — по календарному дню в Баку, как при импорте (processStudentResultsFromExcel):
+            // старые экзамены хранятся на 20:00Z предыдущего дня, и EXTRACT в UTC перекидывал бы
+            // результаты экзамена 1-го числа в прошлый месяц (а 1 сентября — в прошлый учебный год).
             await sql`
                 UPDATE student_results sr
-                SET month = EXTRACT(MONTH FROM e.date)::int, year = EXTRACT(YEAR FROM e.date)::int
+                SET month = EXTRACT(MONTH FROM e.date AT TIME ZONE 'Asia/Baku')::int,
+                    year = EXTRACT(YEAR FROM e.date AT TIME ZONE 'Asia/Baku')::int
                 FROM exams e
                 WHERE sr.exam_id = e.id
-                  AND (sr.month <> EXTRACT(MONTH FROM e.date)::int OR sr.year <> EXTRACT(YEAR FROM e.date)::int)
+                  AND (sr.month <> EXTRACT(MONTH FROM e.date AT TIME ZONE 'Asia/Baku')::int
+                       OR sr.year <> EXTRACT(YEAR FROM e.date AT TIME ZONE 'Asia/Baku')::int)
                   AND (sr.academic_year IS NULL
                        OR sr.academic_year NOT IN (SELECT academic_year FROM academic_year_closures))
             `.execute(trx);
@@ -309,7 +314,7 @@ export class StatsServicePg {
                 JOIN exams e2 ON e2.id = sr2.exam_id
                 JOIN level_scale_bands b2 ON b2.scale_id = sr2.level_scale_id AND b2.code = sr2.level
                 WHERE e2.date < t.exam_date
-                  AND e2.date >= make_date(${academicYearStart}, 9, 1)
+                  AND e2.date >= make_timestamptz(${academicYearStart}, 9, 1, 0, 0, 0, 'Asia/Baku')
                 GROUP BY t.id
             )
             UPDATE student_results SET status = 'İnkişaf edən şagird', development_score = 10

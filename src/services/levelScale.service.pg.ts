@@ -133,7 +133,9 @@ export async function maxPriorBandRanks(
             .where("sr2.student_id", "in", studentIds.slice(i, i + CHUNK))
             .where("sr2.exam_type_id", "=", examTypeId)
             .where("e2.date", "<", beforeDate)
-            .where("e2.date", ">=", new Date(Date.UTC(academicYearStart, 8, 1)))
+            // September 1 by the Baku calendar (UTC+4, no DST): older exams are stored at 20:00Z of
+            // the previous day, and a UTC-midnight bound would drop a 1 September exam from the year.
+            .where("e2.date", ">=", new Date(Date.UTC(academicYearStart, 7, 31, 20)))
             .groupBy("sr2.student_id")
             .execute();
         for (const r of rows) result.set(r.student_id, Number(r.maxRank));
