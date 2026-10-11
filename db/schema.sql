@@ -681,10 +681,11 @@ SELECT sr.student_id,
                    + coalesce(sr.student_of_the_month_score, 0)
                    + coalesce(sr.republic_wide_student_of_the_month_score, 0)) / count(*)
             ELSE 0 END                                                  AS average_score,
-       sr.grade                                                         AS grade
+       -- один grade на (ученик, год, тип) — класс самого позднего результата (009, 031)
+       (array_agg(sr.grade ORDER BY sr.year DESC, sr.month DESC, sr.id DESC))[1] AS grade
 FROM student_results sr
 WHERE sr.academic_year IS NOT NULL
-GROUP BY sr.student_id, sr.academic_year, sr.exam_type_id, sr.grade;
+GROUP BY sr.student_id, sr.academic_year, sr.exam_type_id;
 
 -- Ученик: места. stats.service.ts:1312 updateStudentPlaces
 -- Ранг по score (НЕ по average_score), внутри класса И типа экзамена; district_place — внутри
@@ -853,8 +854,8 @@ WHERE rs.score > 0;
 --
 -- ВНИМАНИЕ, отличие от годовой вьюхи: grade НЕ входит в GROUP BY, он берётся через min()
 -- (исправлено в 022_student_month_scores_one_row.sql; в 021 он ошибочно был в группировке).
--- В v_student_year_scores он в группировке, и это там безвредно — годовой путь читает не вьюху,
--- а материализованную student_year_ratings, где строка на (ученик, год, тип) ровно одна. Месячный
+-- В v_student_year_scores он тоже НЕ в группировке (array_agg последнего класса, 031): там две
+-- строки на (ученик, год, тип) роняли INSERT в student_year_ratings по PK. Месячный
 -- путь читает вьюху напрямую и join'ит её к students, поэтому строка обязана быть одна на
 -- (ученик, год, месяц, тип экзамена): иначе ученик, у которого в одном календарном месяце два
 -- результата с разным grade (два экзамена в месяц, пересдача, поправленный класс), попадёт в

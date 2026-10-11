@@ -1,5 +1,6 @@
-import { sql } from "kysely";
+import { Kysely, sql } from "kysely";
 import { pg } from "../config/pg";
+import { DB } from "../types/db";
 import { getCurrentAcademicYear, parseMonthFilter } from "../utils/academic-year.util";
 import { FilterOptionsPg } from "../types/common.types";
 import { RequestParser } from "../utils/request-parser.util";
@@ -63,8 +64,16 @@ export interface RankedEntity {
  * Путь расчёта мест для учителей/школ/районов — путь B (по среднему баллу), решение
  * пользователя 04.08.2026, см. db/rating-semantics.md и views в schema.sql.
  */
+/** pg_advisory_xact_lock key: two concurrent refreshes would otherwise interleave DELETE+INSERT
+ *  on the same *_year_ratings rows and fail on the primary key. */
+const STATS_REFRESH_LOCK_KEY = 7_202_610;
+
 export class StatsServicePg {
     // ================================================================ WRITE-путь
+    //
+    // Оба пересчёта (updateStats/updateAllStats) идут одной транзакцией: recompute* делают
+    // DELETE+INSERT по *_year_ratings, и падение посреди цепочки без транзакции оставляло рейтинги
+    // типа стёртыми до следующего успешного пересчёта (EXAMS_LIVE_TEST_2026-10-11.md, проблема №2).
 
     /**
      * Типы экзаменов, у которых есть результаты в этом учебном году — recompute* теперь
@@ -72,8 +81,8 @@ export class StatsServicePg {
      * (IMTAHAN_NOVLERI_TASK.md §5, шаг 3). В подавляющем большинстве случаев здесь ровно один
      * элемент (базовый тип) — цикл существует ради будущего, когда типов станет больше.
      */
-    private async examTypeIdsWithResults(academicYear: number): Promise<number[]> {
-        const rows = await pg
+    private async examTypeIdsWithResults(academicYear: number, db: Kysely<DB>): Promise<number[]> {
+        const rows = await db
             .selectFrom("student_results")
             .select("exam_type_id")
             .distinct()
@@ -90,32 +99,36 @@ export class StatsServicePg {
         const academicYear = getCurrentAcademicYear();
         await academicYearClosureServicePg.assertYearNotClosed(academicYear);
 
-        const count = await pg
-            .selectFrom("student_results")
-            .select(({ fn }) => fn.countAll().as("c"))
-            .where("month", "=", month)
-            .where("year", "=", year)
-            .executeTakeFirstOrThrow();
+        await pg.transaction().execute(async (trx) => {
+            await sql`SELECT pg_advisory_xact_lock(${STATS_REFRESH_LOCK_KEY})`.execute(trx);
 
-        if (Number(count.c) === 0) {
-            for (const examTypeId of await this.examTypeIdsWithResults(academicYear)) {
-                await this.recomputeStudentRatings(academicYear, examTypeId);
+            const count = await trx
+                .selectFrom("student_results")
+                .select(({ fn }) => fn.countAll().as("c"))
+                .where("month", "=", month)
+                .where("year", "=", year)
+                .executeTakeFirstOrThrow();
+
+            if (Number(count.c) === 0) {
+                for (const examTypeId of await this.examTypeIdsWithResults(academicYear, trx)) {
+                    await this.recomputeStudentRatings(academicYear, examTypeId, trx);
+                }
+                return;
             }
-            return 200;
-        }
 
-        await pg
-            .updateTable("student_results")
-            .set({ student_of_the_month_score: 0, republic_wide_student_of_the_month_score: 0 })
-            .where("month", "=", month)
-            .where("year", "=", year)
-            .execute();
+            await trx
+                .updateTable("student_results")
+                .set({ student_of_the_month_score: 0, republic_wide_student_of_the_month_score: 0 })
+                .where("month", "=", month)
+                .where("year", "=", year)
+                .execute();
 
-        await this.awardStudentOfTheMonth(month, year);
-        await this.markDevelopingStudents(month, year);
-        for (const examTypeId of await this.examTypeIdsWithResults(academicYear)) {
-            await this.recomputeStudentRatings(academicYear, examTypeId);
-        }
+            await this.awardStudentOfTheMonth(month, year, trx);
+            await this.markDevelopingStudents(month, year, trx);
+            for (const examTypeId of await this.examTypeIdsWithResults(academicYear, trx)) {
+                await this.recomputeStudentRatings(academicYear, examTypeId, trx);
+            }
+        });
 
         return 200;
     }
@@ -130,72 +143,76 @@ export class StatsServicePg {
 
         await academicYearClosureServicePg.assertYearNotClosed(academicYearStart);
 
-        // Шаг 0: month/year результатов по факту даты экзамена (данные могли устареть после переноса
-        // экзамена). Фильтр по незакрытым годам — починка бага, найденного при работе над §5 шага 3
-        // (IMTAHAN_NOVLERI_TASK.md): assertYearNotClosed выше проверяет только ТЕКУЩИЙ учебный год,
-        // поэтому без этого условия правка даты СТАРОГО экзамена (перенос задним числом) двигала
-        // month/year строк уже закрытого года — а academic_year, будучи generated-колонкой от
-        // (month, year), мог из-за этого вообще выкинуть результат из закрытого года. sr.academic_year
-        // IS NULL (июль/август, вне какого-либо учебного года) — законно продолжает обновляться,
-        // NOT IN с NULL в списке закрытых лет здесь не встаёт: сравнение с NULL слева отфильтровано
-        // отдельным условием IS NULL, а не полагается на поведение NOT IN.
-        await sql`
-            UPDATE student_results sr
-            SET month = EXTRACT(MONTH FROM e.date)::int, year = EXTRACT(YEAR FROM e.date)::int
-            FROM exams e
-            WHERE sr.exam_id = e.id
-              AND (sr.month <> EXTRACT(MONTH FROM e.date)::int OR sr.year <> EXTRACT(YEAR FROM e.date)::int)
-              AND (sr.academic_year IS NULL
-                   OR sr.academic_year NOT IN (SELECT academic_year FROM academic_year_closures))
-        `.execute(pg);
+        await pg.transaction().execute(async (trx) => {
+            await sql`SELECT pg_advisory_xact_lock(${STATS_REFRESH_LOCK_KEY})`.execute(trx);
 
-        // Шаг 1: обнуляем баллы месяца/развития за весь учебный год (сам score студента
-        // обнулять вручную не нужно — он всегда пересчитывается заново из view в шаге 3).
-        // status обнуляется вместе с development_score — иначе при повторном пересчёте
-        // строка, которая в прошлый раз получила "İnkişaf edən şagird", но в этот раз
-        // больше не проходит по markDevelopingStudents (база сравнения "макс. уровень
-        // среди более ранних результатов" меняется по мере добавления новых месяцев),
-        // осталась бы с development_score=0 и застрявшим текстом статуса навсегда.
-        await pg
-            .updateTable("student_results")
-            .set({ development_score: 0, student_of_the_month_score: 0, republic_wide_student_of_the_month_score: 0, status: null })
-            .where("academic_year", "=", academicYearStart)
-            .execute();
+            // Шаг 0: month/year результатов по факту даты экзамена (данные могли устареть после переноса
+            // экзамена). Фильтр по незакрытым годам — починка бага, найденного при работе над §5 шага 3
+            // (IMTAHAN_NOVLERI_TASK.md): assertYearNotClosed выше проверяет только ТЕКУЩИЙ учебный год,
+            // поэтому без этого условия правка даты СТАРОГО экзамена (перенос задним числом) двигала
+            // month/year строк уже закрытого года — а academic_year, будучи generated-колонкой от
+            // (month, year), мог из-за этого вообще выкинуть результат из закрытого года. sr.academic_year
+            // IS NULL (июль/август, вне какого-либо учебного года) — законно продолжает обновляться,
+            // NOT IN с NULL в списке закрытых лет здесь не встаёт: сравнение с NULL слева отфильтровано
+            // отдельным условием IS NULL, а не полагается на поведение NOT IN.
+            await sql`
+                UPDATE student_results sr
+                SET month = EXTRACT(MONTH FROM e.date)::int, year = EXTRACT(YEAR FROM e.date)::int
+                FROM exams e
+                WHERE sr.exam_id = e.id
+                  AND (sr.month <> EXTRACT(MONTH FROM e.date)::int OR sr.year <> EXTRACT(YEAR FROM e.date)::int)
+                  AND (sr.academic_year IS NULL
+                       OR sr.academic_year NOT IN (SELECT academic_year FROM academic_year_closures))
+            `.execute(trx);
 
-        // Шаг 2: по каждому месяцу учебного года — награды "студент месяца" + "развивающийся студент"
-        const academicMonths: Array<{ month: number; year: number }> = [
-            { month: 9, year: academicYearStart }, { month: 10, year: academicYearStart },
-            { month: 11, year: academicYearStart }, { month: 12, year: academicYearStart },
-            { month: 1, year: academicYearEnd }, { month: 2, year: academicYearEnd },
-            { month: 3, year: academicYearEnd }, { month: 4, year: academicYearEnd },
-            { month: 5, year: academicYearEnd }, { month: 6, year: academicYearEnd },
-        ];
+            // Шаг 1: обнуляем баллы месяца/развития за весь учебный год (сам score студента
+            // обнулять вручную не нужно — он всегда пересчитывается заново из view в шаге 3).
+            // status обнуляется вместе с development_score — иначе при повторном пересчёте
+            // строка, которая в прошлый раз получила "İnkişaf edən şagird", но в этот раз
+            // больше не проходит по markDevelopingStudents (база сравнения "макс. уровень
+            // среди более ранних результатов" меняется по мере добавления новых месяцев),
+            // осталась бы с development_score=0 и застрявшим текстом статуса навсегда.
+            await trx
+                .updateTable("student_results")
+                .set({ development_score: 0, student_of_the_month_score: 0, republic_wide_student_of_the_month_score: 0, status: null })
+                .where("academic_year", "=", academicYearStart)
+                .execute();
 
-        for (const { month, year } of academicMonths) {
-            const count = await pg
-                .selectFrom("student_results")
-                .select(({ fn }) => fn.countAll().as("c"))
-                .where("month", "=", month).where("year", "=", year)
-                .executeTakeFirstOrThrow();
-            if (Number(count.c) === 0) continue;
+            // Шаг 2: по каждому месяцу учебного года — награды "студент месяца" + "развивающийся студент"
+            const academicMonths: Array<{ month: number; year: number }> = [
+                { month: 9, year: academicYearStart }, { month: 10, year: academicYearStart },
+                { month: 11, year: academicYearStart }, { month: 12, year: academicYearStart },
+                { month: 1, year: academicYearEnd }, { month: 2, year: academicYearEnd },
+                { month: 3, year: academicYearEnd }, { month: 4, year: academicYearEnd },
+                { month: 5, year: academicYearEnd }, { month: 6, year: academicYearEnd },
+            ];
 
-            await this.awardStudentOfTheMonth(month, year);
-            await this.markDevelopingStudents(month, year);
-        }
+            for (const { month, year } of academicMonths) {
+                const count = await trx
+                    .selectFrom("student_results")
+                    .select(({ fn }) => fn.countAll().as("c"))
+                    .where("month", "=", month).where("year", "=", year)
+                    .executeTakeFirstOrThrow();
+                if (Number(count.c) === 0) continue;
 
-        // Шаг 3: пересчёт score/averageScore/place — студенты (путь A, единственный для них),
-        // затем учителя/школы/районы/регионы (путь B). Порядок важен: регион читает
-        // v_district_year_scores, поэтому recomputeRegionRatings идёт последним.
-        // В разрезе (год, тип экзамена) — IMTAHAN_NOVLERI_TASK.md §5 шаг 3: пересчёт одного типа
-        // не должен стирать рейтинги остальных, поэтому каждый recompute* вызывается по одному
-        // типу за раз, а не одним DELETE+INSERT сразу по всем строкам года.
-        for (const examTypeId of await this.examTypeIdsWithResults(academicYearStart)) {
-            await this.recomputeStudentRatings(academicYearStart, examTypeId);
-            await this.recomputeTeacherRatings(academicYearStart, examTypeId);
-            await this.recomputeSchoolRatings(academicYearStart, examTypeId);
-            await this.recomputeDistrictRatings(academicYearStart, examTypeId);
-            await this.recomputeRegionRatings(academicYearStart, examTypeId);
-        }
+                await this.awardStudentOfTheMonth(month, year, trx);
+                await this.markDevelopingStudents(month, year, trx);
+            }
+
+            // Шаг 3: пересчёт score/averageScore/place — студенты (путь A, единственный для них),
+            // затем учителя/школы/районы/регионы (путь B). Порядок важен: регион читает
+            // v_district_year_scores, поэтому recomputeRegionRatings идёт последним.
+            // В разрезе (год, тип экзамена) — IMTAHAN_NOVLERI_TASK.md §5 шаг 3: пересчёт одного типа
+            // не должен стирать рейтинги остальных, поэтому каждый recompute* вызывается по одному
+            // типу за раз, а не одним DELETE+INSERT сразу по всем строкам года.
+            for (const examTypeId of await this.examTypeIdsWithResults(academicYearStart, trx)) {
+                await this.recomputeStudentRatings(academicYearStart, examTypeId, trx);
+                await this.recomputeTeacherRatings(academicYearStart, examTypeId, trx);
+                await this.recomputeSchoolRatings(academicYearStart, examTypeId, trx);
+                await this.recomputeDistrictRatings(academicYearStart, examTypeId, trx);
+                await this.recomputeRegionRatings(academicYearStart, examTypeId, trx);
+            }
+        });
 
         return 200;
     }
@@ -214,7 +231,7 @@ export class StatsServicePg {
      * сравнивается с настраиваемым порогом типа экзамена — для базового типа порог (rank 6 =
      * Lisey) даёт то же самое поведение, что и раньше, но уже не хардкод.
      */
-    private async awardStudentOfTheMonth(month: number, year: number): Promise<void> {
+    private async awardStudentOfTheMonth(month: number, year: number, db: Kysely<DB>): Promise<void> {
         await sql`
             WITH month_results AS (
                 SELECT sr.id, sr.grade, sr.exam_type_id, s.district_id, sr.total_score,
@@ -236,7 +253,7 @@ export class StatsServicePg {
                     AND md.grade = mr.grade AND md.district_id = mr.district_id AND md.max_score = mr.total_score
                 WHERE mr.month_award_min_rank IS NULL OR mr.band_rank >= mr.month_award_min_rank
             )
-        `.execute(pg);
+        `.execute(db);
 
         await sql`
             WITH month_results AS (
@@ -258,7 +275,7 @@ export class StatsServicePg {
                     AND mrp.grade = mr.grade AND mrp.max_score = mr.total_score
                 WHERE mr.month_award_min_rank IS NULL OR mr.band_rank >= mr.month_award_min_rank
             )
-        `.execute(pg);
+        `.execute(db);
     }
 
     /**
@@ -274,7 +291,7 @@ export class StatsServicePg {
      * результатами ОДНОГО типа экзамена (sr2.exam_type_id = t.exam_type_id) — иначе развитие
      * могло бы "засчитаться" переходом от одного типа экзамена к другому с иной шкалой.
      */
-    private async markDevelopingStudents(month: number, year: number): Promise<void> {
+    private async markDevelopingStudents(month: number, year: number, db: Kysely<DB>): Promise<void> {
         const academicYearStart = month >= 9 ? year : year - 1;
 
         await sql`
@@ -301,7 +318,7 @@ export class StatsServicePg {
                 JOIN prior_max pm ON pm.id = t.id
                 WHERE t.band_rank > pm.max_prev_rank
             )
-        `.execute(pg);
+        `.execute(db);
     }
 
     /**
@@ -312,60 +329,60 @@ export class StatsServicePg {
      * который сейчас пересчитывается — то есть код продолжал бы работать, но значение
      * "пересчитать один тип, не трогая остальные" было бы невозможно выразить.
      */
-    private async recomputeStudentRatings(year: number, examTypeId: number): Promise<void> {
-        await pg.deleteFrom("student_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
+    private async recomputeStudentRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
+        await db.deleteFrom("student_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
             INSERT INTO student_year_ratings (student_id, year, exam_type_id, score, average_score, place, district_place)
             SELECT sc.student_id, sc.academic_year, sc.exam_type_id, sc.score, sc.average_score, p.place, p.district_place
             FROM v_student_year_scores sc
             LEFT JOIN v_student_places p ON p.student_id = sc.student_id AND p.academic_year = sc.academic_year AND p.exam_type_id = sc.exam_type_id
             WHERE sc.academic_year = ${year} AND sc.exam_type_id = ${examTypeId}
-        `.execute(pg);
+        `.execute(db);
     }
 
-    private async recomputeTeacherRatings(year: number, examTypeId: number): Promise<void> {
-        await pg.deleteFrom("teacher_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
+    private async recomputeTeacherRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
+        await db.deleteFrom("teacher_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
             INSERT INTO teacher_year_ratings (teacher_id, year, exam_type_id, score, average_score, place, district_place)
             SELECT ts.teacher_id, ts.academic_year, ts.exam_type_id, ts.score, ts.average_score, p.place, p.district_place
             FROM v_teacher_year_scores ts
             LEFT JOIN v_teacher_places p ON p.teacher_id = ts.teacher_id AND p.academic_year = ts.academic_year AND p.exam_type_id = ts.exam_type_id
             WHERE ts.academic_year = ${year} AND ts.exam_type_id = ${examTypeId}
-        `.execute(pg);
+        `.execute(db);
     }
 
-    private async recomputeSchoolRatings(year: number, examTypeId: number): Promise<void> {
-        await pg.deleteFrom("school_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
+    private async recomputeSchoolRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
+        await db.deleteFrom("school_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
             INSERT INTO school_year_ratings (school_id, year, exam_type_id, score, average_score, place, district_place)
             SELECT ss.school_id, ss.academic_year, ss.exam_type_id, ss.score, ss.average_score, p.place, p.district_place
             FROM v_school_year_scores ss
             LEFT JOIN v_school_places p ON p.school_id = ss.school_id AND p.academic_year = ss.academic_year AND p.exam_type_id = ss.exam_type_id
             WHERE ss.academic_year = ${year} AND ss.exam_type_id = ${examTypeId}
-        `.execute(pg);
+        `.execute(db);
     }
 
-    private async recomputeDistrictRatings(year: number, examTypeId: number): Promise<void> {
-        await pg.deleteFrom("district_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
+    private async recomputeDistrictRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
+        await db.deleteFrom("district_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
             INSERT INTO district_year_ratings (district_id, year, exam_type_id, score, average_score, place)
             SELECT ds.district_id, ds.academic_year, ds.exam_type_id, ds.score, ds.average_score, p.place
             FROM v_district_year_scores ds
             LEFT JOIN v_district_places p ON p.district_id = ds.district_id AND p.academic_year = ds.academic_year AND p.exam_type_id = ds.exam_type_id
             WHERE ds.academic_year = ${year} AND ds.exam_type_id = ${examTypeId}
-        `.execute(pg);
+        `.execute(db);
     }
 
     /** Регион читает v_district_year_scores — вызывать ПОСЛЕ recomputeDistrictRatings. */
-    private async recomputeRegionRatings(year: number, examTypeId: number): Promise<void> {
-        await pg.deleteFrom("region_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
+    private async recomputeRegionRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
+        await db.deleteFrom("region_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
             INSERT INTO region_year_ratings (region_id, year, exam_type_id, score, average_score, place)
             SELECT rs.region_id, rs.academic_year, rs.exam_type_id, rs.score, rs.average_score, p.place
             FROM v_region_year_scores rs
             LEFT JOIN v_region_places p ON p.region_id = rs.region_id AND p.academic_year = rs.academic_year AND p.exam_type_id = rs.exam_type_id
             WHERE rs.academic_year = ${year} AND rs.exam_type_id = ${examTypeId}
-        `.execute(pg);
+        `.execute(db);
     }
 
     // ================================================================ READ-путь: статистика/лидерборды
