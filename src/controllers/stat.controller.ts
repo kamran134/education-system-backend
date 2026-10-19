@@ -3,7 +3,7 @@ import { StatsUseCase } from "../usecases/stats.usecase";
 import { StatsServicePg } from "../services/stats.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
-import { districtIdsOfRegion } from "../utils/region-scope.util";
+import { districtIdsOfRegion, narrowToScope } from "../utils/region-scope.util";
 
 export class StatsController {
     private statsUseCase: StatsUseCase;
@@ -55,17 +55,17 @@ export class StatsController {
             };
 
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+                filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
+                filters.teacherIds = narrowToScope(filters.teacherIds, [parseInt(req.user.teacherId, 10)]);
                 delete filters.schoolIds;
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [parseInt(req.user.studentId, 10)];
             } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             const statistics = await this.statsUseCase.getStudentStatistics(filters);
@@ -92,17 +92,17 @@ export class StatsController {
             };
 
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+                filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
+                filters.teacherIds = narrowToScope(filters.teacherIds, [parseInt(req.user.teacherId, 10)]);
                 delete filters.schoolIds;
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [parseInt(req.user.studentId, 10)];
             } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             const students = await this.statsUseCase.getDevelopingStudents(filters);
@@ -129,17 +129,17 @@ export class StatsController {
             };
 
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+                filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
+                filters.teacherIds = narrowToScope(filters.teacherIds, [parseInt(req.user.teacherId, 10)]);
                 delete filters.schoolIds;
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [parseInt(req.user.studentId, 10)];
             } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             const students = await this.statsUseCase.getStudentsOfMonth(filters);
@@ -166,17 +166,17 @@ export class StatsController {
             };
 
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+                filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
+                filters.teacherIds = narrowToScope(filters.teacherIds, [parseInt(req.user.teacherId, 10)]);
                 delete filters.schoolIds;
                 delete filters.districtIds;
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 filters.studentIds = [parseInt(req.user.studentId, 10)];
             } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             const students = await this.statsUseCase.getStudentsOfMonthByRepublic(filters);
@@ -220,16 +220,16 @@ export class StatsController {
 
             if (req.user?.role === 'districtRepresenter') {
                 if (!req.user.districtId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector') {
                 if (!req.user.schoolId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+                filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'teacher') {
                 if (!req.user.teacherId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
+                filters.teacherIds = narrowToScope(filters.teacherIds, [parseInt(req.user.teacherId, 10)]);
             } else if (req.user?.role === 'regionRepresenter') {
                 if (!req.user.regionId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             const statistics = await this.statsUseCase.getTeacherStatistics(filters);
@@ -252,15 +252,15 @@ export class StatsController {
 
             if (req.user?.role === 'districtRepresenter') {
                 if (!req.user.districtId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector') {
                 if (!req.user.schoolId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+                filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'teacher') {
                 res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return;
             } else if (req.user?.role === 'regionRepresenter') {
                 if (!req.user.regionId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             const statistics = await this.statsUseCase.getSchoolStatistics(filters);
@@ -283,12 +283,12 @@ export class StatsController {
 
             if (req.user?.role === 'districtRepresenter') {
                 if (!req.user.districtId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector' || req.user?.role === 'teacher') {
                 res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return;
             } else if (req.user?.role === 'regionRepresenter') {
                 if (!req.user.regionId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             const statistics = await this.statsUseCase.getDistrictStatistics(filters);
@@ -315,7 +315,7 @@ export class StatsController {
 
             if (req.user?.role === 'regionRepresenter') {
                 if (!req.user.regionId) { res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return; }
-                filters.regionIds = [parseInt(req.user.regionId, 10)];
+                filters.regionIds = narrowToScope(filters.regionIds, [parseInt(req.user.regionId, 10)]);
             } else if (req.user?.role === 'districtRepresenter' || req.user?.role === 'schoolDirector' || req.user?.role === 'teacher' || req.user?.role === 'student') {
                 res.status(200).json(ResponseHandler.success({ data: [], totalCount: 0 })); return;
             }

@@ -10,3 +10,21 @@ export async function districtIdsOfRegion(regionId: number): Promise<number[]> {
     const rows = await pg.selectFrom("districts").select("id").where("region_id", "=", regionId).execute();
     return rows.map((r) => r.id);
 }
+
+/**
+ * Role scoping must NARROW the caller's own filter, not replace it. Replacing it silently
+ * dropped the user's choice: a regionRepresenter who picked one district (Sumqayıt) got the
+ * whole region back (Sumqayıt + Xırdalan + ...), see FIXES_14102026_TASK.md §1.
+ *
+ * - nothing requested          → the whole scope;
+ * - requested ∩ scope non-empty → just that intersection;
+ * - nothing of it in scope, or an empty scope → [-1]: an id that never exists, so the query
+ *   returns nothing. Never [] — services read an empty array as "no filter".
+ */
+export function narrowToScope(requested: number[] | undefined, scope: number[]): number[] {
+    if (scope.length === 0) return [-1];
+    if (!requested || requested.length === 0) return scope;
+    const allowed = new Set(scope);
+    const kept = requested.filter((id) => allowed.has(id));
+    return kept.length > 0 ? kept : [-1];
+}

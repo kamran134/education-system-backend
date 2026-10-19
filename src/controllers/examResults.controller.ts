@@ -4,7 +4,7 @@ import { ExamResultRow } from "../services/examResults.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { isAdminLike } from "../utils/avatar.util";
-import { districtIdsOfRegion } from "../utils/region-scope.util";
+import { districtIdsOfRegion, narrowToScope } from "../utils/region-scope.util";
 
 export class ExamResultsController {
     private examResultsUseCase: ExamResultsUseCase;
@@ -41,16 +41,13 @@ export class ExamResultsController {
             // только «свой» ключ, остальные фильтры из query остаются как есть и применяются как AND:
             // это и есть защита от подстановки чужого id (пересечение со своей областью даст пустую выборку).
             if (req.user?.role === 'teacher' && req.user.teacherId) {
-                params.teacherIds = [parseInt(req.user.teacherId, 10)];
+                params.teacherIds = narrowToScope(params.teacherIds, [parseInt(req.user.teacherId, 10)]);
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                params.schoolIds = [parseInt(req.user.schoolId, 10)];
+                params.schoolIds = narrowToScope(params.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                params.districtIds = [parseInt(req.user.districtId, 10)];
+                params.districtIds = narrowToScope(params.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
-                const regionDistrictIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
-                params.districtIds = params.districtIds
-                    ? params.districtIds.filter(id => regionDistrictIds.includes(id))
-                    : regionDistrictIds;
+                params.districtIds = narrowToScope(params.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             } else if (req.user?.role === 'student' && req.user.studentId) {
                 // Ученик видит только свои результаты. Без этой ветки роль проваливалась мимо
                 // всех остальных и получала выборку по всей республике: у student нет ни

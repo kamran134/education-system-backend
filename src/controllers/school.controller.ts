@@ -5,7 +5,7 @@ import { SchoolServicePg } from "../services/school.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity, isAdminLike } from "../utils/avatar.util";
-import { districtIdsOfRegion } from "../utils/region-scope.util";
+import { districtIdsOfRegion, narrowToScope } from "../utils/region-scope.util";
 import { canViewEntity } from "../utils/hierarchy-access.util";
 import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 
@@ -32,11 +32,11 @@ export class SchoolController {
             const sort = RequestParser.parseSorting(req, 'averageScore', 'desc');
 
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+                filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             const result = await this.schoolUseCase.getSchools(pagination, filters, sort);
@@ -57,11 +57,11 @@ export class SchoolController {
             // Ролевое сужение — тот же блок, что в getSchools выше. В *ForFilter его раньше не было:
             // districtRepresenter/schoolDirector мог перечислить все школы республики через /schools/filter.
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+                filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             // active — это флаг «Məktəbi reytinqlərdə göstər»: скрытые школы видит только тот,

@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { StatisticsServicePg } from '../services/statistics.service.pg';
 import { StatisticsFilterPg, InkishafFilterPg } from '../types/statistics.types';
 import { ResponseHandler } from '../utils/response-handler.util';
-import { districtIdsOfRegion } from '../utils/region-scope.util';
+import { districtIdsOfRegion, narrowToScope } from '../utils/region-scope.util';
 import { resolveRatingYear } from '../services/ratingYear.service.pg';
 
 /**
@@ -37,21 +37,21 @@ async function applyRbacFilters(req: Request, filters: StatisticsFilterPg): Prom
 
     if (user.role === 'teacher' && user.teacherId) {
         // Учитель — самый узкий скоуп, сужать дальше некуда.
-        filters.teacherIds = [parseInt(user.teacherId, 10)];
+        filters.teacherIds = narrowToScope(filters.teacherIds, [parseInt(user.teacherId, 10)]);
         delete filters.districtIds;
         delete filters.schoolIds;
         delete filters.regionIds;
     } else if (user.role === 'schoolDirector' && user.schoolId) {
-        filters.schoolIds = [parseInt(user.schoolId, 10)];
+        filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(user.schoolId, 10)]);
         delete filters.districtIds;
         delete filters.regionIds;
         // teacherIds НЕ удаляем: AND со schoolIds уже ограничивает выборку своей школой.
     } else if (user.role === 'districtRepresenter' && user.districtId) {
-        filters.districtIds = [parseInt(user.districtId, 10)];
+        filters.districtIds = narrowToScope(filters.districtIds, [parseInt(user.districtId, 10)]);
         delete filters.regionIds;
         // schoolIds/teacherIds НЕ удаляем — та же причина, ограничены districtIds через AND.
     } else if (user.role === 'regionRepresenter' && user.regionId) {
-        filters.districtIds = await districtIdsOfRegion(parseInt(user.regionId, 10));
+        filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(user.regionId, 10)));
         delete filters.regionIds;
         // schoolIds/teacherIds НЕ удаляем — та же причина, ограничены districtIds через AND.
     }

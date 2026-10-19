@@ -5,7 +5,7 @@ import { TeacherServicePg } from "../services/teacher.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { saveEntityAvatarPg, removeEntityAvatarPg, canManageOwnEntity, canManageTeacherAvatar, isAdminLike } from "../utils/avatar.util";
-import { districtIdsOfRegion } from "../utils/region-scope.util";
+import { districtIdsOfRegion, narrowToScope } from "../utils/region-scope.util";
 import { canViewEntity } from "../utils/hierarchy-access.util";
 import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 
@@ -32,13 +32,13 @@ export class TeacherController {
             const sort = RequestParser.parseSorting(req, 'name', 'asc');
 
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+                filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
+                filters.teacherIds = narrowToScope(filters.teacherIds, [parseInt(req.user.teacherId, 10)]);
             } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             const result = await this.teacherUseCase.getTeachers(pagination, filters, sort);
@@ -59,13 +59,13 @@ export class TeacherController {
             // Ролевое сужение — тот же блок, что в getTeachers выше. В *ForFilter его раньше не было:
             // districtRepresenter/schoolDirector мог перечислить всех учителей республики через /teachers/filter.
             if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                filters.districtIds = [parseInt(req.user.districtId, 10)];
+                filters.districtIds = narrowToScope(filters.districtIds, [parseInt(req.user.districtId, 10)]);
             } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                filters.schoolIds = [parseInt(req.user.schoolId, 10)];
+                filters.schoolIds = narrowToScope(filters.schoolIds, [parseInt(req.user.schoolId, 10)]);
             } else if (req.user?.role === 'teacher' && req.user.teacherId) {
-                filters.teacherIds = [parseInt(req.user.teacherId, 10)];
+                filters.teacherIds = narrowToScope(filters.teacherIds, [parseInt(req.user.teacherId, 10)]);
             } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
-                filters.districtIds = await districtIdsOfRegion(parseInt(req.user.regionId, 10));
+                filters.districtIds = narrowToScope(filters.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
             }
 
             // active — флаг «reytinqlərdə göstər» у учителя: скрытых видит только управляющая роль.
