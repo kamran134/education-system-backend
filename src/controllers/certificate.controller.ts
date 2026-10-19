@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { CertificateTemplateService } from "../services/certificate-template.service";
+import { CertificateTemplateService, FemaleImageSizeError } from "../services/certificate-template.service";
 import { defaultCertificateLayout } from "../services/certificate-default-layout";
 import { AWARD_CODES, CertificateIssueService } from "../services/certificate-issue.service";
 import { ResponseHandler } from "../utils/response-handler.util";
@@ -127,6 +127,40 @@ export class CertificateController {
         }
     };
 
+    replaceTemplateFemaleImage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            if (!req.file) {
+                res.status(400).json(ResponseHandler.badRequest("Şəkil yüklənməyib"));
+                return;
+            }
+            const updated = await templates.replaceFemaleImage(parseInt(req.params.id, 10), req.file.buffer);
+            if (!updated) {
+                res.status(404).json(ResponseHandler.notFound("Şablon tapılmadı"));
+                return;
+            }
+            res.json(ResponseHandler.updated(updated));
+        } catch (err) {
+            if (err instanceof FemaleImageSizeError) {
+                res.status(400).json(ResponseHandler.badRequest(err.message));
+                return;
+            }
+            next(err);
+        }
+    };
+
+    removeTemplateFemaleImage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const updated = await templates.removeFemaleImage(parseInt(req.params.id, 10));
+            if (!updated) {
+                res.status(404).json(ResponseHandler.notFound("Şablon tapılmadı"));
+                return;
+            }
+            res.json(ResponseHandler.updated(updated));
+        } catch (err) {
+            next(err);
+        }
+    };
+
     deleteTemplate = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const ok = await templates.deactivate(parseInt(req.params.id, 10));
@@ -148,8 +182,10 @@ export class CertificateController {
             const studentResultId: number | undefined = req.body.studentResultId
                 ? parseInt(req.body.studentResultId, 10)
                 : undefined;
+            const variant: 'male' | 'female' | undefined =
+                req.body.variant === "male" || req.body.variant === "female" ? req.body.variant : undefined;
 
-            const pdf = await issue.renderPreview(templateId, fields, studentResultId);
+            const pdf = await issue.renderPreview(templateId, fields, studentResultId, variant);
             res.setHeader("Content-Type", "application/pdf");
             res.setHeader("Content-Disposition", 'inline; filename="onizleme.pdf"');
             res.send(pdf);

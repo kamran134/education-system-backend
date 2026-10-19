@@ -74,6 +74,9 @@ export class StudentUseCase {
             throw new Error('Student not found');
         }
 
+        const genderError = this.validateGender(updateData.gender);
+        if (genderError) throw new Error(genderError);
+
         // DUZELISLER_2026-09-29 п.2: фронт (как в teacher.usecase.ts/school.usecase.ts) может
         // прислать teacher/school/district вложенными объектами вместо плоских id — без этой
         // нормализации выбор другого учителя в диалоге молча не сохранялся бы, т.к.
@@ -280,7 +283,14 @@ export class StudentUseCase {
             ValidationUtils.validateRequired(data.fullname, 'Full name'),
             ValidationUtils.validateRequired(data.code, 'Student code'),
             ValidationUtils.validateCode(data.code, CODE_LENGTHS.STUDENT, CODE_LENGTHS.STUDENT),
-            ValidationUtils.validateNumber(data.grade, 'Grade', 1, 12)
+            ValidationUtils.validateNumber(data.grade, 'Grade', 1, 12),
+            this.validateGender(data.gender)
         ]);
+    }
+
+    /** gender is optional; when present it must be 'm', 'f' or null (unknown). */
+    private validateGender(gender: unknown): string | null {
+        if (gender === undefined || gender === null || gender === 'm' || gender === 'f') return null;
+        return "Gender must be one of 'm', 'f' or null";
     }
 }

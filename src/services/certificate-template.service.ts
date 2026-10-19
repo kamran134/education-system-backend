@@ -21,10 +21,20 @@ export interface CertificateTemplate {
     imagePath: string;
     imageWidth: number;
     imageHeight: number;
+    /** Background for female students; null = no female variant (same size as imagePath). */
+    femaleImagePath: string | null;
     fields: CertificateField[];
     active: boolean;
     createdAt: Date;
     updatedAt: Date;
+}
+
+/** Thrown when an uploaded female variant differs in size from the template's main image; the controller maps it to 400. */
+export class FemaleImageSizeError extends Error {
+    constructor(width: number, height: number) {
+        super(`Qız variantının ölçüsü əsas şəkillə eyni olmalıdır (${width}×${height})`);
+        this.name = "FemaleImageSizeError";
+    }
 }
 
 const CERTIFICATES_DIR = path.join(process.cwd(), "uploads", "certificates");
@@ -46,6 +56,7 @@ function toTemplate(row: any): CertificateTemplate {
         imagePath: row.image_path,
         imageWidth: row.image_width,
         imageHeight: row.image_height,
+        femaleImagePath: row.female_image_path ?? null,
         fields: row.fields ?? [],
         active: row.active,
         createdAt: row.created_at,
@@ -247,13 +258,81 @@ export class CertificateTemplateService {
 
     async replaceImage(id: number, buffer: Buffer): Promise<CertificateTemplate | null> {
         const { imagePath, width, height } = await this.saveImage(buffer);
+        const current = await this.findById(id);
+        // A size change makes the female variant invalid (layout is rescaled to the new main image),
+        // so drop it; the admin has to upload a matching one again.
+        const sizeChanged = !!current && (current.imageWidth !== width || current.imageHeight !== height);
         const row = await pg
             .updateTable("certificate_templates")
-            .set({ image_path: imagePath, image_width: width, image_height: height, updated_at: new Date() })
+            .set({
+                image_path: imagePath,
+                image_width: width,
+                image_height: height,
+                ...(sizeChanged && { female_image_path: null }),
+                updated_at: new Date(),
+            })
             .where("id", "=", id)
             .returningAll()
             .executeTakeFirst();
         return row ? toTemplate(row) : null;
+    }
+
+    /**
+     * Sets the female-variant background. Must have exactly the same pixel size as the main image
+     * (after saveImage normalisation), otherwise FemaleImageSizeError. Returns null if the template
+     * does not exist.
+     */
+    async replaceFemaleImage(id: number, buffer: Buffer): Promise<CertificateTemplate | null> {
+        const template = await this.findById(id);
+        if (!template) return null;
+
+        const { imagePath, width, height } = await this.saveImage(buffer);
+        if (width !== template.imageWidth || height !== template.imageHeight) {
+            // saveImage names files by content hash, so the same file may already be in use elsewhere;
+            // only remove it when nothing references it.
+            await this.deleteFileIfUnreferenced(imagePath);
+            throw new FemaleImageSizeError(template.imageWidth, template.imageHeight);
+        }
+
+        const row = await pg
+            .updateTable("certificate_templates")
+            .set({ female_image_path: imagePath, updated_at: new Date() })
+            .where("id", "=", id)
+            .returningAll()
+            .executeTakeFirst();
+        return row ? toTemplate(row) : null;
+    }
+
+    /**
+     * Clears the female variant. The file stays on disk: issued_certificates.image_path may still
+     * point at it (see saveImage).
+     */
+    async removeFemaleImage(id: number): Promise<CertificateTemplate | null> {
+        const row = await pg
+            .updateTable("certificate_templates")
+            .set({ female_image_path: null, updated_at: new Date() })
+            .where("id", "=", id)
+            .returningAll()
+            .executeTakeFirst();
+        return row ? toTemplate(row) : null;
+    }
+
+    private async deleteFileIfUnreferenced(imagePath: string): Promise<void> {
+        const [inTemplates, inIssued] = await Promise.all([
+            pg
+                .selectFrom("certificate_templates")
+                .select("id")
+                .where((eb) => eb.or([eb("image_path", "=", imagePath), eb("female_image_path", "=", imagePath)]))
+                .limit(1)
+                .executeTakeFirst(),
+            pg.selectFrom("issued_certificates").select("id").where("image_path", "=", imagePath).limit(1).executeTakeFirst(),
+        ]);
+        if (inTemplates || inIssued) return;
+        try {
+            fs.unlinkSync(path.join(CERTIFICATES_DIR, path.basename(imagePath)));
+        } catch {
+            // already gone, nothing to clean up
+        }
     }
 
     async deactivate(id: number): Promise<boolean> {

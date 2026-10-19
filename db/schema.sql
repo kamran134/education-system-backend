@@ -104,6 +104,7 @@ CREATE TABLE students (
     district_id      bigint  REFERENCES districts(id),
     status           text,
     avatar_url       text,
+    gender           text CHECK (gender IN ('m', 'f')),          -- 033_student_gender.sql; NULL = unknown (boy certificate)
     legacy_mongo_id  text UNIQUE
     -- UNIQUE(code) — то, чего нет в Mongo. В проде 2 группы дублей (аудит 25.07.2026),
     -- ETL на них упадёт. Это гейт, а не баг: заказчик решает, кому менять код.
@@ -584,6 +585,7 @@ CREATE TABLE certificate_templates (
     image_path     text NOT NULL,
     image_width    int  NOT NULL,
     image_height   int  NOT NULL,
+    female_image_path text,                       -- 034: girl variant, same px size as image_path
     fields         jsonb NOT NULL DEFAULT '[]'::jsonb,
     active         boolean NOT NULL DEFAULT true,
     created_at     timestamptz NOT NULL DEFAULT now(),

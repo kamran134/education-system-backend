@@ -125,6 +125,7 @@ export interface CertificateTemplates {
   award_code: string;
   created_at: Generated<Timestamp>;
   fields: Generated<Json>;
+  female_image_path: string | null;
   id: Generated<number>;
   image_height: number;
   image_path: string;
@@ -277,6 +278,7 @@ export interface Students {
   code: number;
   district_id: number | null;
   fullname: string;
+  gender: string | null;
   grade: number | null;
   id: Generated<number>;
   legacy_mongo_id: string | null;

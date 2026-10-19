@@ -171,7 +171,7 @@ export class CertificateIssueService {
 
     private async buildData(
         studentResultId: number
-    ): Promise<{ data: CertificateData; levelCode: string; levelScaleId: number }> {
+    ): Promise<{ data: CertificateData; levelCode: string; levelScaleId: number; gender: string | null }> {
         const row = await pg
             .selectFrom("student_results as sr")
             .innerJoin("students as st", "st.id", "sr.student_id")
@@ -189,6 +189,7 @@ export class CertificateIssueService {
                 "sr.academic_year as academic_year",
                 "e.date as exam_date",
                 "st.fullname as student_fullname",
+                "st.gender as student_gender",
                 "sc.name as school_name",
                 "d.name as district_name",
                 "t.fullname as teacher_fullname",
@@ -220,6 +221,8 @@ export class CertificateIssueService {
         return {
             levelCode: row.level,
             levelScaleId: row.level_scale_id,
+            // Kept outside `data`: that object is snapshotted into jsonb and rendered.
+            gender: row.student_gender,
             data: {
                 studentFullName,
                 schoolName: row.school_name,
@@ -258,7 +261,7 @@ export class CertificateIssueService {
             throw new CertificateNotEligibleError("Bu nəticə üçün sertifikat mövcud deyil");
         }
 
-        const { data, levelCode, levelScaleId } = await this.buildData(studentResultId);
+        const { data, levelCode, levelScaleId, gender } = await this.buildData(studentResultId);
 
         // Шаблон резолвится по (award_code, level_scale_id, level_code) — IMTAHAN_NOVLERI_TASK.md
         // §20.3: level_code сам по себе больше не уникален глобально, шаблон градуирован по
@@ -284,7 +287,8 @@ export class CertificateIssueService {
                     student_result_id: studentResultId,
                     award_code: awardCode,
                     template_id: template.id,
-                    image_path: template.imagePath,
+                    // Female variant has the same pixel size as the main image (enforced on upload).
+                    image_path: gender === "f" && template.femaleImagePath ? template.femaleImagePath : template.imagePath,
                     image_width: template.imageWidth,
                     image_height: template.imageHeight,
                     layout: JSON.stringify(template.fields),
@@ -380,16 +384,24 @@ export class CertificateIssueService {
     }
 
     /** Превью в конструкторе — не сохраняется, использует переданную (возможно, ещё не сохранённую) раскладку. */
-    async renderPreview(templateId: number, fields: CertificateField[], studentResultId?: number): Promise<Buffer> {
+    async renderPreview(
+        templateId: number,
+        fields: CertificateField[],
+        studentResultId?: number,
+        variant?: "male" | "female"
+    ): Promise<Buffer> {
         const template = await templateService.findById(templateId);
         if (!template) throw new Error(`certificate_templates.id=${templateId} не найден`);
 
-        const data = studentResultId
-            ? (await this.buildData(studentResultId)).data
-            : SAMPLE_DATA;
+        const built = studentResultId ? await this.buildData(studentResultId) : null;
+        const data = built ? built.data : SAMPLE_DATA;
+
+        // Explicit variant wins; otherwise a given student result decides by the student's gender.
+        const useFemale = (variant ?? (built?.gender === "f" ? "female" : "male")) === "female";
+        const imagePath = useFemale && template.femaleImagePath ? template.femaleImagePath : template.imagePath;
 
         return renderCertificate({
-            imagePath: path.join(process.cwd(), template.imagePath),
+            imagePath: path.join(process.cwd(), imagePath),
             imageWidth: template.imageWidth,
             imageHeight: template.imageHeight,
             layout: fields,

@@ -41,6 +41,12 @@ router
     .route("/templates/:id/image")
     .post(authMiddleware(ADMIN_ROLES), upload.single("image"), controller.replaceTemplateImage);
 
+// Female-variant background: authMiddleware BEFORE upload.single (see CLAUDE.md "Traps").
+router
+    .route("/templates/:id/female-image")
+    .post(authMiddleware(ADMIN_ROLES), upload.single("image"), controller.replaceTemplateFemaleImage)
+    .delete(authMiddleware(ADMIN_ROLES), controller.removeTemplateFemaleImage);
+
 router.route("/templates/:id/preview").post(authMiddleware(ADMIN_ROLES), controller.previewTemplate);
 
 // Раскладка source-шаблона, отмасштабированная под :id — не сохраняет, только считает.

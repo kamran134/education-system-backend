@@ -10,6 +10,7 @@ import { PaginationOptions, FilterOptionsPg, SortOptions } from "../types/common
 import { readExcel } from "./excel.service";
 import { deleteFile } from "./file.service";
 import { CODE_DIVISORS, CODE_RANGES } from "../utils/entity-codes.const";
+import { inferGenders } from "../utils/student-gender.util";
 
 // SAGIRD_FULLNAME_TASK.md §5: заголовок col 2 файла импорта, распознаваемый как ОДНА колонка ФИО
 // (а не первая из трёх legacy-колонок Soyadı/Adı/Ata adı). "Soyadı, adı, ata adı" — заголовок,
@@ -742,6 +743,10 @@ export class StudentResultServicePg {
             });
         }
 
+        // Gender of NEW students only (existing ones are never touched on import), inferred inside
+        // the import transaction from existing students' names, falling back to the surname.
+        const genders = await inferGenders(trx, studentsWithTeacher.map((s) => s.fullname));
+
         let newStudentsRows: Array<{ id: number; code: number }> = [];
         const CHUNK = 1000;
         for (let i = 0; i < studentsWithTeacher.length; i += CHUNK) {
@@ -751,6 +756,7 @@ export class StudentResultServicePg {
                     studentsWithTeacher.slice(i, i + CHUNK).map((s) => ({
                         code: s.code, fullname: s.fullname,
                         grade: s.grade ?? null, teacher_id: s.teacherId, school_id: s.schoolId ?? null, district_id: s.districtId ?? null,
+                        gender: genders.get(s.fullname) ?? null,
                     }))
                 )
                 .returning(["id", "code"])

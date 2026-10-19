@@ -43,6 +43,8 @@ export interface Student {
     district: EntitySummary | null;
     status: string | null;
     avatarUrl: string | null;
+    /** 'm' | 'f' | null (null = unknown). Selects the certificate background variant. */
+    gender: string | null;
     score: number | null;
     averageScore: number | null;
     place: number | null;
@@ -63,6 +65,7 @@ export interface StudentCreate {
     schoolId?: number | null;
     districtId?: number | null;
     status?: string;
+    gender?: 'm' | 'f' | null;
 }
 
 export interface ExamSummary {
@@ -113,7 +116,7 @@ export interface StudentResultRow {
 type StudentRow = {
     id: number; code: number; fullname: string;
     grade: number | null; teacher_id: number | null; school_id: number | null; district_id: number | null;
-    status: string | null; avatar_url: string | null;
+    status: string | null; avatar_url: string | null; gender: string | null;
 };
 
 /**
@@ -223,7 +226,7 @@ export class StudentServicePg {
             .values({
                 code: data.code, fullname: data.fullname, grade: data.grade ?? null,
                 teacher_id: teacherId ?? null, school_id: schoolId ?? null, district_id: districtId ?? null,
-                status: data.status ?? null,
+                status: data.status ?? null, gender: data.gender ?? null,
             })
             .returningAll()
             .executeTakeFirstOrThrow();
@@ -241,6 +244,7 @@ export class StudentServicePg {
                 ...(data.schoolId !== undefined && { school_id: data.schoolId }),
                 ...(data.districtId !== undefined && { district_id: data.districtId }),
                 ...(data.status !== undefined && { status: data.status }),
+                ...(data.gender !== undefined && { gender: data.gender }),
             })
             .where("id", "=", id)
             .returningAll()
@@ -849,7 +853,7 @@ export class StudentServicePg {
                 teacher: teacher ? { id: teacher.id, code: teacher.code, fullname: teacher.fullname } : null,
                 school: school ? { id: school.id, code: school.code, name: school.name } : null,
                 district: district ? { id: district.id, code: district.code, name: district.name } : null,
-                status: row.status, avatarUrl: row.avatar_url,
+                status: row.status, avatarUrl: row.avatar_url, gender: row.gender,
                 score: (hasJoinedRating ? row.current_score : current?.score) ?? null,
                 averageScore: (hasJoinedRating ? row.current_average_score : current?.averageScore) ?? null,
                 place: (hasJoinedRating ? row.current_place : current?.place) ?? null,
