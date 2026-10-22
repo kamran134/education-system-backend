@@ -98,3 +98,19 @@ DESC` → `ORDER BY score DESC`, `WHERE average_score > 0` → `WHERE score > 0`
 `place` считался не из персистентной view, а на лету под колонку сортировки; дефолт (без явной
 сортировки по `averageScore`) был `average_score`, стал `score` — иначе `/stats` (районы) при
 первой загрузке показывал бы место, расходящееся с профилем района.
+
+## Обновление 22.10.2026 — места по orta xal и нормальный средний балл района
+
+Решения владельца (RATING_PLACES_TASK.md, миграция `035_average_places_and_district_average.sql`):
+
+- Средний балл района теперь `score / число учеников района` (`count(*) FROM students WHERE district_id = d.id`),
+  как у региона. Легаси-делитель `ученики × школы` из Mongo (см. выше) больше не воспроизводится; архив
+  `district_year_ratings.average_score` пересчитан, `score` не тронут (контрольные суммы закрытия считают только
+  `count(*)` и `sum(score)`).
+- Рейтинг по `score` (`place`, `district_place`) не меняется. Рядом хранятся вторые места по среднему баллу:
+  `average_place` (учитель, школа, район) и `average_district_place` (учитель, школа) — считаются во вьюхах
+  `v_*_places` тем же `dense_rank()` с теми же партициями, только `ORDER BY average_score DESC`, и пишутся в
+  `*_year_ratings` при пересчёте. Только для строк со `score > 0`.
+- Колонка «Filtr üzrə yer» в таблицах считается на лету по метрике, по которой отсортирована таблица
+  (`averageScore` -> по среднему, всё остальное -> по `score`); в ответ добавлено `filterPlaceBasis`.
+  В месячном срезе среднего нет, там всегда `score`.

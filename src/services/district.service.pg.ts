@@ -13,6 +13,8 @@ export interface YearRatingRow {
     score: number | null;
     averageScore: number | null;
     place: number | null;
+    // By average score (035_average_places_and_district_average.sql); place is by raw score.
+    averagePlace: number | null;
 }
 
 export interface District {
@@ -39,6 +41,7 @@ export interface District {
     score?: number | null;
     averageScore?: number | null;
     place?: number | null;
+    averagePlace?: number | null;
 }
 
 export interface DistrictCreate {
@@ -334,7 +337,7 @@ export class DistrictServicePg {
         const [ratingRows, region] = await Promise.all([
             pg
                 .selectFrom("district_year_ratings")
-                .select(["year", "score", "average_score", "place"])
+                .select(["year", "score", "average_score", "place", "average_place"])
                 .where("district_id", "=", row.id)
                 .where("exam_type_id", "=", profileHistoryExamTypeId)
                 .orderBy("year")
@@ -362,10 +365,11 @@ export class DistrictServicePg {
             active: row.active,
             avatarUrl: row.avatar_url,
             educationHeadName: row.education_head_name,
-            ratings: ratingRows.map((r) => ({ year: r.year, score: r.score, averageScore: r.average_score, place: r.place })),
+            ratings: ratingRows.map((r) => ({ year: r.year, score: r.score, averageScore: r.average_score, place: r.place, averagePlace: r.average_place })),
             score: current?.score ?? null,
             averageScore: current?.average_score ?? null,
             place: current?.place ?? null,
+            averagePlace: current?.average_place ?? null,
         };
     }
 
@@ -393,6 +397,7 @@ export class DistrictServicePg {
             score: current?.score ?? null,
             averageScore: current?.averageScore ?? null,
             place: current?.place ?? null,
+            averagePlace: current?.averagePlace ?? null,
         };
     }
 }

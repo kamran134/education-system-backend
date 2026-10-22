@@ -7,6 +7,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
 import { academicYearClosureServicePg } from "./academicYearClosure.service.pg";
 import { resolveExamTypeId } from "./examType.service.pg";
+import { rankMetric, denseRankByMetric, RankBasis } from "../utils/rank-metric.util";
 
 export interface StatisticsFilterPg extends FilterOptionsPg {
     month?: string;
@@ -38,6 +39,13 @@ export interface StudentResultStatRow {
         district: { id: number; name: string } | null;
     };
     examData: { id: number; name: string; date: Date } | null;
+}
+
+/** Page of a rating table. filterPlaceBasis tells the UI which metric the filterPlace column was ranked by. */
+export interface RankedPage {
+    data: RankedEntity[];
+    totalCount: number;
+    filterPlaceBasis: RankBasis;
 }
 
 export interface RankedEntity {
@@ -349,8 +357,8 @@ export class StatsServicePg {
     private async recomputeTeacherRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
         await db.deleteFrom("teacher_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO teacher_year_ratings (teacher_id, year, exam_type_id, score, average_score, place, district_place)
-            SELECT ts.teacher_id, ts.academic_year, ts.exam_type_id, ts.score, ts.average_score, p.place, p.district_place
+            INSERT INTO teacher_year_ratings (teacher_id, year, exam_type_id, score, average_score, place, district_place, average_place, average_district_place)
+            SELECT ts.teacher_id, ts.academic_year, ts.exam_type_id, ts.score, ts.average_score, p.place, p.district_place, p.average_place, p.average_district_place
             FROM v_teacher_year_scores ts
             LEFT JOIN v_teacher_places p ON p.teacher_id = ts.teacher_id AND p.academic_year = ts.academic_year AND p.exam_type_id = ts.exam_type_id
             WHERE ts.academic_year = ${year} AND ts.exam_type_id = ${examTypeId}
@@ -360,8 +368,8 @@ export class StatsServicePg {
     private async recomputeSchoolRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
         await db.deleteFrom("school_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO school_year_ratings (school_id, year, exam_type_id, score, average_score, place, district_place)
-            SELECT ss.school_id, ss.academic_year, ss.exam_type_id, ss.score, ss.average_score, p.place, p.district_place
+            INSERT INTO school_year_ratings (school_id, year, exam_type_id, score, average_score, place, district_place, average_place, average_district_place)
+            SELECT ss.school_id, ss.academic_year, ss.exam_type_id, ss.score, ss.average_score, p.place, p.district_place, p.average_place, p.average_district_place
             FROM v_school_year_scores ss
             LEFT JOIN v_school_places p ON p.school_id = ss.school_id AND p.academic_year = ss.academic_year AND p.exam_type_id = ss.exam_type_id
             WHERE ss.academic_year = ${year} AND ss.exam_type_id = ${examTypeId}
@@ -371,8 +379,8 @@ export class StatsServicePg {
     private async recomputeDistrictRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
         await db.deleteFrom("district_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO district_year_ratings (district_id, year, exam_type_id, score, average_score, place)
-            SELECT ds.district_id, ds.academic_year, ds.exam_type_id, ds.score, ds.average_score, p.place
+            INSERT INTO district_year_ratings (district_id, year, exam_type_id, score, average_score, place, average_place)
+            SELECT ds.district_id, ds.academic_year, ds.exam_type_id, ds.score, ds.average_score, p.place, p.average_place
             FROM v_district_year_scores ds
             LEFT JOIN v_district_places p ON p.district_id = ds.district_id AND p.academic_year = ds.academic_year AND p.exam_type_id = ds.exam_type_id
             WHERE ds.academic_year = ${year} AND ds.exam_type_id = ${examTypeId}
@@ -614,7 +622,7 @@ export class StatsServicePg {
         filters: FilterOptionsPg & { page?: number; size?: number },
         sortColumn: string,
         sortDirection: string
-    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+    ): Promise<RankedPage> {
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
@@ -653,7 +661,8 @@ export class StatsServicePg {
         // filterPlace: dense rank by score within this exact filtered scope (same WHERE as baseQuery,
         // no separate query needed — the scope here already equals the result scope, unlike students
         // where code/search must be excluded from the rank; see getFilteredStudents).
-        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(tyr.score, 0) DESC)`;
+        const rank = rankMetric(sortColumn, { score: "tyr.score", averageScore: "tyr.average_score" });
+        const filterPlaceExpr = denseRankByMetric(rank.expr);
         const sortMap: Record<string, any> = {
             score: sql`tyr.score`, averageScore: sql`tyr.average_score`, place: sql`tyr.place`,
             districtPlace: sql`tyr.district_place`, code: sql`t.code`,
@@ -692,7 +701,7 @@ export class StatsServicePg {
             district: r.teacher_district_id ? { id: r.teacher_district_id, name: r.teacher_district_name! } : null,
         }));
 
-        return { data, totalCount: Number(countRow.count) };
+        return { data, totalCount: Number(countRow.count), filterPlaceBasis: rank.basis };
     }
 
     /**
@@ -708,7 +717,7 @@ export class StatsServicePg {
         monthFilter: { year: number; month: number },
         regionDistrictIds: number[] | null,
         examTypeId: number
-    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+    ): Promise<RankedPage> {
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
@@ -733,7 +742,8 @@ export class StatsServicePg {
         };
 
         const isSelfView = !!(filters.teacherIds && filters.teacherIds.length > 0);
-        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(tms.score, 0) DESC)`;
+        const rank = rankMetric(sortColumn, { score: "tms.score" });
+        const filterPlaceExpr = denseRankByMetric(rank.expr);
         const sortMap: Record<string, any> = {
             score: sql`tms.score`,
             // averageScore не существует в месячном срезе — подменяем на score, а не роняем запрос.
@@ -777,14 +787,14 @@ export class StatsServicePg {
             district: r.teacher_district_id ? { id: r.teacher_district_id, name: r.teacher_district_name! } : null,
         }));
 
-        return { data, totalCount: Number(countRow.count) };
+        return { data, totalCount: Number(countRow.count), filterPlaceBasis: rank.basis };
     }
 
     async getSchoolStatistics(
         filters: FilterOptionsPg & { page?: number; size?: number },
         sortColumn: string,
         sortDirection: string
-    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+    ): Promise<RankedPage> {
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
@@ -814,7 +824,8 @@ export class StatsServicePg {
 
         // filterPlace: dense rank by score within this exact filtered scope — same reasoning as
         // getTeacherStatistics above.
-        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(syr.score, 0) DESC)`;
+        const rank = rankMetric(sortColumn, { score: "syr.score", averageScore: "syr.average_score" });
+        const filterPlaceExpr = denseRankByMetric(rank.expr);
         const sortMap: Record<string, any> = {
             score: sql`syr.score`, averageScore: sql`syr.average_score`, place: sql`syr.place`,
             districtPlace: sql`syr.district_place`, code: sql`sc.code`, name: sql`sc.name COLLATE az_ci`,
@@ -844,7 +855,7 @@ export class StatsServicePg {
             district: r.school_district_id ? { id: r.school_district_id, name: r.school_district_name! } : null,
         }));
 
-        return { data, totalCount: Number(countRow.count) };
+        return { data, totalCount: Number(countRow.count), filterPlaceBasis: rank.basis };
     }
 
     /**
@@ -859,7 +870,7 @@ export class StatsServicePg {
         monthFilter: { year: number; month: number },
         regionDistrictIds: number[] | null,
         examTypeId: number
-    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+    ): Promise<RankedPage> {
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
@@ -879,7 +890,8 @@ export class StatsServicePg {
             return q;
         };
 
-        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(sms.score, 0) DESC)`;
+        const rank = rankMetric(sortColumn, { score: "sms.score" });
+        const filterPlaceExpr = denseRankByMetric(rank.expr);
         const sortMap: Record<string, any> = {
             score: sql`sms.score`,
             // averageScore не существует в месячном срезе — подменяем на score.
@@ -915,7 +927,7 @@ export class StatsServicePg {
             district: r.school_district_id ? { id: r.school_district_id, name: r.school_district_name! } : null,
         }));
 
-        return { data, totalCount: Number(countRow.count) };
+        return { data, totalCount: Number(countRow.count), filterPlaceBasis: rank.basis };
     }
 
     /**
@@ -928,7 +940,7 @@ export class StatsServicePg {
         filters: FilterOptionsPg & { page?: number; size?: number },
         sortColumn: string,
         sortDirection: string
-    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+    ): Promise<RankedPage> {
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
@@ -955,7 +967,8 @@ export class StatsServicePg {
 
         // filterPlace: dense rank by score within this exact filtered scope — same reasoning as
         // getTeacherStatistics above.
-        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(ryr.score, 0) DESC)`;
+        const rank = rankMetric(sortColumn, { score: "ryr.score", averageScore: "ryr.average_score" });
+        const filterPlaceExpr = denseRankByMetric(rank.expr);
         const sortMap: Record<string, any> = {
             score: sql`ryr.score`, averageScore: sql`ryr.average_score`, place: sql`ryr.place`,
             code: sql`r.code`, name: sql`r.name COLLATE az_ci`,
@@ -988,7 +1001,7 @@ export class StatsServicePg {
             filterPlace: r.filter_place ?? null,
         }));
 
-        return { data, totalCount: Number(countRow.count) };
+        return { data, totalCount: Number(countRow.count), filterPlaceBasis: rank.basis };
     }
 
     /**
@@ -1002,7 +1015,7 @@ export class StatsServicePg {
         sortDirection: string,
         monthFilter: { year: number; month: number },
         examTypeId: number
-    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+    ): Promise<RankedPage> {
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
@@ -1020,7 +1033,8 @@ export class StatsServicePg {
             return q;
         };
 
-        const filterPlaceExpr = sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(rms.score, 0) DESC)`;
+        const rank = rankMetric(sortColumn, { score: "rms.score" });
+        const filterPlaceExpr = denseRankByMetric(rank.expr);
         const sortMap: Record<string, any> = {
             score: sql`rms.score`,
             // averageScore не существует в месячном срезе — подменяем на score.
@@ -1055,7 +1069,7 @@ export class StatsServicePg {
             filterPlace: r.filter_place ?? null,
         }));
 
-        return { data, totalCount: Number(countRow.count) };
+        return { data, totalCount: Number(countRow.count), filterPlaceBasis: rank.basis };
     }
 
     /**
@@ -1068,7 +1082,7 @@ export class StatsServicePg {
         filters: FilterOptionsPg & { page?: number; size?: number },
         sortColumn: string,
         sortDirection: string
-    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+    ): Promise<RankedPage> {
         const currentYear = filters.academicYear ?? getCurrentAcademicYear();
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
@@ -1081,6 +1095,7 @@ export class StatsServicePg {
             return this.getDistrictStatisticsByMonth(filters, sortColumn, sortDirection, monthFilter, examTypeId);
         }
 
+        const rank = rankMetric(sortColumn, { score: "dyr.score", averageScore: "dyr.average_score" });
         let query = pg
             .selectFrom("districts as d")
             .leftJoin("district_year_ratings as dyr", (join) =>
@@ -1089,7 +1104,7 @@ export class StatsServicePg {
             .select(["d.id as id", "d.code as code", "d.name as name", "d.region_id as region_id", "d.student_count as student_count", "dyr.score as score", "dyr.average_score as average_score"])
             // filterPlace: dense rank by score within this exact (code-filtered) scope — same reasoning
             // as getTeacherStatistics above; matches what buildFilterPlaceMap used to compute over allData.
-            .select(sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(dyr.score, 0) DESC)`.as("filter_place"))
+            .select(denseRankByMetric(rank.expr).as("filter_place"))
             .orderBy(sql`d.name COLLATE az_ci`);
         if (filters.code) {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
@@ -1160,7 +1175,7 @@ export class StatsServicePg {
             data = ordered.slice(skip, skip + size);
         }
 
-        return { data, totalCount };
+        return { data, totalCount, filterPlaceBasis: rank.basis };
     }
 
     /**
@@ -1176,11 +1191,12 @@ export class StatsServicePg {
         sortDirection: string,
         monthFilter: { year: number; month: number },
         examTypeId: number
-    ): Promise<{ data: RankedEntity[]; totalCount: number }> {
+    ): Promise<RankedPage> {
         const page = filters.page ?? 1;
         const size = (filters as any).size ?? 100;
         const skip = (page - 1) * size;
 
+        const rank = rankMetric(sortColumn, { score: "dms.score" });
         let query = pg
             .selectFrom("districts as d")
             .leftJoin("v_district_month_scores as dms", (join) =>
@@ -1188,7 +1204,7 @@ export class StatsServicePg {
                     .on("dms.month", "=", monthFilter.month).on("dms.exam_type_id", "=", examTypeId)
             )
             .select(["d.id as id", "d.code as code", "d.name as name", "d.region_id as region_id", "d.student_count as student_count", "dms.score as score"])
-            .select(sql<number>`DENSE_RANK() OVER (ORDER BY COALESCE(dms.score, 0) DESC)`.as("filter_place"))
+            .select(denseRankByMetric(rank.expr).as("filter_place"))
             .orderBy(sql`d.name COLLATE az_ci`);
         if (filters.code) {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
@@ -1250,7 +1266,7 @@ export class StatsServicePg {
             data = ordered.slice(skip, skip + size);
         }
 
-        return { data, totalCount };
+        return { data, totalCount, filterPlaceBasis: rank.basis };
     }
 }
 

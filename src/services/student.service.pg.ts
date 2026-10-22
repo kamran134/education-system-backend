@@ -9,6 +9,7 @@ import { deleteLinkedUsers } from "../utils/linked-users.util";
 import { getCurrentAcademicYear, parseMonthFilter } from "../utils/academic-year.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
 import { resolveExamTypeId } from "./examType.service.pg";
+import { rankMetric, denseRankByMetric, RankBasis } from "../utils/rank-metric.util";
 
 export interface YearRatingRow {
     year: number;
@@ -305,7 +306,7 @@ export class StudentServicePg {
         pagination: PaginationOptions,
         filters: FilterOptionsPg,
         sort: SortOptions
-    ): Promise<{ data: Student[]; totalCount: number }> {
+    ): Promise<{ data: Student[]; totalCount: number; filterPlaceBasis: RankBasis }> {
         // Месячный режим (п.10 ТЗ 04.09.2026, MONTHLY_RATINGS_TASK.md) — отдельная ветка, не
         // общий билдер с условными выражениями внутри: годовая ветка ниже должна остаться
         // нетронутой байт-в-байт. Год здесь пришёл явно вместе с месяцем — resolveRatingYear()
@@ -350,6 +351,7 @@ export class StudentServicePg {
         // by grade, matching the old Mongo-version buildScorePlaceMap. A joined derived table instead of
         // a second JS ranking pass, same technique already used for participation_count below.
         const rankFilterOptions = { ...filters, code: undefined, search: undefined };
+        const rank = rankMetric(sort.sortColumn, { score: "student_year_ratings.score", averageScore: "student_year_ratings.average_score" });
         const filterPlaceSubquery = this.applyFilter(
             pg.selectFrom("students")
                 // Балл — за ratingYear (не currentYear): "место в рамках фильтра" ранжирует
@@ -370,7 +372,7 @@ export class StudentServicePg {
             // "место в рамках фильтра" считается внутри того класса, который показан в строке
             // (year_grade), а не живого students.grade — иначе после повышения место "уезжает"
             // в чужой класс вместе со строкой.
-            sql<number>`DENSE_RANK() OVER (PARTITION BY coalesce(${yearGradeExpr}, 0) ORDER BY coalesce(student_year_ratings.score, 0) DESC)`.as("filter_place"),
+            denseRankByMetric(rank.expr, sql`coalesce(${yearGradeExpr}, 0)`).as("filter_place"),
         ]);
 
         // participationCount — теперь просто COUNT по academic_year (generated column), без ручного $or по месяцам.
@@ -450,7 +452,7 @@ export class StudentServicePg {
         ]);
 
         const data = await this.attachExtras(rows);
-        return { data, totalCount: Number(countRow.count) };
+        return { data, totalCount: Number(countRow.count), filterPlaceBasis: rank.basis };
     }
 
     /**
@@ -467,7 +469,7 @@ export class StudentServicePg {
         filters: FilterOptionsPg,
         sort: SortOptions,
         monthFilter: { year: number; month: number }
-    ): Promise<{ data: Student[]; totalCount: number }> {
+    ): Promise<{ data: Student[]; totalCount: number; filterPlaceBasis: RankBasis }> {
         // Класс ученика ЗА ЭТОТ МЕСЯЦ — единственное выражение для фильтра/сортировки/ответа, как
         // yearGradeExpr в годовой ветке.
         const monthGradeExpr = sql<number | null>`sms.grade`;
@@ -475,6 +477,7 @@ export class StudentServicePg {
         // filterPlace: dense rank by score within the current filter scope, excluding code/search —
         // same reasoning as in getFilteredStudents, partitioned by the month's grade.
         const rankFilterOptions = { ...filters, code: undefined, search: undefined };
+        const rank = rankMetric(sort.sortColumn, { score: "sms.score" });
         const filterPlaceSubquery = this.applyFilter(
             pg.selectFrom("students")
                 .leftJoin("v_student_month_scores as sms", (join) =>
@@ -484,7 +487,7 @@ export class StudentServicePg {
             monthGradeExpr
         ).select([
             "students.id as student_id",
-            sql<number>`DENSE_RANK() OVER (PARTITION BY coalesce(${monthGradeExpr}, 0) ORDER BY coalesce(sms.score, 0) DESC)`.as("filter_place"),
+            denseRankByMetric(rank.expr, sql`coalesce(${monthGradeExpr}, 0)`).as("filter_place"),
         ]);
 
         let base = pg
@@ -545,7 +548,7 @@ export class StudentServicePg {
         ]);
 
         const data = await this.attachExtras(rows);
-        return { data, totalCount: Number(countRow.count) };
+        return { data, totalCount: Number(countRow.count), filterPlaceBasis: rank.basis };
     }
 
     /**

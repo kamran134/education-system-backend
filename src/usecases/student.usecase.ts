@@ -5,6 +5,7 @@ import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS, CODE_DIVISORS, rebaseCode } from "../utils/entity-codes.const";
 import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 import { pg } from "../config/pg";
+import { RankBasis } from "../utils/rank-metric.util";
 
 export class StudentUseCase {
     constructor(private studentService: StudentServicePg) {}
@@ -13,12 +14,13 @@ export class StudentUseCase {
         pagination: PaginationOptions,
         filters: FilterOptionsPg,
         sort: SortOptions
-    ): Promise<PaginatedResponse<Student>> {
-        const { data, totalCount } = await this.studentService.getFilteredStudents(pagination, filters, sort);
+    ): Promise<PaginatedResponse<Student> & { filterPlaceBasis: RankBasis }> {
+        const { data, totalCount, filterPlaceBasis } = await this.studentService.getFilteredStudents(pagination, filters, sort);
 
         return {
             data,
             totalCount,
+            filterPlaceBasis,
             page: pagination.page,
             size: pagination.size,
             totalPages: Math.ceil(totalCount / pagination.size)

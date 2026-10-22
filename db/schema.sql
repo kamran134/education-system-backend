@@ -374,6 +374,8 @@ CREATE TABLE teacher_year_ratings (
     place          int,
     district_place int,
     exam_type_id   bigint NOT NULL REFERENCES exam_types(id),      -- 025_ratings_by_exam_type.sql
+    average_place  int,                                            -- 035: place by average_score
+    average_district_place int,                                    -- 035
     PRIMARY KEY (teacher_id, year, exam_type_id)
 );
 
@@ -385,6 +387,8 @@ CREATE TABLE school_year_ratings (
     place          int,
     district_place int,
     exam_type_id   bigint NOT NULL REFERENCES exam_types(id),      -- 025_ratings_by_exam_type.sql
+    average_place  int,                                            -- 035: place by average_score
+    average_district_place int,                                    -- 035
     PRIMARY KEY (school_id, year, exam_type_id)
 );
 
@@ -395,6 +399,7 @@ CREATE TABLE district_year_ratings (
     average_score  double precision,
     place          int,                                           -- district_place у района отсутствует и в Mongo
     exam_type_id   bigint NOT NULL REFERENCES exam_types(id),      -- 025_ratings_by_exam_type.sql
+    average_place  int,                                            -- 035: place by average_score
     PRIMARY KEY (district_id, year, exam_type_id)
 );
 
@@ -734,7 +739,10 @@ SELECT ts.teacher_id,
        ts.academic_year,
        ts.exam_type_id,
        dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id ORDER BY ts.score DESC) AS place,
-       dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id, t.district_id ORDER BY ts.score DESC) AS district_place
+       dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id, t.district_id ORDER BY ts.score DESC) AS district_place,
+       -- 035: second place, by average_score (the stored place/district_place stay by raw score)
+       dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id ORDER BY ts.average_score DESC) AS average_place,
+       dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id, t.district_id ORDER BY ts.average_score DESC) AS average_district_place
 FROM v_teacher_year_scores ts
 JOIN teachers t ON t.id = ts.teacher_id
 WHERE ts.score > 0;
@@ -759,41 +767,32 @@ SELECT ss.school_id,
        ss.academic_year,
        ss.exam_type_id,
        dense_rank() OVER (PARTITION BY ss.academic_year, ss.exam_type_id ORDER BY ss.score DESC) AS place,
-       dense_rank() OVER (PARTITION BY ss.academic_year, ss.exam_type_id, sc.district_id ORDER BY ss.score DESC) AS district_place
+       dense_rank() OVER (PARTITION BY ss.academic_year, ss.exam_type_id, sc.district_id ORDER BY ss.score DESC) AS district_place,
+       -- 035: second place, by average_score
+       dense_rank() OVER (PARTITION BY ss.academic_year, ss.exam_type_id ORDER BY ss.average_score DESC) AS average_place,
+       dense_rank() OVER (PARTITION BY ss.academic_year, ss.exam_type_id, sc.district_id ORDER BY ss.average_score DESC) AS average_district_place
 FROM v_school_year_scores ss
 JOIN schools sc ON sc.id = ss.school_id
 WHERE ss.score > 0;
 
 -- Район: сумма баллов его школ (по типу экзамена). stats.service.ts:1723
 --
--- ⚠️ Делитель воспроизводит текущее поведение ДОСЛОВНО, включая ошибку.
--- В Mongo пайплайн идёт по школам, для каждой школы делает lookup ВСЕХ учеников района
--- и суммирует размеры — то есть делитель равен (учеников в районе × школ в районе),
--- а не числу учеников. Средний балл районов из-за этого занижен в «число школ» раз.
--- Места районов от этого не зависят (они по score), но цифра average_score показывается в UI.
--- Правильный вариант — деление на students_in_district — ниже закомментирован.
--- НЕ подменять молча: это решение заказчика, см. db/rating-semantics.md. Делитель НЕ зависит
--- от типа экзамена (чистый count() учеников/школ района) — 025_ratings_by_exam_type.sql его
--- не трогает, партиционируется только сумма баллов сверху.
+-- Средний балл = score / ЖИВОЕ число учеников района (как у региона). Легаси-делитель Mongo
+-- (ученики_района × школы_района) заменён по решению владельца 22.10.2026 — 035_average_places_and_district_average.sql.
+-- Делитель НЕ зависит от типа экзамена (чистый count() учеников района).
 CREATE VIEW v_district_year_scores AS
 SELECT d.id AS district_id,
        ss.academic_year,
        ss.exam_type_id,
        sum(ss.score) AS score,
-       CASE WHEN cnt.legacy_divisor > 0 THEN sum(ss.score) / cnt.legacy_divisor ELSE 0 END AS average_score
-       -- корректный вариант:
-       -- CASE WHEN cnt.students_in_district > 0 THEN sum(ss.score) / cnt.students_in_district ELSE 0 END
+       CASE WHEN cnt.students_in_district > 0 THEN sum(ss.score) / cnt.students_in_district ELSE 0 END AS average_score
 FROM districts d
 JOIN schools sch              ON sch.district_id = d.id
 JOIN v_school_year_scores ss  ON ss.school_id = sch.id
 CROSS JOIN LATERAL (
-    SELECT st.students_in_district,
-           sc2.schools_in_district,
-           st.students_in_district * sc2.schools_in_district AS legacy_divisor
-    FROM (SELECT count(*) AS students_in_district FROM students  WHERE district_id = d.id) st,
-         (SELECT count(*) AS schools_in_district  FROM schools   WHERE district_id = d.id) sc2
+    SELECT count(*) AS students_in_district FROM students WHERE district_id = d.id
 ) cnt
-GROUP BY d.id, ss.academic_year, ss.exam_type_id, cnt.legacy_divisor, cnt.students_in_district;
+GROUP BY d.id, ss.academic_year, ss.exam_type_id, cnt.students_in_district;
 
 -- Район: места. По score, та же логика. district_place у района не существовал ни в одном из путей.
 -- См. 013_ratings_by_raw_score.sql, 025_ratings_by_exam_type.sql.
@@ -801,13 +800,15 @@ CREATE VIEW v_district_places AS
 SELECT ds.district_id,
        ds.academic_year,
        ds.exam_type_id,
-       dense_rank() OVER (PARTITION BY ds.academic_year, ds.exam_type_id ORDER BY ds.score DESC) AS place
+       dense_rank() OVER (PARTITION BY ds.academic_year, ds.exam_type_id ORDER BY ds.score DESC) AS place,
+       -- 035: second place, by average_score
+       dense_rank() OVER (PARTITION BY ds.academic_year, ds.exam_type_id ORDER BY ds.average_score DESC) AS average_place
 FROM v_district_year_scores ds
 WHERE ds.score > 0;
 
 -- Регион (PHASE3 п.1б, 005_regions.sql): сумма баллов его районов (по типу экзамена). Делитель —
 -- ЖИВОЕ число учеников региона, а не денормализованное поле — решение пользователя 08.08.2026.
--- Легаси-ошибка делителя из v_district_year_scores (ученики_района × школы_района) сюда
+-- Легаси-ошибка делителя районов (ученики_района × школы_района; исправлена в 035) сюда
 -- СОЗНАТЕЛЬНО не переносится: это отдельная сущность, не обязана повторять баг района.
 -- Пока район не привязан ни к одному региону (region_id IS NULL) — регион просто не
 -- получает строки, это корректное поведение, а не пробел.
@@ -945,7 +946,7 @@ WHERE ss.score > 0;
 -- ============================================================ район (təhsil sektoru)
 
 -- Сумма баллов школ района за месяц (по типу экзамена). Легаси-делитель среднего балла
--- (ученики_района × школы_района), который дословно воспроизведён в v_district_year_scores,
+-- (ученики_района × школы_района; в v_district_year_scores заменён в 035),
 -- сюда НЕ переносится — среднего балла в месячном срезе нет вовсе, переносить нечего.
 CREATE VIEW v_district_month_scores AS
 SELECT d.id AS district_id,

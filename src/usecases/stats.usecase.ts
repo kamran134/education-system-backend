@@ -1,4 +1,4 @@
-import { StatsServicePg, StatisticsFilterPg, StudentResultStatRow, RankedEntity } from "../services/stats.service.pg";
+import { StatsServicePg, StatisticsFilterPg, StudentResultStatRow, RankedPage } from "../services/stats.service.pg";
 import { FilterOptionsPg, ValidationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 
@@ -76,40 +76,28 @@ export class StatsUseCase {
         return await this.statsService.getStatisticsByExam(parseInt(examId, 10));
     }
 
-    async getTeacherStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
-        data: RankedEntity[];
-        totalCount: number;
-    }> {
+    async getTeacherStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<RankedPage> {
         const sortColumn = filters.sortColumn || 'averageScore';
         const sortDirection = filters.sortDirection || 'desc';
 
         return await this.statsService.getTeacherStatistics(filters, sortColumn, sortDirection);
     }
 
-    async getSchoolStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
-        data: RankedEntity[];
-        totalCount: number;
-    }> {
+    async getSchoolStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<RankedPage> {
         const sortColumn = filters.sortColumn || 'averageScore';
         const sortDirection = filters.sortDirection || 'desc';
 
         return await this.statsService.getSchoolStatistics(filters, sortColumn, sortDirection);
     }
 
-    async getDistrictStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
-        data: RankedEntity[];
-        totalCount: number;
-    }> {
+    async getDistrictStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<RankedPage> {
         const sortColumn = filters.sortColumn || 'averageScore';
         const sortDirection = filters.sortDirection || 'desc';
 
         return await this.statsService.getDistrictStatistics(filters, sortColumn, sortDirection);
     }
 
-    async getRegionStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<{
-        data: RankedEntity[];
-        totalCount: number;
-    }> {
+    async getRegionStatistics(filters: FilterOptionsPg & { sortColumn?: string; sortDirection?: string; page?: number; size?: number }): Promise<RankedPage> {
         const sortColumn = filters.sortColumn || 'averageScore';
         const sortDirection = filters.sortDirection || 'desc';
 

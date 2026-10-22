@@ -71,6 +71,8 @@ export interface DistrictYearRatings {
   // Добавлено 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3. PK расширен до
   // (district_id, year, exam_type_id).
   exam_type_id: number;
+  // Added by 035_average_places_and_district_average.sql: place by average_score.
+  average_place: number | null;
 }
 
 export interface Exams {
@@ -229,6 +231,9 @@ export interface SchoolYearRatings {
   // Добавлено 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3. PK расширен до
   // (school_id, year, exam_type_id).
   exam_type_id: number;
+  // Added by 035_average_places_and_district_average.sql: place by average_score.
+  average_place: number | null;
+  average_district_place: number | null;
 }
 
 // Десять легаси-колонок предметов (az/math/life_knowledge/logic/english + их *_count) снесены
@@ -406,6 +411,9 @@ export interface TeacherYearRatings {
   // Добавлено 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3. PK расширен до
   // (teacher_id, year, exam_type_id).
   exam_type_id: number;
+  // Added by 035_average_places_and_district_average.sql: place by average_score.
+  average_place: number | null;
+  average_district_place: number | null;
 }
 
 export interface UserLoginEvents {
@@ -485,6 +493,8 @@ export interface VDistrictPlaces {
   district_id: number | null;
   place: number | null;
   exam_type_id: number | null;
+  // Added by 035_average_places_and_district_average.sql.
+  average_place: number | null;
 }
 
 export interface VDistrictYearScores {
@@ -550,6 +560,9 @@ export interface VSchoolPlaces {
   place: number | null;
   school_id: number | null;
   exam_type_id: number | null;
+  // Added by 035_average_places_and_district_average.sql.
+  average_place: number | null;
+  average_district_place: number | null;
 }
 
 export interface VSchoolYearScores {
@@ -627,6 +640,9 @@ export interface VTeacherPlaces {
   place: number | null;
   teacher_id: number | null;
   exam_type_id: number | null;
+  // Added by 035_average_places_and_district_average.sql.
+  average_place: number | null;
+  average_district_place: number | null;
 }
 
 export interface VTeacherYearScores {

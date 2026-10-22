@@ -17,6 +17,9 @@ export interface YearRatingRow {
     averageScore: number | null;
     place: number | null;
     districtPlace: number | null;
+    // By average score (035_average_places_and_district_average.sql); place/districtPlace are by raw score.
+    averagePlace: number | null;
+    averageDistrictPlace: number | null;
 }
 
 export interface DistrictSummary {
@@ -46,6 +49,8 @@ export interface School {
     averageScore: number | null;
     place: number | null;
     districtPlace: number | null;
+    averagePlace: number | null;
+    averageDistrictPlace: number | null;
     ratings: YearRatingRow[];
     // Только у findById (профильная страница, PROFILES_TASK.md §2.2) — не считаются в списках,
     // это был бы N+1 по всем строкам. actualStudentCount != studentCount намеренно: studentCount —
@@ -503,14 +508,14 @@ export class SchoolServicePg {
         // По решению заказчика (§14) профили видят только базовый тип.
         const profileHistoryExamTypeId = await resolveExamTypeId();
         const [ratingsRows, districtRows] = await Promise.all([
-            pg.selectFrom("school_year_ratings").select(["school_id", "year", "score", "average_score", "place", "district_place"]).where("school_id", "in", schoolIds).where("exam_type_id", "=", profileHistoryExamTypeId).orderBy("year").execute(),
+            pg.selectFrom("school_year_ratings").select(["school_id", "year", "score", "average_score", "place", "district_place", "average_place", "average_district_place"]).where("school_id", "in", schoolIds).where("exam_type_id", "=", profileHistoryExamTypeId).orderBy("year").execute(),
             pg.selectFrom("districts").select(["id", "code", "name"]).where("id", "in", districtIds).execute(),
         ]);
 
         const ratingsBySchool = new Map<number, YearRatingRow[]>();
         for (const r of ratingsRows) {
             if (!ratingsBySchool.has(r.school_id)) ratingsBySchool.set(r.school_id, []);
-            ratingsBySchool.get(r.school_id)!.push({ year: r.year, score: r.score, averageScore: r.average_score, place: r.place, districtPlace: r.district_place });
+            ratingsBySchool.get(r.school_id)!.push({ year: r.year, score: r.score, averageScore: r.average_score, place: r.place, districtPlace: r.district_place, averagePlace: r.average_place, averageDistrictPlace: r.average_district_place });
         }
         const districtById = new Map(districtRows.map((d) => [d.id, d]));
 
@@ -527,6 +532,7 @@ export class SchoolServicePg {
                 schoolOfTheYearScore: row.school_of_the_year_score, active: row.active, avatarUrl: row.avatar_url,
                 score: current?.score ?? null, averageScore: current?.averageScore ?? null,
                 place: current?.place ?? null, districtPlace: current?.districtPlace ?? null,
+                averagePlace: current?.averagePlace ?? null, averageDistrictPlace: current?.averageDistrictPlace ?? null,
                 ratings,
                 directorName: row.director_name, foundedYear: row.founded_year, achievements: row.achievements,
             };
