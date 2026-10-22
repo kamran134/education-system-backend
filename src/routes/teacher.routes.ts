@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import { createAllTeachers, createTeacher, deleteTeacher, deleteTeachers, getTeacherById, getTeachers, getTeachersForFilter, repairTeachers, updateTeacher, updateTeacherProfile, updateTeachersStats, importLegacyTeachers, uploadTeacherAvatar, deleteTeacherAvatar } from "../controllers/teacher.controller";
+import { createAllTeachers, createTeacher, deleteTeacher, deleteTeachers, getTeacherById, getTeachers, getTeachersForFilter, repairTeachers, updateTeacher, transferTeacher, updateTeacherProfile, updateTeachersStats, importLegacyTeachers, uploadTeacherAvatar, deleteTeacherAvatar } from "../controllers/teacher.controller";
 import { authMiddleware, canDelete } from "../middleware/auth.middleware";
 import { teacherAvatarUpload } from "../config/multer";
 
@@ -28,6 +28,8 @@ router.route("/:id")
     .get(authMiddleware([]), getTeacherById) // Allow all authenticated users
     .put(authMiddleware(["superadmin", "admin", "moderator"]), updateTeacher)
     .delete(canDelete, deleteTeacher);
+router.route("/:id/transfer")
+    .post(authMiddleware(["superadmin", "admin", "moderator"]), transferTeacher);
 router.route("/:id/avatar")
     .post(authMiddleware([]), teacherAvatarUpload.single('avatar'), uploadTeacherAvatar) // owner or admin, checked in controller
     .delete(authMiddleware([]), deleteTeacherAvatar);

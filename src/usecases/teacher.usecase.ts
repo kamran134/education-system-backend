@@ -2,8 +2,13 @@ import * as fs from "fs";
 import { TeacherServicePg, Teacher, TeacherCreate } from "../services/teacher.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
-import { CODE_LENGTHS, CODE_DIVISORS, rebaseCode } from "../utils/entity-codes.const";
+import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
 import { pg } from "../config/pg";
+import { assertCodeNotDeleted } from "../services/deletion.service.pg";
+
+function fail(status: number, message: string): never {
+    throw Object.assign(new Error(message), { status });
+}
 
 export class TeacherUseCase {
     constructor(private teacherService: TeacherServicePg) {}
@@ -97,32 +102,16 @@ export class TeacherUseCase {
             updateData.districtId = (updateData as any).district.id;
         }
 
-        // Перевод в другую школу: schoolId в теле отличается от текущего. Район всегда
-        // берётся от новой школы (а не с клиента), а код перебазируется на её префикс —
-        // инвариант school = floor(teacher / 100) (utils/entity-codes.const.ts) не должен
-        // ломаться при переводе учителя.
-        const schoolMoving = updateData.schoolId !== undefined && updateData.schoolId !== (existingTeacher.school?.id ?? null);
-        // Код той школы, префиксу которой должен соответствовать итоговый код учителя:
-        // новой — при переводе, прежней — иначе. undefined, если у учителя вообще нет школы.
-        let targetSchoolCode: number | undefined = existingTeacher.school?.code;
-
-        if (schoolMoving) {
-            const targetSchoolId = updateData.schoolId as number;
-            const school = await pg.selectFrom("schools").select(["id", "code", "district_id"]).where("id", "=", targetSchoolId).executeTakeFirst();
-            if (!school) {
-                throw new Error('Məktəb tapılmadı');
-            }
-            updateData.districtId = school.district_id;
-
-            // Клиент мог прислать код как со старым префиксом (типичный случай — форма просто
-            // отправляет то, что было), так и уже с новым (teacher-editing-dialog перебазирует
-            // его сам, см. п.4c) — в обоих случаях приводим к новому префиксу здесь.
-            const code = updateData.code ?? existingTeacher.code;
-            if (Math.floor(code / CODE_DIVISORS.TEACHER_TO_SCHOOL) !== school.code) {
-                updateData.code = rebaseCode(code, school.code, CODE_DIVISORS.TEACHER_TO_SCHOOL);
-            }
-            targetSchoolCode = school.code;
+        // A different school is no longer an edit (TRANSFERS_TASK.md §4.2): moving a teacher is the separate
+        // transfer operation, where the students stay behind and the points stay with the old school.
+        if (updateData.schoolId !== undefined && updateData.schoolId !== (existingTeacher.school?.id ?? null)) {
+            throw Object.assign(
+                new Error('Məktəbi dəyişmək üçün «Başqa məktəbə köçür» əməliyyatından istifadə edin'),
+                { status: 400 }
+            );
         }
+        // The code of the school the teacher's code must still belong to. undefined if he has no school at all.
+        const targetSchoolCode: number | undefined = existingTeacher.school?.code;
 
         if (updateData.code && updateData.code !== existingTeacher.code) {
             // Длина проверяется здесь (а не только при create): начиная с этого каскада, кривая
@@ -135,9 +124,7 @@ export class TeacherUseCase {
             // Kod yalnız məktəb daxilində fərdi hissədən ibarət ola bilər: məktəb prefiksini
             // (kodun ilk 5 rəqəmi) əl ilə dəyişmək olmaz — bu, müəllimi başqa məktəbə "yamamaq"
             // demək olardı, kod vasitəsilə, FK-ni (schoolId) dəyişmədən. Məktəbi dəyişmək üçün
-            // ayrıca schoolId seçilməlidir, kodun məktəb hissəsi ondan REPAIR yolu ilə yenilənir.
-            // KICIK_DUZELISLER_2026-09-11 п.4a: сравниваем с targetSchoolCode (новая школа при
-            // переводе, иначе прежняя) — иначе перевод с уже перебазированным кодом отвергался бы.
+            // ayrıca «Başqa məktəbə köçür» əməliyyatı (transferTeacher) istifadə olunur.
             if (targetSchoolCode !== undefined) {
                 const submittedSchoolCode = Math.floor(updateData.code / CODE_DIVISORS.TEACHER_TO_SCHOOL);
                 if (submittedSchoolCode !== targetSchoolCode) {
@@ -145,7 +132,7 @@ export class TeacherUseCase {
                         // YENI_DUZELISLER_2026-09-17 п.3: "müəllimi" (вин. падеж, самостоятельное
                         // упоминание сущности) → "layihə müəllimini".
                         `Kodun məktəb hissəsini dəyişmək olmaz (${targetSchoolCode} olmalıdır). ` +
-                        `Yalnız fərdi hissəni (son 2 rəqəmi) dəyişin, ya da layihə müəllimini başqa məktəbə keçirmək üçün Məktəb sahəsini dəyişin.`
+                        `Yalnız fərdi hissəni (son 2 rəqəmi) dəyişin, ya da layihə müəllimini başqa məktəbə keçirmək üçün «Başqa məktəbə köçür» əməliyyatından istifadə edin.`
                     );
                 }
             }
@@ -160,6 +147,72 @@ export class TeacherUseCase {
         }
 
         return await this.teacherService.update(parseInt(id, 10), updateData, changedByUserId);
+    }
+
+    /**
+     * Moves a teacher to another school (TRANSFERS_TASK.md §4): the students stay in the old school with another
+     * teacher, past results stay where they were earned. All validation lives here, the writes in
+     * TeacherServicePg.transfer (one transaction).
+     */
+    async transferTeacher(
+        id: string,
+        body: { schoolId?: unknown; codeSuffix?: unknown; studentsToTeacherId?: unknown },
+        changedByUserId: number
+    ): Promise<{ teacher: Teacher; movedStudents: Array<{ id: number; fullname: string; oldCode: number; newCode: number }> }> {
+        const idError = ValidationUtils.combine([
+            ValidationUtils.validateRequired(id, 'Teacher ID'),
+            ValidationUtils.validateId(id, 'Teacher ID')
+        ]);
+        if (!idError.isValid) fail(400, idError.errors.join(', '));
+        const teacherId = parseInt(id, 10);
+
+        const teacher = await pg.selectFrom("teachers").select(["id", "code", "school_id"]).where("id", "=", teacherId).executeTakeFirst();
+        if (!teacher) fail(404, 'Teacher not found');
+
+        const schoolId = Number(body.schoolId);
+        if (!Number.isInteger(schoolId) || schoolId <= 0) fail(400, 'Məktəb seçilməyib');
+        const school = await pg.selectFrom("schools").select(["id", "code"]).where("id", "=", schoolId).executeTakeFirst();
+        if (!school) fail(400, 'Məktəb tapılmadı');
+        if (school.id === teacher.school_id) fail(400, 'Müəllim artıq bu məktəbdədir');
+
+        const suffix = body.codeSuffix === undefined || body.codeSuffix === null
+            ? teacher.code % CODE_DIVISORS.TEACHER_TO_SCHOOL
+            : Number(body.codeSuffix);
+        if (!Number.isInteger(suffix) || suffix < 1 || suffix >= CODE_DIVISORS.TEACHER_TO_SCHOOL) {
+            fail(400, 'Kodun fərdi hissəsi 1 ilə 99 arasında olmalıdır');
+        }
+        const newCode = school.code * CODE_DIVISORS.TEACHER_TO_SCHOOL + suffix;
+        const lengthError = ValidationUtils.validateCode(newCode, CODE_LENGTHS.TEACHER, CODE_LENGTHS.TEACHER);
+        if (lengthError) fail(400, lengthError);
+
+        // A hidden teacher keeps his code too (UNIQUE lives on the base table), hence teachers_all.
+        await assertCodeNotDeleted("teacher", newCode);
+        const codeOwner = await pg.selectFrom("teachers_all").select("id").where("code", "=", newCode).executeTakeFirst();
+        if (codeOwner) fail(409, 'Bu kod artıq başqa layihə müəllimində istifadə olunur');
+
+        // All students pointing to him, hidden ones included: a restored student must not keep a teacher of a foreign school.
+        const studentCountRow = await pg.selectFrom("students_all")
+            .select((eb) => eb.fn.countAll<string>().as("count"))
+            .where("teacher_id", "=", teacherId)
+            .executeTakeFirstOrThrow();
+        let studentsToTeacherId: number | null = null;
+        if (Number(studentCountRow.count) > 0) {
+            if (body.studentsToTeacherId === undefined || body.studentsToTeacherId === null || body.studentsToTeacherId === '') {
+                fail(400, 'Şagirdləri hansı müəllimə verəcəyinizi seçin');
+            }
+            const targetId = Number(body.studentsToTeacherId);
+            if (!Number.isInteger(targetId) || targetId <= 0) fail(400, 'Şagirdləri hansı müəllimə verəcəyinizi seçin');
+            if (targetId === teacherId) fail(400, 'Şagirdlər müəllimin özünə verilə bilməz');
+            const target = await pg.selectFrom("teachers").select(["id", "school_id"]).where("id", "=", targetId).executeTakeFirst();
+            if (!target) fail(400, 'Şagirdlərin veriləcəyi müəllim tapılmadı');
+            // The students stay in the OLD school of the moving teacher.
+            if (teacher.school_id === null || target.school_id !== teacher.school_id) {
+                fail(400, 'Şagirdlər yalnız müəllimin köhnə məktəbindəki başqa müəllimə verilə bilər');
+            }
+            studentsToTeacherId = targetId;
+        }
+
+        return await this.teacherService.transfer(teacherId, { schoolId, newCode, studentsToTeacherId }, changedByUserId);
     }
 
     /** Та же проверка, что внутри updateTeacherProfile — отдельно, чтобы владелец получал

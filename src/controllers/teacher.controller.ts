@@ -126,6 +126,20 @@ export class TeacherController {
         }
     }
 
+    /** POST /teachers/:id/transfer — move a teacher to another school (TRANSFERS_TASK.md §4). */
+    transferTeacher = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const { id } = req.params;
+            const changedByUserId = parseInt(req.user!.userId, 10);
+
+            const result = await this.teacherUseCase.transferTeacher(id, req.body ?? {}, changedByUserId);
+
+            res.json(ResponseHandler.updated(result, 'Müəllim köçürüldü'));
+        } catch (error) {
+            next(error);
+        }
+    }
+
     /**
      * Редактирование ПРОФИЛЯ учителя (biography, pedaqoji stajın başlanğıc ili, uğurları —
      * PROFILES_TASK.md §2.3) — не полный updateTeacher. BASE_FIXES_TASK.md §2.5 вернул сюда
@@ -324,6 +338,7 @@ export const getTeachersForFilter = teacherController.getTeachersForFilter;
 export const getTeacherById = teacherController.getTeacherById;
 export const createTeacher = teacherController.createTeacher;
 export const updateTeacher = teacherController.updateTeacher;
+export const transferTeacher = teacherController.transferTeacher;
 export const updateTeacherProfile = teacherController.updateProfile;
 export const deleteTeacher = teacherController.deleteTeacher;
 export const deleteTeachers = teacherController.deleteTeachers;

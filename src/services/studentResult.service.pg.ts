@@ -576,12 +576,16 @@ export class StudentResultServicePg {
             }
 
             // Запись — одной транзакцией.
-            const { processedCount, studentsWithoutTeacher, deletedStudentCodes, studentsOfDeletedTeacher } = await pg.transaction().execute(async (trx) => {
+            const { processedCount, studentsWithoutTeacher, deletedStudentCodes, studentsOfDeletedTeacher, oldCodeRows, oldCodeDuplicates, oldCodeHidden } = await pg.transaction().execute(async (trx) => {
+                // TRANSFERS_TASK.md §5: a code that is nobody's any more (its teacher part belongs to no teacher) may be
+                // an OLD code of a student whose teacher / school changed; code_change_logs says who he is now.
+                const { writeRows, oldCodeRows, oldCodeDuplicates, oldCodeHidden } = await this.resolveOldStudentCodes(trx, parsedRows);
+
                 const { students, studentsWithoutTeacher, deletedStudentCodes, studentsOfDeletedTeacher } = await this.processStudentResults(
-                    trx, parsedRows.map((r) => ({ code: r.studentCode, fullname: r.fullname, grade: r.grade }))
+                    trx, writeRows.map((r) => ({ code: r.studentCode, fullname: r.fullname, grade: r.grade }))
                 );
                 const studentByCode = new Map(students.map((s) => [s.code, s]));
-                const toWrite = parsedRows.filter((r) => studentByCode.has(r.studentCode));
+                const toWrite = writeRows.filter((r) => studentByCode.has(r.studentCode));
 
                 const priorRanks = await maxPriorBandRanks(
                     trx, toWrite.map((r) => studentByCode.get(r.studentCode)!.id), exam.exam_type_id, academicYearStart, examDate
@@ -644,7 +648,7 @@ export class StudentResultServicePg {
                     }
                 }
 
-                return { processedCount: resultRows.length, studentsWithoutTeacher, deletedStudentCodes, studentsOfDeletedTeacher };
+                return { processedCount: resultRows.length, studentsWithoutTeacher, deletedStudentCodes, studentsOfDeletedTeacher, oldCodeRows, oldCodeDuplicates, oldCodeHidden };
             });
 
             await deleteFile(filePath).catch(() => {});
@@ -669,6 +673,20 @@ export class StudentResultServicePg {
                 }
             };
             rejectDeleted(deletedStudentCodes, "Silinmiş şagird", "Şagird");
+            rejectDeleted(oldCodeHidden, "Silinmiş şagird", "Şagird");
+            for (const o of oldCodeRows) {
+                const c = candidateByCode.get(o.oldCode);
+                if (!c) continue;
+                addReport(c.row, c.rowNumber, 0, o.oldCode, "Köhnə kod",
+                    `Köhnə kod ${o.oldCode}: şagird indi ${o.newCode} kodu ilə qeydiyyatdadır, nəticə ona yazıldı`, "warning");
+            }
+            for (const o of oldCodeDuplicates) {
+                const c = candidateByCode.get(o.code);
+                if (!c) continue;
+                const message = `Şagird (indiki kod ${o.currentCode}) faylda həm köhnə, həm yeni kodla var — bu sətir yüklənmədi`;
+                addReport(c.row, c.rowNumber, 0, o.code, "Təkrar şagird", message);
+                issues.push({ row: c.rowNumber, code: o.code, reason: message });
+            }
             for (const [teacherCode, studentCodes] of studentsOfDeletedTeacher) {
                 rejectDeleted(studentCodes, "Silinmiş müəllim", `Müəllim ${teacherCode}, şagird`);
             }
@@ -718,6 +736,90 @@ export class StudentResultServicePg {
             }
         }
         return warnings.sort((a, b) => a.row - b.row);
+    }
+
+    /**
+     * TRANSFERS_TASK.md §5. For a file code that belongs to no student and whose teacher part (code / 1000) belongs to
+     * no teacher (hidden teachers count), looks the code up as an OLD student code in code_change_logs (the latest
+     * entry wins) and points the row at the student's current code. Alive student: the row is written to him (the
+     * caller reports a warning); hidden student: the row is rejected like any hidden student; the same student
+     * present under both his old and his current code: the later row is rejected (the upsert on
+     * (student_id, exam_id) would silently overwrite the earlier one). One query per kind, not per row.
+     */
+    private async resolveOldStudentCodes<R extends { rowNumber: number; studentCode: number }>(
+        trx: Transaction<DB>,
+        rows: R[]
+    ): Promise<{
+        writeRows: R[];
+        oldCodeRows: Array<{ oldCode: number; newCode: number }>;
+        oldCodeDuplicates: Array<{ code: number; currentCode: number }>;
+        oldCodeHidden: number[];
+    }> {
+        const unchanged = { writeRows: rows, oldCodeRows: [], oldCodeDuplicates: [], oldCodeHidden: [] };
+        const fileCodes = rows.map((r) => r.studentCode);
+        if (fileCodes.length === 0) return unchanged;
+
+        const known = new Set(
+            (await trx.selectFrom("students_all").select("code").where("code", "in", fileCodes).execute()).map((s) => s.code)
+        );
+        const unknown = fileCodes.filter((c) => !known.has(c));
+        if (unknown.length === 0) return unchanged;
+
+        const prefixes = [...new Set(unknown.map((c) => Math.floor(c / CODE_DIVISORS.STUDENT_TO_TEACHER)))];
+        const teacherPrefixes = new Set(
+            (await trx.selectFrom("teachers_all").select("code").where("code", "in", prefixes).execute()).map((t) => t.code)
+        );
+        const orphanCodes = unknown.filter((c) => !teacherPrefixes.has(Math.floor(c / CODE_DIVISORS.STUDENT_TO_TEACHER)));
+        if (orphanCodes.length === 0) return unchanged;
+
+        const logs = await trx.selectFrom("code_change_logs")
+            .select(["old_code", "entity_id"])
+            .where("entity_type", "=", "student")
+            .where("old_code", "in", orphanCodes)
+            .orderBy("changed_at", "desc")
+            .orderBy("id", "desc")
+            .execute();
+        const studentIdByOldCode = new Map<number, number>();
+        for (const l of logs) if (!studentIdByOldCode.has(l.old_code)) studentIdByOldCode.set(l.old_code, l.entity_id);
+        if (studentIdByOldCode.size === 0) return unchanged;
+
+        const owners = await trx.selectFrom("students_all")
+            .select(["id", "code", "deleted_at"])
+            .where("id", "in", [...new Set(studentIdByOldCode.values())])
+            .execute();
+        const ownerById = new Map(owners.map((o) => [o.id, o]));
+
+        const oldCodeRows: Array<{ oldCode: number; newCode: number }> = [];
+        const oldCodeDuplicates: Array<{ code: number; currentCode: number }> = [];
+        const oldCodeHidden: number[] = [];
+        const writeRows: R[] = [];
+        const claimed = new Set<number>(); // current codes already taken by an earlier row of the file
+        for (const r of rows) {
+            const ownerId = studentIdByOldCode.get(r.studentCode);
+            const owner = ownerId === undefined ? undefined : ownerById.get(ownerId);
+            if (!owner) {
+                // A plain row; if an earlier old-coded row already claimed this student, this one is the repeat.
+                if (claimed.has(r.studentCode)) {
+                    oldCodeDuplicates.push({ code: r.studentCode, currentCode: r.studentCode });
+                    continue;
+                }
+                claimed.add(r.studentCode);
+                writeRows.push(r);
+                continue;
+            }
+            if (owner.deleted_at !== null) {
+                oldCodeHidden.push(r.studentCode);
+                continue;
+            }
+            if (claimed.has(owner.code)) {
+                oldCodeDuplicates.push({ code: r.studentCode, currentCode: owner.code });
+                continue;
+            }
+            claimed.add(owner.code);
+            oldCodeRows.push({ oldCode: r.studentCode, newCode: owner.code });
+            writeRows.push({ ...r, studentCode: owner.code });
+        }
+        return { writeRows, oldCodeRows, oldCodeDuplicates, oldCodeHidden };
     }
 
     /**

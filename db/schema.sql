@@ -244,6 +244,13 @@ CREATE TABLE student_results (
     max_questions   int,              -- знаменатель score_percent, справочно для истории (§3 ТЗ)
     score_percent   numeric(6,3),     -- справочный, NULL допустим у замороженной истории (§2 ТЗ)
 
+    -- Снимок на момент записи результата (038_result_snapshot.sql, TRANSFERS_TASK.md): учитель ученика, школа этого
+    -- учителя, район этой школы. Рейтинги учителей/школ/районов агрегируют по снимку, а не по текущим связям, поэтому
+    -- переход учителя/ученика не уносит прошлые баллы. Заполняет триггер student_results_snapshot (ниже).
+    teacher_id   bigint REFERENCES teachers(id)  ON DELETE SET NULL,
+    school_id    bigint REFERENCES schools(id)   ON DELETE SET NULL,
+    district_id  bigint REFERENCES districts(id) ON DELETE SET NULL,
+
     legacy_mongo_id text UNIQUE,
     UNIQUE (student_id, exam_id),
     -- Композитный FK вместо простого level -> levels(code) (снят в 024, levels снесена в 026):
@@ -663,6 +670,9 @@ CREATE INDEX ON student_results (student_id);
 CREATE INDEX ON student_results (exam_id);
 CREATE INDEX ON student_results (academic_year);
 CREATE INDEX ON student_results (exam_id, grade);
+CREATE INDEX student_results_teacher_year_idx  ON student_results (teacher_id, academic_year);
+CREATE INDEX student_results_school_year_idx   ON student_results (school_id, academic_year);
+CREATE INDEX student_results_district_year_idx ON student_results (district_id, academic_year);
 CREATE INDEX ON booklets (exam_id);
 CREATE INDEX ON user_refresh_tokens (user_id);
 CREATE INDEX issued_certificates_result_idx ON issued_certificates (student_result_id);
@@ -738,6 +748,47 @@ COMMENT ON VIEW schools   IS 'Live (not deleted) schools. Base table: schools_al
 COMMENT ON VIEW districts IS 'Live (not deleted) districts. Base table: districts_all (037_soft_delete.sql). New column on districts_all => re-create this view.';
 
 
+-- ============================================================ снимок в результатах (038_result_snapshot.sql, TRANSFERS_TASK.md)
+--
+-- teacher_id / school_id / district_id в student_results — где ученик писал экзамен. Триггер — единственный источник
+-- правды для всех путей вставки; цепочка та же, что шли вьюхи: ученик -> учитель -> школа учителя -> район школы
+-- (НЕ students.school_id/district_id). *_all, чтобы результаты скрытых учеников тоже получали снимок.
+-- INSERT: заполняется, только если вызывающий не передал ни одного из трёх. UPDATE OF student_id: заново от нового
+-- ученика. ON CONFLICT DO UPDATE (перезаливка того же экзамена) снимок существующей строки не трогает.
+COMMENT ON COLUMN student_results.teacher_id  IS 'Snapshot (038): the student''s teacher when the result was written. Rating views aggregate by it.';
+COMMENT ON COLUMN student_results.school_id   IS 'Snapshot (038): the school of that teacher when the result was written.';
+COMMENT ON COLUMN student_results.district_id IS 'Snapshot (038): the district of that school when the result was written.';
+
+CREATE FUNCTION student_results_snapshot() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.teacher_id IS NOT NULL OR NEW.school_id IS NOT NULL OR NEW.district_id IS NOT NULL THEN
+            RETURN NEW;
+        END IF;
+    ELSIF NEW.student_id IS NOT DISTINCT FROM OLD.student_id THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT s.teacher_id, t.school_id, sc.district_id
+    INTO NEW.teacher_id, NEW.school_id, NEW.district_id
+    FROM students_all s
+    LEFT JOIN teachers_all t ON t.id = s.teacher_id
+    LEFT JOIN schools_all sc ON sc.id = t.school_id
+    WHERE s.id = NEW.student_id;
+
+    RETURN NEW;
+END $$;
+
+CREATE TRIGGER student_results_snapshot_ins
+    BEFORE INSERT ON student_results
+    FOR EACH ROW EXECUTE FUNCTION student_results_snapshot();
+
+CREATE TRIGGER student_results_snapshot_upd
+    BEFORE UPDATE OF student_id ON student_results
+    FOR EACH ROW EXECUTE FUNCTION student_results_snapshot();
+
+
 -- ============================================================ VIEWS: цепочка рейтинга
 --
 -- Воспроизводят StatsService.updateAllStats() (stats.service.ts:355-373) — «иерархический» путь:
@@ -804,16 +855,39 @@ JOIN students s ON s.id = sc.student_id;
 -- stats.service.ts:1403. Делить на count(s.id) было бы «правильнее», но это другие цифры
 -- у всех учителей сразу — менять только по решению заказчика (MONGO_TO_POSTGRES.md §3.4).
 -- Учителя без набравших баллы учеников строки не имеют — в API подставлять 0 через coalesce.
+--
+-- 038 (TRANSFERS_TASK.md): учитель/школа/район (годовые и месячные) строятся НЕ друг из друга и не по текущим связям,
+-- а прямо из student_results по снимку (teacher_id / school_id / district_id в результате). Результат учитывается на
+-- уровне X, если жив ученик и живы все сущности снимка от учителя до X (soft delete, 037). Регион остаётся суммой
+-- районов (снимка региона нет — район относится к региону по текущей связи).
+--
+-- Баллы одного результата: то же четырёхслагаемое выражение, что в v_student_year_scores / v_student_month_scores.
+CREATE VIEW v_result_points AS
+SELECT sr.student_id,
+       sr.teacher_id,
+       sr.school_id,
+       sr.district_id,
+       sr.academic_year,
+       sr.year,
+       sr.month,
+       sr.exam_type_id,
+       coalesce(sr.participation_score, 0)
+         + coalesce(sr.development_score, 0)
+         + coalesce(sr.student_of_the_month_score, 0)
+         + coalesce(sr.republic_wide_student_of_the_month_score, 0) AS points
+FROM student_results sr;
+
 CREATE VIEW v_teacher_year_scores AS
 SELECT t.id AS teacher_id,
-       sc.academic_year,
-       sc.exam_type_id,
-       sum(sc.score) AS score,
-       CASE WHEN t.student_count > 0 THEN sum(sc.score) / t.student_count ELSE 0 END AS average_score
-FROM teachers t
-JOIN students s               ON s.teacher_id = t.id
-JOIN v_student_year_scores sc ON sc.student_id = s.id
-GROUP BY t.id, t.student_count, sc.academic_year, sc.exam_type_id;
+       r.academic_year,
+       r.exam_type_id,
+       sum(r.points) AS score,
+       CASE WHEN t.student_count > 0 THEN sum(r.points) / t.student_count ELSE 0 END AS average_score
+FROM v_result_points r
+JOIN students s ON s.id = r.student_id
+JOIN teachers t ON t.id = r.teacher_id
+WHERE r.academic_year IS NOT NULL
+GROUP BY t.id, t.student_count, r.academic_year, r.exam_type_id;
 
 -- Учитель: места. Решение заказчика 04.08.2026 (гейт 2, db/rating-semantics.md) заменено
 -- решением 20.08.2026: заказчик имел в виду места по СЫРОМУ score (как у учеников), а не по
@@ -839,14 +913,16 @@ WHERE ts.score > 0;
 -- stats.service.ts:1556
 CREATE VIEW v_school_year_scores AS
 SELECT sch.id AS school_id,
-       ts.academic_year,
-       ts.exam_type_id,
-       sum(ts.score) AS score,
-       CASE WHEN sch.student_count > 0 THEN sum(ts.score) / sch.student_count ELSE 0 END AS average_score
-FROM schools sch
-JOIN teachers t                ON t.school_id = sch.id
-JOIN v_teacher_year_scores ts  ON ts.teacher_id = t.id
-GROUP BY sch.id, sch.student_count, ts.academic_year, ts.exam_type_id;
+       r.academic_year,
+       r.exam_type_id,
+       sum(r.points) AS score,
+       CASE WHEN sch.student_count > 0 THEN sum(r.points) / sch.student_count ELSE 0 END AS average_score
+FROM v_result_points r
+JOIN students s   ON s.id   = r.student_id
+JOIN teachers t   ON t.id   = r.teacher_id
+JOIN schools sch  ON sch.id = r.school_id
+WHERE r.academic_year IS NOT NULL
+GROUP BY sch.id, sch.student_count, r.academic_year, r.exam_type_id;
 
 -- Школа: места. По score — та же логика, что и у учителя (см. комментарий у v_teacher_places).
 -- См. 013_ratings_by_raw_score.sql, 025_ratings_by_exam_type.sql.
@@ -870,17 +946,20 @@ WHERE ss.score > 0;
 -- Делитель НЕ зависит от типа экзамена (чистый count() учеников района).
 CREATE VIEW v_district_year_scores AS
 SELECT d.id AS district_id,
-       ss.academic_year,
-       ss.exam_type_id,
-       sum(ss.score) AS score,
-       CASE WHEN cnt.students_in_district > 0 THEN sum(ss.score) / cnt.students_in_district ELSE 0 END AS average_score
-FROM districts d
-JOIN schools sch              ON sch.district_id = d.id
-JOIN v_school_year_scores ss  ON ss.school_id = sch.id
+       r.academic_year,
+       r.exam_type_id,
+       sum(r.points) AS score,
+       CASE WHEN cnt.students_in_district > 0 THEN sum(r.points) / cnt.students_in_district ELSE 0 END AS average_score
+FROM v_result_points r
+JOIN students s   ON s.id   = r.student_id
+JOIN teachers t   ON t.id   = r.teacher_id
+JOIN schools sch  ON sch.id = r.school_id
+JOIN districts d  ON d.id   = r.district_id
 CROSS JOIN LATERAL (
     SELECT count(*) AS students_in_district FROM students WHERE district_id = d.id
 ) cnt
-GROUP BY d.id, ss.academic_year, ss.exam_type_id, cnt.students_in_district;
+WHERE r.academic_year IS NOT NULL
+GROUP BY d.id, r.academic_year, r.exam_type_id, cnt.students_in_district;
 
 -- Район: места. По score, та же логика. district_place у района не существовал ни в одном из путей.
 -- См. 013_ratings_by_raw_score.sql, 025_ratings_by_exam_type.sql.
@@ -985,16 +1064,17 @@ JOIN students s ON s.id = sc.student_id;
 -- ============================================================ учитель
 
 -- Сумма баллов учеников учителя за месяц (по типу экзамена). Без average_score — см. шапку файла.
+-- 038: месячные учитель/школа/район — тоже прямо из student_results по снимку (см. v_result_points).
 CREATE VIEW v_teacher_month_scores AS
 SELECT t.id AS teacher_id,
-       sc.year,
-       sc.month,
-       sc.exam_type_id,
-       sum(sc.score) AS score
-FROM teachers t
-JOIN students s                ON s.teacher_id = t.id
-JOIN v_student_month_scores sc ON sc.student_id = s.id
-GROUP BY t.id, sc.year, sc.month, sc.exam_type_id;
+       r.year,
+       r.month,
+       r.exam_type_id,
+       sum(r.points) AS score
+FROM v_result_points r
+JOIN students s ON s.id = r.student_id
+JOIN teachers t ON t.id = r.teacher_id
+GROUP BY t.id, r.year, r.month, r.exam_type_id;
 
 CREATE VIEW v_teacher_month_places AS
 SELECT ts.teacher_id,
@@ -1011,14 +1091,15 @@ WHERE ts.score > 0;
 
 CREATE VIEW v_school_month_scores AS
 SELECT sch.id AS school_id,
-       ts.year,
-       ts.month,
-       ts.exam_type_id,
-       sum(ts.score) AS score
-FROM schools sch
-JOIN teachers t                 ON t.school_id = sch.id
-JOIN v_teacher_month_scores ts  ON ts.teacher_id = t.id
-GROUP BY sch.id, ts.year, ts.month, ts.exam_type_id;
+       r.year,
+       r.month,
+       r.exam_type_id,
+       sum(r.points) AS score
+FROM v_result_points r
+JOIN students s   ON s.id   = r.student_id
+JOIN teachers t   ON t.id   = r.teacher_id
+JOIN schools sch  ON sch.id = r.school_id
+GROUP BY sch.id, r.year, r.month, r.exam_type_id;
 
 CREATE VIEW v_school_month_places AS
 SELECT ss.school_id,
@@ -1038,14 +1119,16 @@ WHERE ss.score > 0;
 -- сюда НЕ переносится — среднего балла в месячном срезе нет вовсе, переносить нечего.
 CREATE VIEW v_district_month_scores AS
 SELECT d.id AS district_id,
-       ss.year,
-       ss.month,
-       ss.exam_type_id,
-       sum(ss.score) AS score
-FROM districts d
-JOIN schools sch                ON sch.district_id = d.id
-JOIN v_school_month_scores ss   ON ss.school_id = sch.id
-GROUP BY d.id, ss.year, ss.month, ss.exam_type_id;
+       r.year,
+       r.month,
+       r.exam_type_id,
+       sum(r.points) AS score
+FROM v_result_points r
+JOIN students s   ON s.id   = r.student_id
+JOIN teachers t   ON t.id   = r.teacher_id
+JOIN schools sch  ON sch.id = r.school_id
+JOIN districts d  ON d.id   = r.district_id
+GROUP BY d.id, r.year, r.month, r.exam_type_id;
 
 -- district_place у района не существует ни в одном из путей — как и в v_district_places.
 CREATE VIEW v_district_month_places AS

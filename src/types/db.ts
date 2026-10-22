@@ -289,6 +289,11 @@ export interface StudentResults {
   level_scale_id: number;
   max_questions: number | null;
   score_percent: number | null;
+  // Добавлено 038_result_snapshot.sql, TRANSFERS_TASK.md: снимок учитель/школа/район на момент записи результата.
+  // Заполняет триггер student_results_snapshot (поэтому в INSERT необязательны); рейтинги агрегируют по нему.
+  teacher_id: Generated<number | null>;
+  school_id: Generated<number | null>;
+  district_id: Generated<number | null>;
 }
 
 // Добавлено вручную вслед за миграцией 024_student_result_subject_scores.sql, см.

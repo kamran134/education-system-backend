@@ -9,7 +9,7 @@ import { CODE_DIVISORS } from "../utils/entity-codes.const";
 import { cascadeTeacherCodeToStudents } from "../utils/code-cascade.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
 import { resolveExamTypeId } from "./examType.service.pg";
-import { deleteEntity, deleteEntities, assertCodeNotDeleted } from "./deletion.service.pg";
+import { deleteEntity, deleteEntities, assertCodeNotDeleted, refreshRatingsInBackground } from "./deletion.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -92,6 +92,12 @@ type TeacherRow = {
     grade_label: string | null;
 };
 
+function httpError(status: number, message: string): Error {
+    const err: any = new Error(message);
+    err.status = status;
+    return err;
+}
+
 /** Postgres-версия TeacherService. См. district/school.service.pg.ts для общих решений. */
 export class TeacherServicePg {
     async updateTeachersStats(): Promise<void> {
@@ -155,26 +161,22 @@ export class TeacherServicePg {
      * (PHASE3_PLAN.md п.4). Not needed for plain field edits, so it's optional there.
      */
     async update(id: number, data: Partial<TeacherCreate>, changedByUserId?: number): Promise<{ teacher: Teacher; cascadedStudentsCount: number }> {
-        // KICIK_DUZELISLER_2026-09-11 п.4b: school_id нужен, чтобы отличить перевод учителя в
-        // другую школу от обычной правки полей — для перевода быстрая ветка без транзакции не
-        // годится, students.school_id/district_id тоже должны переехать вместе с учителем.
-        const existing = await pg.selectFrom("teachers").select(["code", "school_id"]).where("id", "=", id).executeTakeFirst();
+        // A change of the school is not done here any more: since 038 it is the separate transfer() operation
+        // (the usecase rejects a different schoolId); students and results do not follow the teacher.
+        const existing = await pg.selectFrom("teachers").select(["code"]).where("id", "=", id).executeTakeFirst();
         if (!existing) throw new Error("Teacher not found");
         if (data.code !== undefined) await assertCodeNotDeleted("teacher", data.code);
 
         const codeChanging = data.code !== undefined && data.code !== existing.code;
-        const schoolMoving = data.schoolId !== undefined && data.schoolId !== existing.school_id;
 
-        if (!codeChanging && !schoolMoving) {
+        if (!codeChanging) {
             const row = await pg.updateTable("teachers").set(this.buildTeacherSet(data)).where("id", "=", id).returningAll().executeTakeFirst();
             if (!row) throw new Error("Teacher not found");
             return { teacher: (await this.attachExtras([row]))[0], cascadedStudentsCount: 0 };
         }
 
-        // changedByUserId нужен только когда меняется код — именно он пишется в
-        // code_change_logs; перевод школы сам по себе (после перебазировки кода в usecase)
-        // почти всегда идёт вместе со сменой кода, но проверка держится строго на codeChanging.
-        if (codeChanging && changedByUserId === undefined) {
+        // changedByUserId is needed only when the code changes: it is what code_change_logs records.
+        if (changedByUserId === undefined) {
             throw new Error("changedByUserId is required when changing a teacher's code");
         }
 
@@ -183,35 +185,17 @@ export class TeacherServicePg {
                 const updatedRow = await trx.updateTable("teachers").set(this.buildTeacherSet(data)).where("id", "=", id).returningAll().executeTakeFirst();
                 if (!updatedRow) throw new Error("Teacher not found");
 
-                let cascadedStudentsCount = 0;
+                await trx.insertInto("code_change_logs").values({
+                    entity_type: "teacher",
+                    entity_id: id,
+                    old_code: existing.code,
+                    new_code: data.code!,
+                    caused_by_entity_type: null,
+                    caused_by_entity_id: null,
+                    changed_by: changedByUserId,
+                }).execute();
 
-                if (codeChanging) {
-                    await trx.insertInto("code_change_logs").values({
-                        entity_type: "teacher",
-                        entity_id: id,
-                        old_code: existing.code,
-                        new_code: data.code!,
-                        caused_by_entity_type: null,
-                        caused_by_entity_id: null,
-                        changed_by: changedByUserId!,
-                    }).execute();
-
-                    cascadedStudentsCount = await cascadeTeacherCodeToStudents(trx, id, data.code!, changedByUserId!);
-                }
-
-                if (schoolMoving) {
-                    // students.school_id/district_id — денормализация (см. CLAUDE.md этого
-                    // репозитория), по ней фильтруются списки и считаются виджеты профиля школы,
-                    // поэтому ученики переезжают вместе с учителем (KICIK_DUZELISLER_2026-09-11
-                    // п.4b). districtId usecase всегда подставляет от новой школы при переводе,
-                    // ?? null — подстраховка на случай отсутствующего значения.
-                    // students_all, not the live view: hidden students of this teacher must move with him too,
-                    // otherwise they come back from «Silinənlər» pointing to the old school (SOFT_DELETE_TASK.md §6.5).
-                    await trx.updateTable("students_all")
-                        .set({ school_id: data.schoolId!, district_id: data.districtId ?? null })
-                        .where("teacher_id", "=", id)
-                        .execute();
-                }
+                const cascadedStudentsCount = await cascadeTeacherCodeToStudents(trx, id, data.code!, changedByUserId);
 
                 return { row: updatedRow, cascadedStudentsCount };
             });
@@ -223,6 +207,117 @@ export class TeacherServicePg {
                 const err: any = new Error("Bu kod artıq başqa layihə müəllimi və ya şagirddə istifadə olunur");
                 err.status = 409;
                 throw err;
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Moves a teacher to another school (TRANSFERS_TASK.md §4). One card, one account, the code changes (the old one
+     * stays in code_change_logs). The teacher's students do NOT follow: all of them (hidden ones too, so that a
+     * restored student never points to a teacher of a foreign school) go to `studentsToTeacherId` of the old school
+     * and get codes under that teacher. student_results is not touched on purpose: points stay where they were earned.
+     * Validation (live school, code occupancy, the target teacher) is done by the usecase; the checks here are the
+     * ones that must hold inside the transaction.
+     */
+    async transfer(
+        id: number,
+        params: { schoolId: number; newCode: number; studentsToTeacherId: number | null },
+        changedByUserId: number
+    ): Promise<{ teacher: Teacher; movedStudents: Array<{ id: number; fullname: string; oldCode: number; newCode: number }> }> {
+        try {
+            const { row, movedStudents } = await pg.transaction().execute(async (trx) => {
+                const teacher = await trx.selectFrom("teachers").select(["id", "code"]).where("id", "=", id).forUpdate().executeTakeFirst();
+                if (!teacher) throw httpError(404, "Teacher not found");
+
+                const school = await trx.selectFrom("schools").select(["id", "district_id"]).where("id", "=", params.schoolId).executeTakeFirst();
+                if (!school) throw httpError(400, "Məktəb tapılmadı");
+
+                const students = await trx.selectFrom("students_all")
+                    .select(["id", "code", "fullname"])
+                    .where("teacher_id", "=", id)
+                    .orderBy("code")
+                    .forUpdate()
+                    .execute();
+
+                const moved: Array<{ id: number; fullname: string; oldCode: number; newCode: number }> = [];
+
+                if (students.length > 0) {
+                    if (params.studentsToTeacherId == null) throw httpError(400, "Şagirdləri hansı müəllimə verəcəyinizi seçin");
+
+                    const target = await trx.selectFrom("teachers")
+                        .select(["id", "code", "school_id"])
+                        .where("id", "=", params.studentsToTeacherId)
+                        .executeTakeFirst();
+                    if (!target || target.id === id) throw httpError(400, "Şagirdlərin veriləcəyi müəllim tapılmadı");
+                    const targetSchool = target.school_id == null
+                        ? undefined
+                        : await trx.selectFrom("schools").select(["id", "district_id"]).where("id", "=", target.school_id).executeTakeFirst();
+                    if (!targetSchool) throw httpError(400, "Şagirdlərin veriləcəyi müəllim canlı məktəbə bağlı deyil");
+
+                    // Codes already taken under the target teacher (hidden students keep their codes too).
+                    const base = target.code * CODE_DIVISORS.STUDENT_TO_TEACHER;
+                    const takenRows = await trx.selectFrom("students_all")
+                        .select("code")
+                        .where("code", ">=", base)
+                        .where("code", "<", base + CODE_DIVISORS.STUDENT_TO_TEACHER)
+                        .execute();
+                    const taken = new Set(takenRows.map((r) => r.code));
+
+                    for (const student of students) {
+                        // Keep the student's own three digits if free, else the smallest free one.
+                        let newCode = base + (student.code % CODE_DIVISORS.STUDENT_TO_TEACHER);
+                        if (taken.has(newCode)) {
+                            let nnn = 1;
+                            while (nnn < CODE_DIVISORS.STUDENT_TO_TEACHER && taken.has(base + nnn)) nnn++;
+                            if (nnn >= CODE_DIVISORS.STUDENT_TO_TEACHER) {
+                                throw httpError(409, "Seçilmiş müəllimin şagird kodları dolub: boş kod yoxdur");
+                            }
+                            newCode = base + nnn;
+                        }
+                        taken.add(newCode);
+
+                        await trx.updateTable("students_all")
+                            .set({ teacher_id: target.id, school_id: targetSchool.id, district_id: targetSchool.district_id, code: newCode })
+                            .where("id", "=", student.id)
+                            .execute();
+                        await trx.insertInto("code_change_logs").values({
+                            entity_type: "student",
+                            entity_id: student.id,
+                            old_code: student.code,
+                            new_code: newCode,
+                            caused_by_entity_type: "teacher",
+                            caused_by_entity_id: id,
+                            changed_by: changedByUserId,
+                        }).execute();
+                        moved.push({ id: student.id, fullname: student.fullname, oldCode: student.code, newCode });
+                    }
+                }
+
+                // The teacher has no students left, so cascadeTeacherCodeToStudents is not needed.
+                const updated = await trx.updateTable("teachers")
+                    .set({ school_id: school.id, district_id: school.district_id, code: params.newCode })
+                    .where("id", "=", id)
+                    .returningAll()
+                    .executeTakeFirstOrThrow();
+                await trx.insertInto("code_change_logs").values({
+                    entity_type: "teacher",
+                    entity_id: id,
+                    old_code: teacher.code,
+                    new_code: params.newCode,
+                    caused_by_entity_type: null,
+                    caused_by_entity_id: null,
+                    changed_by: changedByUserId,
+                }).execute();
+
+                return { row: updated, movedStudents: moved };
+            });
+
+            refreshRatingsInBackground();
+            return { teacher: (await this.attachExtras([row]))[0], movedStudents };
+        } catch (error: any) {
+            if (error?.code === "23505") {
+                throw httpError(409, "Bu kod artıq başqa layihə müəllimində istifadə olunur");
             }
             throw error;
         }

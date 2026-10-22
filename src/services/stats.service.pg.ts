@@ -246,15 +246,17 @@ export class StatsServicePg {
      * Lisey) даёт то же самое поведение, что и раньше, но уже не хардкод.
      */
     private async awardStudentOfTheMonth(month: number, year: number, db: Kysely<DB>): Promise<void> {
+        // The district nomination goes by the district the exam was SAT in (sr.district_id, snapshot from 038),
+        // not by the student's current district; the JOIN students only keeps hidden students out.
         await sql`
             WITH month_results AS (
-                SELECT sr.id, sr.grade, sr.exam_type_id, s.district_id, sr.total_score,
+                SELECT sr.id, sr.grade, sr.exam_type_id, sr.district_id, sr.total_score,
                        b.rank AS band_rank, et.month_award_min_rank
                 FROM student_results sr
                 JOIN students s ON s.id = sr.student_id
                 JOIN exam_types et ON et.id = sr.exam_type_id
                 JOIN level_scale_bands b ON b.scale_id = sr.level_scale_id AND b.code = sr.level
-                WHERE sr.month = ${month} AND sr.year = ${year} AND s.district_id IS NOT NULL
+                WHERE sr.month = ${month} AND sr.year = ${year} AND sr.district_id IS NOT NULL
             ),
             max_district AS (
                 SELECT exam_type_id, grade, district_id, MAX(total_score) AS max_score
@@ -277,7 +279,7 @@ export class StatsServicePg {
                 JOIN students s ON s.id = sr.student_id
                 JOIN exam_types et ON et.id = sr.exam_type_id
                 JOIN level_scale_bands b ON b.scale_id = sr.level_scale_id AND b.code = sr.level
-                WHERE sr.month = ${month} AND sr.year = ${year} AND s.district_id IS NOT NULL
+                WHERE sr.month = ${month} AND sr.year = ${year} AND sr.district_id IS NOT NULL
             ),
             max_republic AS (
                 SELECT exam_type_id, grade, MAX(total_score) AS max_score FROM month_results GROUP BY exam_type_id, grade
@@ -439,9 +441,11 @@ export class StatsServicePg {
         let query = pg
             .selectFrom("student_results as sr")
             .innerJoin("students as st", "st.id", "sr.student_id")
-            .leftJoin("teachers as t", "t.id", "st.teacher_id")
-            .leftJoin("schools as sc", "sc.id", "st.school_id")
-            .leftJoin("districts as d", "d.id", "st.district_id")
+            // Teacher / school / district are the SNAPSHOT of the result (038), also for the filters below:
+            // a result stays with the place where the exam was sat, whatever the student's current links are.
+            .leftJoin("teachers as t", "t.id", "sr.teacher_id")
+            .leftJoin("schools as sc", "sc.id", "sr.school_id")
+            .leftJoin("districts as d", "d.id", "sr.district_id")
             .leftJoin("exams as e", "e.id", "sr.exam_id")
             // syr.year = sr.academic_year (не всегда currentYear!) — строки student_year_ratings
             // это результаты КОНКРЕТНОГО месяца, возможно прошлогоднего: месячные вкладки статистики
@@ -494,13 +498,13 @@ export class StatsServicePg {
             query = query.where("d.region_id", "in", filters.regionIds);
         }
         if (filters.districtIds && filters.districtIds.length > 0) {
-            query = query.where("st.district_id", "in", filters.districtIds);
+            query = query.where("sr.district_id", "in", filters.districtIds);
         }
         if (filters.schoolIds && filters.schoolIds.length > 0) {
-            query = query.where("st.school_id", "in", filters.schoolIds);
+            query = query.where("sr.school_id", "in", filters.schoolIds);
         }
         if (filters.teacherIds && filters.teacherIds.length > 0) {
-            query = query.where("st.teacher_id", "in", filters.teacherIds);
+            query = query.where("sr.teacher_id", "in", filters.teacherIds);
         }
         if (filters.studentIds && filters.studentIds.length > 0) {
             query = query.where("st.id", "in", filters.studentIds);

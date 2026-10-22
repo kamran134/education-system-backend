@@ -51,6 +51,9 @@ export interface ExamResultRow {
  * join на teacher/school/district внутри него, затем join на exams) именно потому, что в
  * document-модели нет способа сделать обычный SQL JOIN. В Postgres это ровно то, для чего JOIN
  * придуман — вся сложность пайплайна схлопывается в один SELECT с четырьмя LEFT JOIN.
+ *
+ * Учитель / школа / район строки и фильтры по ним берутся из снимка результата (sr.teacher_id / school_id /
+ * district_id, 038_result_snapshot.sql), а не из текущих связей ученика: результат остаётся там, где писали экзамен.
  */
 export class ExamResultsServicePg {
     async getExamResults(
@@ -63,9 +66,9 @@ export class ExamResultsServicePg {
         let query = pg
             .selectFrom("student_results as sr")
             .innerJoin("students as st", "st.id", "sr.student_id")
-            .leftJoin("teachers as t", "t.id", "st.teacher_id")
-            .leftJoin("schools as sc", "sc.id", "st.school_id")
-            .leftJoin("districts as d", "d.id", "st.district_id")
+            .leftJoin("teachers as t", "t.id", "sr.teacher_id")
+            .leftJoin("schools as sc", "sc.id", "sr.school_id")
+            .leftJoin("districts as d", "d.id", "sr.district_id")
             .leftJoin("exams as e", "e.id", "sr.exam_id")
             // levels снесена миграцией 026 (IMTAHAN_NOVLERI_TASK.md §20) — level_scale_bands,
             // композитный джойн по (scale_id, code), тем же критерием, что и student_results
@@ -127,9 +130,9 @@ export class ExamResultsServicePg {
         const row = await pg
             .selectFrom("student_results as sr")
             .innerJoin("students as st", "st.id", "sr.student_id")
-            .leftJoin("teachers as t", "t.id", "st.teacher_id")
-            .leftJoin("schools as sc", "sc.id", "st.school_id")
-            .leftJoin("districts as d", "d.id", "st.district_id")
+            .leftJoin("teachers as t", "t.id", "sr.teacher_id")
+            .leftJoin("schools as sc", "sc.id", "sr.school_id")
+            .leftJoin("districts as d", "d.id", "sr.district_id")
             .leftJoin("exams as e", "e.id", "sr.exam_id")
             .select([
                 "sr.id as id", "sr.grade as grade", "sr.total_score as total_score", "sr.level as level", "sr.status as status",
@@ -205,9 +208,9 @@ export class ExamResultsServicePg {
         if (filters.dateFrom) q = q.where("e.date" as any, ">=", new Date(filters.dateFrom));
         if (filters.dateTo) q = q.where("e.date" as any, "<=", new Date(filters.dateTo));
         if (filters.code !== undefined) q = q.where("st.code" as any, "=", filters.code);
-        if (filters.districtIds && filters.districtIds.length > 0) q = q.where("st.district_id" as any, "in", filters.districtIds);
-        if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("st.school_id" as any, "in", filters.schoolIds);
-        if (filters.teacherIds && filters.teacherIds.length > 0) q = q.where("st.teacher_id" as any, "in", filters.teacherIds);
+        if (filters.districtIds && filters.districtIds.length > 0) q = q.where("sr.district_id" as any, "in", filters.districtIds);
+        if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("sr.school_id" as any, "in", filters.schoolIds);
+        if (filters.teacherIds && filters.teacherIds.length > 0) q = q.where("sr.teacher_id" as any, "in", filters.teacherIds);
         if (filters.studentIds && filters.studentIds.length > 0) q = q.where("st.id" as any, "in", filters.studentIds);
 
         if (filters.search) {
