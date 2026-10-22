@@ -4,8 +4,6 @@ import { pg } from "../config/pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
-import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
-import { removeAchievementDirs } from "../services/achievementFile.service.pg";
 
 export class SchoolUseCase {
     constructor(private schoolService: SchoolServicePg) {}
@@ -42,7 +40,7 @@ export class SchoolUseCase {
 
         const school = await this.schoolService.findById(parseInt(id, 10));
         if (!school) {
-            throw new Error('School not found');
+            throw Object.assign(new Error('School not found'), { status: 404 });
         }
 
         return school;
@@ -87,7 +85,7 @@ export class SchoolUseCase {
 
         const existingSchool = await this.schoolService.findById(parseInt(id, 10));
         if (!existingSchool) {
-            throw new Error('School not found');
+            throw Object.assign(new Error('School not found'), { status: 404 });
         }
 
         if (updateData.district && typeof updateData.district === 'object') {
@@ -167,7 +165,7 @@ export class SchoolUseCase {
         return await this.schoolService.update(parseInt(id, 10), data, changedByUserId);
     }
 
-    async deleteSchool(id: string): Promise<void> {
+    async deleteSchool(id: string, deletedBy: number | null = null): Promise<void> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'School ID'),
             ValidationUtils.validateId(id, 'School ID')
@@ -179,28 +177,22 @@ export class SchoolUseCase {
 
         const school = await this.schoolService.findById(parseInt(id, 10));
         if (!school) {
-            throw new Error('School not found');
+            throw Object.assign(new Error('School not found'), { status: 404 });
         }
 
-        await this.schoolService.delete(parseInt(id, 10));
-        // Полиморфная связь без FK (BASE_FIXES_TASK.md §2.4) — заявку за удалённую школу
-        // подчищаем явно, иначе она осиротеет в очереди модерации.
-        await profileChangeRequestServicePg.deleteForEntity('school', parseInt(id, 10));
-        // Rows of achievement_files go with the FK cascade; the files on disk are ours to remove.
-        removeAchievementDirs('school', [parseInt(id, 10)]);
+        // Soft delete: moderation requests and achievement files (rows and files on disk) stay untouched,
+        // they come back with the school.
+        await this.schoolService.delete(parseInt(id, 10), deletedBy);
     }
 
-    async deleteSchools(ids: string[]): Promise<BulkOperationResult> {
+    async deleteSchools(ids: string[], deletedBy: number | null = null): Promise<BulkOperationResult> {
         const arrayValidation = ValidationUtils.validateArray(ids, 'School IDs', 1);
         if (!arrayValidation.isValid) {
             throw new Error(arrayValidation.errors.join(', '));
         }
 
         const numericIds = ids.map((id) => parseInt(id, 10));
-        const result = await this.schoolService.deleteBulk(numericIds);
-        await profileChangeRequestServicePg.deleteForEntities('school', numericIds);
-        removeAchievementDirs('school', numericIds);
-        return result;
+        return await this.schoolService.deleteBulk(numericIds, deletedBy);
     }
 
     async processSchoolsFromFile(filePath: string): Promise<FileProcessingResult<School>> {

@@ -7,6 +7,7 @@ import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
 import { resolveExamTypeId } from "./examType.service.pg";
+import { deleteEntity, deleteEntities, assertCodeNotDeleted } from "./deletion.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -93,6 +94,7 @@ export class DistrictServicePg {
     }
 
     async create(data: DistrictCreate): Promise<District> {
+        await assertCodeNotDeleted("district", data.code);
         const row = await pg
             .insertInto("districts")
             .values({
@@ -111,6 +113,7 @@ export class DistrictServicePg {
     }
 
     async update(id: number, data: Partial<DistrictCreate>): Promise<District> {
+        if (data.code !== undefined) await assertCodeNotDeleted("district", data.code);
         const row = await pg
             .updateTable("districts")
             .set({
@@ -132,43 +135,16 @@ export class DistrictServicePg {
     }
 
     /**
-     * Каскад совпадает по порядку с Mongo-версией (учителя → результаты учеников → ученики → школы → район),
-     * но выполняется одной транзакцией — то, чего у Mongo-версии не было и не могло быть без replica set.
+     * Soft delete (SOFT_DELETE_TASK.md): hides the district with its schools, teachers and students as one
+     * restorable batch; nothing is removed. See deletion.service.pg.ts.
      */
-    async delete(id: number): Promise<void> {
-        await pg.transaction().execute(async (trx) => {
-            const schools = await trx.selectFrom("schools").select("id").where("district_id", "=", id).execute();
-            const schoolIds = schools.map((s) => s.id);
-
-            if (schoolIds.length > 0) {
-                const teachers = await trx.selectFrom("teachers").select("id").where("school_id", "in", schoolIds).execute();
-                const teacherIds = teachers.map((t) => t.id);
-
-                const students = await trx.selectFrom("students").select("id").where("school_id", "in", schoolIds).execute();
-                const studentIds = students.map((s) => s.id);
-
-                if (studentIds.length > 0) {
-                    await trx.deleteFrom("student_results").where("student_id", "in", studentIds).execute();
-                }
-                if (teacherIds.length > 0) {
-                    await trx.deleteFrom("teachers").where("id", "in", teacherIds).execute();
-                }
-                if (studentIds.length > 0) {
-                    await trx.deleteFrom("students").where("school_id", "in", schoolIds).execute();
-                }
-                await trx.deleteFrom("schools").where("district_id", "=", id).execute();
-            }
-
-            const result = await trx.deleteFrom("districts").where("id", "=", id).executeTakeFirst();
-            if (Number(result.numDeletedRows) === 0) throw new Error("District not found");
-        });
+    async delete(id: number, deletedBy: number | null = null): Promise<void> {
+        await deleteEntity("district", id, deletedBy);
     }
 
-    async deleteBulk(ids: number[]): Promise<BulkOperationResult> {
-        for (const id of ids) {
-            await this.delete(id);
-        }
-        return { insertedCount: 0, modifiedCount: 0, deletedCount: ids.length, errors: [] };
+    async deleteBulk(ids: number[], deletedBy: number | null = null): Promise<BulkOperationResult> {
+        const deleted = await deleteEntities("district", ids, deletedBy);
+        return { insertedCount: 0, modifiedCount: 0, deletedCount: deleted, errors: [] };
     }
 
     async getFilteredDistricts(
@@ -278,7 +254,10 @@ export class DistrictServicePg {
 
     async checkExistingDistrictCodes(codes: number[]): Promise<number[]> {
         if (codes.length === 0) return [];
-        const rows = await pg.selectFrom("districts").select("code").where("code", "in", codes).execute();
+        // *_all on purpose (SOFT_DELETE_TASK.md §6.3): a code owned by a deleted record counts as existing, so the
+        // importer skips it. This also keeps hidden rows away from the ON CONFLICT (code) upsert, which would
+        // silently update them through the view.
+        const rows = await pg.selectFrom("districts_all").select("code").where("code", "in", codes).execute();
         return rows.map((r) => r.code);
     }
 

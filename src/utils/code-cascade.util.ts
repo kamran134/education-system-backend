@@ -2,6 +2,12 @@ import { Transaction } from "kysely";
 import { DB } from "../types/db";
 import { CODE_DIVISORS, rebaseCode } from "./entity-codes.const";
 
+/*
+ * SOFT_DELETE_TASK.md §6.5: both cascades read and write the *_all base tables, not the same-named views that hide
+ * deleted rows. A hidden descendant of a live parent must get the new code too, otherwise after a restore its code
+ * would no longer contain the code of its teacher / school.
+ */
+
 /**
  * Recodes every student assigned to `teacherId` to embed `newTeacherCode`, inside `trx`.
  * Called both when a teacher's own code changes directly, and when it changes as a
@@ -14,13 +20,13 @@ export async function cascadeTeacherCodeToStudents(
     newTeacherCode: number,
     changedByUserId: number
 ): Promise<number> {
-    const students = await trx.selectFrom("students").select(["id", "code"]).where("teacher_id", "=", teacherId).execute();
+    const students = await trx.selectFrom("students_all").select(["id", "code"]).where("teacher_id", "=", teacherId).execute();
 
     for (const student of students) {
         const newCode = rebaseCode(student.code, newTeacherCode, CODE_DIVISORS.STUDENT_TO_TEACHER);
         if (newCode === student.code) continue;
 
-        await trx.updateTable("students").set({ code: newCode }).where("id", "=", student.id).execute();
+        await trx.updateTable("students_all").set({ code: newCode }).where("id", "=", student.id).execute();
         await trx.insertInto("code_change_logs").values({
             entity_type: "student",
             entity_id: student.id,
@@ -45,14 +51,14 @@ export async function cascadeSchoolCodeToTeachers(
     newSchoolCode: number,
     changedByUserId: number
 ): Promise<{ teachersCount: number; studentsCount: number }> {
-    const teachers = await trx.selectFrom("teachers").select(["id", "code"]).where("school_id", "=", schoolId).execute();
+    const teachers = await trx.selectFrom("teachers_all").select(["id", "code"]).where("school_id", "=", schoolId).execute();
 
     let studentsCount = 0;
     for (const teacher of teachers) {
         const newTeacherCode = rebaseCode(teacher.code, newSchoolCode, CODE_DIVISORS.TEACHER_TO_SCHOOL);
 
         if (newTeacherCode !== teacher.code) {
-            await trx.updateTable("teachers").set({ code: newTeacherCode }).where("id", "=", teacher.id).execute();
+            await trx.updateTable("teachers_all").set({ code: newTeacherCode }).where("id", "=", teacher.id).execute();
             await trx.insertInto("code_change_logs").values({
                 entity_type: "teacher",
                 entity_id: teacher.id,

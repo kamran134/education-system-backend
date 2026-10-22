@@ -673,6 +673,71 @@ CREATE INDEX teachers_name_trgm ON teachers USING gin (fullname gin_trgm_ops);
 CREATE INDEX schools_name_trgm  ON schools  USING gin (name gin_trgm_ops);
 
 
+-- ============================================================ soft delete (037_soft_delete.sql, SOFT_DELETE_TASK.md)
+--
+-- districts / schools / teachers / students above are the BASE tables; here they are renamed to *_all and
+-- replaced by same-named views that hide deleted rows. Everything that follows (the rating views below, all
+-- application code) keeps reading the plain names and never sees a hidden row. Code that needs hidden rows
+-- (deletion.service.pg.ts, the «Silinənlər» list, code checks, login) reads *_all explicitly.
+-- FKs created above are bound by OID, so they follow the rename to *_all.
+-- Rule: ALTER TABLE <x>_all ADD COLUMN must be followed by re-creating the view <x> (SELECT * is expanded at creation).
+-- Placed here, after every table that references the four, so that the file stays runnable top to bottom
+-- (a REFERENCES on a view is not allowed).
+
+CREATE TABLE deletions (
+    id           bigserial   PRIMARY KEY,
+    entity_type  text        NOT NULL CHECK (entity_type IN ('district', 'school', 'teacher', 'student')),
+    entity_id    bigint      NOT NULL,                         -- root of the batch; polymorphic, no FK
+    deleted_by   bigint      REFERENCES users(id) ON DELETE SET NULL,
+    deleted_at   timestamptz NOT NULL DEFAULT now(),
+    counts       jsonb       NOT NULL,                         -- {"schools":n,"teachers":n,"students":n,"results":n} at delete time
+    restored_at  timestamptz,
+    restored_by  bigint      REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX deletions_active_idx ON deletions (deleted_at DESC) WHERE restored_at IS NULL;
+
+ALTER TABLE students
+    ADD COLUMN deleted_at  timestamptz,
+    ADD COLUMN deleted_by  bigint REFERENCES users(id) ON DELETE SET NULL,
+    ADD COLUMN deletion_id bigint REFERENCES deletions(id),
+    ADD CONSTRAINT students_deletion_consistent CHECK ((deleted_at IS NULL) = (deletion_id IS NULL));
+ALTER TABLE teachers
+    ADD COLUMN deleted_at  timestamptz,
+    ADD COLUMN deleted_by  bigint REFERENCES users(id) ON DELETE SET NULL,
+    ADD COLUMN deletion_id bigint REFERENCES deletions(id),
+    ADD CONSTRAINT teachers_deletion_consistent CHECK ((deleted_at IS NULL) = (deletion_id IS NULL));
+ALTER TABLE schools
+    ADD COLUMN deleted_at  timestamptz,
+    ADD COLUMN deleted_by  bigint REFERENCES users(id) ON DELETE SET NULL,
+    ADD COLUMN deletion_id bigint REFERENCES deletions(id),
+    ADD CONSTRAINT schools_deletion_consistent CHECK ((deleted_at IS NULL) = (deletion_id IS NULL));
+ALTER TABLE districts
+    ADD COLUMN deleted_at  timestamptz,
+    ADD COLUMN deleted_by  bigint REFERENCES users(id) ON DELETE SET NULL,
+    ADD COLUMN deletion_id bigint REFERENCES deletions(id),
+    ADD CONSTRAINT districts_deletion_consistent CHECK ((deleted_at IS NULL) = (deletion_id IS NULL));
+
+CREATE INDEX students_deletion_id_idx  ON students  (deletion_id) WHERE deletion_id IS NOT NULL;
+CREATE INDEX teachers_deletion_id_idx  ON teachers  (deletion_id) WHERE deletion_id IS NOT NULL;
+CREATE INDEX schools_deletion_id_idx   ON schools   (deletion_id) WHERE deletion_id IS NOT NULL;
+CREATE INDEX districts_deletion_id_idx ON districts (deletion_id) WHERE deletion_id IS NOT NULL;
+
+ALTER TABLE students  RENAME TO students_all;
+ALTER TABLE teachers  RENAME TO teachers_all;
+ALTER TABLE schools   RENAME TO schools_all;
+ALTER TABLE districts RENAME TO districts_all;
+
+CREATE VIEW students  AS SELECT * FROM students_all  WHERE deleted_at IS NULL;
+CREATE VIEW teachers  AS SELECT * FROM teachers_all  WHERE deleted_at IS NULL;
+CREATE VIEW schools   AS SELECT * FROM schools_all   WHERE deleted_at IS NULL;
+CREATE VIEW districts AS SELECT * FROM districts_all WHERE deleted_at IS NULL;
+
+COMMENT ON VIEW students  IS 'Live (not deleted) students. Base table: students_all (037_soft_delete.sql). New column on students_all => re-create this view.';
+COMMENT ON VIEW teachers  IS 'Live (not deleted) teachers. Base table: teachers_all (037_soft_delete.sql). New column on teachers_all => re-create this view.';
+COMMENT ON VIEW schools   IS 'Live (not deleted) schools. Base table: schools_all (037_soft_delete.sql). New column on schools_all => re-create this view.';
+COMMENT ON VIEW districts IS 'Live (not deleted) districts. Base table: districts_all (037_soft_delete.sql). New column on districts_all => re-create this view.';
+
+
 -- ============================================================ VIEWS: цепочка рейтинга
 --
 -- Воспроизводят StatsService.updateAllStats() (stats.service.ts:355-373) — «иерархический» путь:

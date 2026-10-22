@@ -91,7 +91,10 @@ export class StudentController {
             res.status(201).json(ResponseHandler.created(student, 'Məlumat uğurla yaradıldı'));
         } catch (error: any) {
             console.error('Error in createStudent:', error);
-            if (error.message.includes('already exists') || error.message.includes('required') || error.message.includes('must be')) {
+            if (error.status === 409) {
+                // Code owned by a soft-deleted student (deletion.service.pg.ts::assertCodeNotDeleted).
+                res.status(409).json(ResponseHandler.error(error.message));
+            } else if (error.message.includes('already exists') || error.message.includes('required') || error.message.includes('must be')) {
                 res.status(400).json(ResponseHandler.badRequest(error.message));
             } else {
                 res.status(500).json(ResponseHandler.internalError('Error creating student', error));
@@ -107,7 +110,9 @@ export class StudentController {
             res.status(200).json(ResponseHandler.updated(student, 'Məlumat uğurla yeniləndi'));
         } catch (error: any) {
             console.error('Error in updateStudent:', error);
-            if (error.message === 'Student not found') {
+            if (error.status === 409) {
+                res.status(409).json(ResponseHandler.error(error.message));
+            } else if (error.message === 'Student not found') {
                 res.status(404).json(ResponseHandler.notFound(error.message));
             } else if (
                 error.message.includes('already exists') || error.message.includes('valid id') || error.message.includes('required')
@@ -167,7 +172,7 @@ export class StudentController {
     async deleteStudent(req: Request, res: Response): Promise<void> {
         try {
             const { id } = req.params;
-            await this.studentUseCase.deleteStudent(id);
+            await this.studentUseCase.deleteStudent(id, parseInt(req.user!.userId, 10));
             res.status(200).json(ResponseHandler.deleted('Məlumat uğurla silindi'));
         } catch (error: any) {
             console.error('Error in deleteStudent:', error);
@@ -185,12 +190,14 @@ export class StudentController {
         try {
             const { studentIds } = req.params;
             const ids = studentIds.split(',');
-            const result = await this.studentUseCase.deleteStudents(ids);
+            const result = await this.studentUseCase.deleteStudents(ids, parseInt(req.user!.userId, 10));
             res.status(200).json(ResponseHandler.success(result, 'Məlumat uğurla silindi'));
         } catch (error: any) {
             console.error('Error in deleteStudents:', error);
             if (error.message.includes('must be an array') || error.message.includes('at least')) {
                 res.status(400).json(ResponseHandler.badRequest(error.message));
+            } else if (error.status === 404) {
+                res.status(404).json(ResponseHandler.notFound(error.message));
             } else {
                 res.status(500).json(ResponseHandler.internalError('Error deleting students', error));
             }

@@ -7,9 +7,9 @@ import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_RANGES, CODE_DIVISORS } from "../utils/entity-codes.const";
 import { cascadeSchoolCodeToTeachers } from "../utils/code-cascade.util";
-import { deleteLinkedUsers } from "../utils/linked-users.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
 import { resolveExamTypeId } from "./examType.service.pg";
+import { deleteEntity, deleteEntities, assertCodeNotDeleted } from "./deletion.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -113,6 +113,7 @@ export class SchoolServicePg {
     }
 
     async create(data: SchoolCreate): Promise<School> {
+        await assertCodeNotDeleted("school", data.code);
         const row = await pg
             .insertInto("schools")
             .values({
@@ -158,6 +159,7 @@ export class SchoolServicePg {
     async update(id: number, data: Partial<SchoolCreate>, changedByUserId?: number): Promise<{ school: School; cascadedTeachersCount: number; cascadedStudentsCount: number }> {
         const existing = await pg.selectFrom("schools").select("code").where("id", "=", id).executeTakeFirst();
         if (!existing) throw new Error("School not found");
+        if (data.code !== undefined) await assertCodeNotDeleted("school", data.code);
 
         const codeChanging = data.code !== undefined && data.code !== existing.code;
 
@@ -203,52 +205,17 @@ export class SchoolServicePg {
     }
 
     /**
-     * Каскад: связанные users → результаты учеников → ученики → учителя → школа. Одна транзакция.
-     *
-     * DUZELISLER_2026-09-29 п.1: учителя удаляются ПОСЛЕ учеников (не до, как раньше) — иначе, если
-     * в школе есть и учителя, и ученики, DELETE учителей падал с students_teacher_id_fkey (ученик
-     * ссылается на ещё не удалённого учителя). studentIds — не только school_id = id, но и ученики
-     * ЧУЖОЙ школы, привязанные к учителю ЭТОЙ школы (teacher_id in teacherIds): такой ученик иначе
-     * остался бы с висящим teacher_id при удалении учителей, и тот же FK упал бы.
+     * Soft delete (SOFT_DELETE_TASK.md): hides the school with its teachers and students (including students of
+     * other schools assigned to its teachers) as one restorable batch. Linked user accounts are kept but can no
+     * longer log in. See deletion.service.pg.ts.
      */
-    async delete(id: number): Promise<void> {
-        await pg.transaction().execute(async (trx) => {
-            const teachers = await trx.selectFrom("teachers").select("id").where("school_id", "=", id).execute();
-            const teacherIds = teachers.map((t) => t.id);
-
-            const students = await trx
-                .selectFrom("students")
-                .select("id")
-                .where(({ eb, or }) => {
-                    const conditions = [eb("school_id", "=", id)];
-                    if (teacherIds.length > 0) conditions.push(eb("teacher_id", "in", teacherIds));
-                    return or(conditions);
-                })
-                .execute();
-            const studentIds = students.map((s) => s.id);
-
-            // users.school_id/teacher_id/student_id → schools/teachers/students без ON DELETE
-            // (users_school_id_fkey и т.п.) — без этого шага удаление падало на аккаунте директора
-            // школы (users.role='schoolDirector', school_id=id), даже если у школы нет ни учителей,
-            // ни учеников.
-            await deleteLinkedUsers(trx, { schoolIds: [id], teacherIds, studentIds });
-
-            if (studentIds.length > 0) {
-                await trx.deleteFrom("student_results").where("student_id", "in", studentIds).execute();
-                await trx.deleteFrom("students").where("id", "in", studentIds).execute();
-            }
-            if (teacherIds.length > 0) {
-                await trx.deleteFrom("teachers").where("school_id", "=", id).execute();
-            }
-
-            const result = await trx.deleteFrom("schools").where("id", "=", id).executeTakeFirst();
-            if (Number(result.numDeletedRows) === 0) throw new Error("School not found");
-        });
+    async delete(id: number, deletedBy: number | null = null): Promise<void> {
+        await deleteEntity("school", id, deletedBy);
     }
 
-    async deleteBulk(ids: number[]): Promise<BulkOperationResult> {
-        for (const id of ids) await this.delete(id);
-        return { insertedCount: 0, modifiedCount: 0, deletedCount: ids.length, errors: [] };
+    async deleteBulk(ids: number[], deletedBy: number | null = null): Promise<BulkOperationResult> {
+        const deleted = await deleteEntities("school", ids, deletedBy);
+        return { insertedCount: 0, modifiedCount: 0, deletedCount: deleted, errors: [] };
     }
 
     async getFilteredSchools(
@@ -382,7 +349,10 @@ export class SchoolServicePg {
 
     async checkExistingSchoolCodes(codes: number[]): Promise<number[]> {
         if (codes.length === 0) return [];
-        const rows = await pg.selectFrom("schools").select("code").where("code", "in", codes).execute();
+        // *_all on purpose (SOFT_DELETE_TASK.md §6.3): a code owned by a deleted record counts as existing, so the
+        // importer skips it. This also keeps hidden rows away from the ON CONFLICT (code) upsert, which would
+        // silently update them through the view.
+        const rows = await pg.selectFrom("schools_all").select("code").where("code", "in", codes).execute();
         return rows.map((r) => r.code);
     }
 

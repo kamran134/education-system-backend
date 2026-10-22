@@ -7,6 +7,7 @@ import TokenServicePg from "../services/token.service.pg";
 import { JWT_SECRET, JWT_REFRESH_SECRET } from "../config/env";
 import { buildProfileSummaryPg } from "../utils/profile-summary.util.pg";
 import { pg } from "../config/pg";
+import { isLinkedEntityDeleted, DELETED_ACCOUNT_MESSAGE } from "../utils/deleted-account.util";
 
 // Refresh токены хранятся в Postgres, таблица user_refresh_tokens (см. token.service.pg.ts)
 
@@ -62,6 +63,15 @@ export const login = async (req: Request, res: Response) => {
             res.status(403).json({
                 success: false,
                 message: "Adminin təsdiqi mütləqdir!"
+            });
+            return;
+        }
+
+        // Soft delete (SOFT_DELETE_TASK.md §6.1): the account stays, but its entity is hidden.
+        if (await isLinkedEntityDeleted(user)) {
+            res.status(403).json({
+                success: false,
+                message: DELETED_ACCOUNT_MESSAGE
             });
             return;
         }
@@ -184,6 +194,23 @@ export const refreshToken = async (req: Request, res: Response) => {
             res.status(401).json({
                 success: false,
                 message: "İstifadəçi aktiv deyil!"
+            });
+            return;
+        }
+
+        // Soft delete (SOFT_DELETE_TASK.md §6.1): same as the not-approved branch, but with its own message.
+        if (await isLinkedEntityDeleted(userWithToken)) {
+            await TokenServicePg.removeToken(refreshToken);
+
+            const clearOptions: any = { path: "/" };
+            if (process.env.NODE_ENV === "production") {
+                clearOptions.domain = ".kpm.az";
+            }
+            res.clearCookie("refreshToken", clearOptions);
+
+            res.status(401).json({
+                success: false,
+                message: DELETED_ACCOUNT_MESSAGE
             });
             return;
         }

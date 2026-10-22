@@ -3,9 +3,7 @@ import { TeacherServicePg, Teacher, TeacherCreate } from "../services/teacher.se
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult, FileProcessingResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS, CODE_DIVISORS, rebaseCode } from "../utils/entity-codes.const";
-import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 import { pg } from "../config/pg";
-import { removeAchievementDirs } from "../services/achievementFile.service.pg";
 
 export class TeacherUseCase {
     constructor(private teacherService: TeacherServicePg) {}
@@ -42,7 +40,7 @@ export class TeacherUseCase {
 
         const teacher = await this.teacherService.findById(parseInt(id, 10));
         if (!teacher) {
-            throw new Error('Teacher not found');
+            throw Object.assign(new Error('Teacher not found'), { status: 404 });
         }
 
         return teacher;
@@ -85,7 +83,7 @@ export class TeacherUseCase {
 
         const existingTeacher = await this.teacherService.findById(parseInt(id, 10));
         if (!existingTeacher) {
-            throw new Error('Teacher not found');
+            throw Object.assign(new Error('Teacher not found'), { status: 404 });
         }
 
         // KICIK_DUZELISLER_2026-09-11 п.4a: та же нормализация, что и в createTeacher выше —
@@ -214,7 +212,7 @@ export class TeacherUseCase {
         return await this.teacherService.update(parseInt(id, 10), normalized, changedByUserId);
     }
 
-    async deleteTeacher(id: string): Promise<void> {
+    async deleteTeacher(id: string, deletedBy: number | null = null): Promise<void> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Teacher ID'),
             ValidationUtils.validateId(id, 'Teacher ID')
@@ -226,26 +224,22 @@ export class TeacherUseCase {
 
         const teacher = await this.teacherService.findById(parseInt(id, 10));
         if (!teacher) {
-            throw new Error('Teacher not found');
+            throw Object.assign(new Error('Teacher not found'), { status: 404 });
         }
 
-        await this.teacherService.delete(parseInt(id, 10));
-        await profileChangeRequestServicePg.deleteForEntity('teacher', parseInt(id, 10));
-        // Rows of achievement_files go with the FK cascade; the files on disk are ours to remove.
-        removeAchievementDirs('teacher', [parseInt(id, 10)]);
+        // Soft delete: moderation requests and achievement files (rows and files on disk) stay untouched,
+        // they come back with the teacher.
+        await this.teacherService.delete(parseInt(id, 10), deletedBy);
     }
 
-    async deleteTeachers(ids: string[]): Promise<BulkOperationResult> {
+    async deleteTeachers(ids: string[], deletedBy: number | null = null): Promise<BulkOperationResult> {
         const arrayValidation = ValidationUtils.validateArray(ids, 'Teacher IDs', 1);
         if (!arrayValidation.isValid) {
             throw new Error(arrayValidation.errors.join(', '));
         }
 
         const numericIds = ids.map((id) => parseInt(id, 10));
-        const result = await this.teacherService.deleteBulk(numericIds);
-        await profileChangeRequestServicePg.deleteForEntities('teacher', numericIds);
-        removeAchievementDirs('teacher', numericIds);
-        return result;
+        return await this.teacherService.deleteBulk(numericIds, deletedBy);
     }
 
     async processTeachersFromFile(filePath: string): Promise<FileProcessingResult<Teacher>> {

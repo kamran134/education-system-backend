@@ -148,7 +148,7 @@ export class DistrictController {
     deleteDistrict = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
-            await this.districtUseCase.deleteDistrict(id);
+            await this.districtUseCase.deleteDistrict(id, parseInt(req.user!.userId, 10));
 
             res.json(ResponseHandler.deleted('Məlumat uğurla silindi'));
         } catch (error) {
@@ -159,7 +159,7 @@ export class DistrictController {
     deleteDistricts = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { ids } = req.body;
-            const result = await this.districtUseCase.deleteDistricts(ids);
+            const result = await this.districtUseCase.deleteDistricts(ids, parseInt(req.user!.userId, 10));
 
             res.json(ResponseHandler.success(result, ` məlumat uğurla silindi`));
         } catch (error) {

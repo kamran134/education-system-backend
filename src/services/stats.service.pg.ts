@@ -349,6 +349,9 @@ export class StatsServicePg {
             INSERT INTO student_year_ratings (student_id, year, exam_type_id, score, average_score, place, district_place)
             SELECT sc.student_id, sc.academic_year, sc.exam_type_id, sc.score, sc.average_score, p.place, p.district_place
             FROM v_student_year_scores sc
+            -- v_student_year_scores is built from student_results alone; the JOIN keeps students hidden by a soft
+            -- delete (037) out of student_year_ratings. Their results stay and come back with a restore + recompute.
+            JOIN students st ON st.id = sc.student_id
             LEFT JOIN v_student_places p ON p.student_id = sc.student_id AND p.academic_year = sc.academic_year AND p.exam_type_id = sc.exam_type_id
             WHERE sc.academic_year = ${year} AND sc.exam_type_id = ${examTypeId}
         `.execute(db);

@@ -1,7 +1,6 @@
 import { DistrictServicePg, District, DistrictCreate } from "../services/district.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions, FileProcessingResult, BulkOperationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
-import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 
 export class DistrictUseCase {
     constructor(private districtService: DistrictServicePg) {}
@@ -18,7 +17,7 @@ export class DistrictUseCase {
 
         const district = await this.districtService.findById(parseInt(id, 10));
         if (!district) {
-            throw new Error('District not found');
+            throw Object.assign(new Error('District not found'), { status: 404 });
         }
 
         return district;
@@ -29,7 +28,7 @@ export class DistrictUseCase {
 
         const district = await this.districtService.findByCode(code);
         if (!district) {
-            throw new Error('District not found');
+            throw Object.assign(new Error('District not found'), { status: 404 });
         }
 
         return district;
@@ -90,7 +89,7 @@ export class DistrictUseCase {
         return await this.districtService.update(parseInt(id, 10), data);
     }
 
-    async deleteDistrict(id: string): Promise<void> {
+    async deleteDistrict(id: string, deletedBy: number | null = null): Promise<void> {
         const validationError = ValidationUtils.validateId(id, 'District ID');
         if (validationError) {
             throw new Error(validationError);
@@ -98,14 +97,14 @@ export class DistrictUseCase {
 
         const district = await this.districtService.findById(parseInt(id, 10));
         if (!district) {
-            throw new Error('District not found');
+            throw Object.assign(new Error('District not found'), { status: 404 });
         }
 
-        await this.districtService.delete(parseInt(id, 10));
-        await profileChangeRequestServicePg.deleteForEntity('district', parseInt(id, 10));
+        // Soft delete: moderation requests stay (they are restored together with the entity).
+        await this.districtService.delete(parseInt(id, 10), deletedBy);
     }
 
-    async deleteDistricts(ids: string[]): Promise<BulkOperationResult> {
+    async deleteDistricts(ids: string[], deletedBy: number | null = null): Promise<BulkOperationResult> {
         if (!ids || ids.length === 0) {
             throw new Error('District IDs are required');
         }
@@ -118,9 +117,7 @@ export class DistrictUseCase {
         }
 
         const numericIds = ids.map((id) => parseInt(id, 10));
-        const result = await this.districtService.deleteBulk(numericIds);
-        await profileChangeRequestServicePg.deleteForEntities('district', numericIds);
-        return result;
+        return await this.districtService.deleteBulk(numericIds, deletedBy);
     }
 
     async getFilteredDistricts(

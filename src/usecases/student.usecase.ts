@@ -3,7 +3,6 @@ import { StudentServicePg, Student, StudentCreate, StudentResultRow } from "../s
 import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, BulkOperationResult, ValidationResult } from "../types/common.types";
 import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS, CODE_DIVISORS, rebaseCode } from "../utils/entity-codes.const";
-import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 import { pg } from "../config/pg";
 import { RankBasis } from "../utils/rank-metric.util";
 
@@ -190,7 +189,7 @@ export class StudentUseCase {
         return await this.studentService.updateProfile(parseInt(id, 10), { fullname: data.fullname! });
     }
 
-    async deleteStudent(id: string): Promise<void> {
+    async deleteStudent(id: string, deletedBy: number | null = null): Promise<void> {
         const validation = ValidationUtils.combine([
             ValidationUtils.validateRequired(id, 'Student ID'),
             ValidationUtils.validateId(id, 'Student ID')
@@ -205,23 +204,18 @@ export class StudentUseCase {
             throw new Error('Student not found');
         }
 
-        // Каскад в student.service.pg.ts уже удаляет student_results одной транзакцией.
-        await this.studentService.delete(parseInt(id, 10));
-        // Полиморфная связь без FK (как у school/teacher/district, profileChangeRequest.service.pg.ts)
-        // — заявку за удалённого ученика подчищаем явно, иначе она осиротеет в очереди модерации.
-        await profileChangeRequestServicePg.deleteForEntity('student', parseInt(id, 10));
+        // Soft delete: results and moderation requests stay untouched, they come back with the student.
+        await this.studentService.delete(parseInt(id, 10), deletedBy);
     }
 
-    async deleteStudents(ids: string[]): Promise<BulkOperationResult> {
+    async deleteStudents(ids: string[], deletedBy: number | null = null): Promise<BulkOperationResult> {
         const arrayValidation = ValidationUtils.validateArray(ids, 'Student IDs', 1);
         if (!arrayValidation.isValid) {
             throw new Error(arrayValidation.errors.join(', '));
         }
 
         const numericIds = ids.map((id) => parseInt(id, 10));
-        const result = await this.studentService.deleteBulk(numericIds);
-        await profileChangeRequestServicePg.deleteForEntities('student', numericIds);
-        return result;
+        return await this.studentService.deleteBulk(numericIds, deletedBy);
     }
 
     async searchStudents(searchString: string): Promise<Student[]> {

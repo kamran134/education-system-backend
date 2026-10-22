@@ -5,10 +5,10 @@ import { PaginationOptions, FilterOptionsPg, SortOptions, BulkOperationResult } 
 import { RequestParser } from "../utils/request-parser.util";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_DIVISORS } from "../utils/entity-codes.const";
-import { deleteLinkedUsers } from "../utils/linked-users.util";
 import { getCurrentAcademicYear, parseMonthFilter } from "../utils/academic-year.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
 import { resolveExamTypeId } from "./examType.service.pg";
+import { deleteEntity, deleteEntities, assertCodeNotDeleted } from "./deletion.service.pg";
 import { rankMetric, denseRankByMetric, RankBasis } from "../utils/rank-metric.util";
 
 export interface YearRatingRow {
@@ -214,6 +214,7 @@ export class StudentServicePg {
     }
 
     async create(data: StudentCreate): Promise<Student> {
+        await assertCodeNotDeleted("student", data.code);
         let { teacherId, schoolId, districtId } = data;
         if (teacherId === undefined) {
             const resolved = await this.assignTeacherToStudent(data.code);
@@ -235,6 +236,7 @@ export class StudentServicePg {
     }
 
     async update(id: number, data: Partial<StudentCreate>): Promise<Student> {
+        if (data.code !== undefined) await assertCodeNotDeleted("student", data.code);
         const row = await pg
             .updateTable("students")
             .set({
@@ -272,26 +274,14 @@ export class StudentServicePg {
         return (await this.attachExtras([row]))[0];
     }
 
-    /** Удаляет ученика вместе с его результатами — одна транзакция (вместо двух вызовов сервисов в Mongo-версии). */
-    async delete(id: number): Promise<void> {
-        await pg.transaction().execute(async (trx) => {
-            // users.student_id → students без ON DELETE (users_student_id_fkey, DUZELISLER_2026-09-29
-            // п.1) — ученик тоже может иметь собственный аккаунт (users.role='student').
-            await deleteLinkedUsers(trx, { studentIds: [id] });
-            await trx.deleteFrom("student_results").where("student_id", "=", id).execute();
-            const result = await trx.deleteFrom("students").where("id", "=", id).executeTakeFirst();
-            if (Number(result.numDeletedRows) === 0) throw new Error("Student not found");
-        });
+    /** Soft delete (SOFT_DELETE_TASK.md): hides the student, results and rating rows stay. One batch per student. */
+    async delete(id: number, deletedBy: number | null = null): Promise<void> {
+        await deleteEntity("student", id, deletedBy);
     }
 
-    async deleteBulk(ids: number[]): Promise<BulkOperationResult> {
-        const result = await pg.transaction().execute(async (trx) => {
-            // users.student_id → students без ON DELETE — та же причина, что и в delete() выше.
-            await deleteLinkedUsers(trx, { studentIds: ids });
-            await trx.deleteFrom("student_results").where("student_id", "in", ids).execute();
-            return await trx.deleteFrom("students").where("id", "in", ids).executeTakeFirst();
-        });
-        return { insertedCount: 0, modifiedCount: 0, deletedCount: Number(result.numDeletedRows), errors: [] };
+    async deleteBulk(ids: number[], deletedBy: number | null = null): Promise<BulkOperationResult> {
+        const deleted = await deleteEntities("student", ids, deletedBy);
+        return { insertedCount: 0, modifiedCount: 0, deletedCount: deleted, errors: [] };
     }
 
     /** Поиск по имени (частями, через все слова) или по коду — см. buildFilter для точной семантики. */

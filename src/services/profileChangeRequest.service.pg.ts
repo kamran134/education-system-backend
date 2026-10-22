@@ -1,4 +1,4 @@
-import type { Kysely } from "kysely";
+import { sql, type Kysely } from "kysely";
 import { pg } from "../config/pg";
 import type { DB } from "../types/db";
 import { AchievementFileDto, loadFileDtosByIds, readFileOps } from "./achievementFile.service.pg";
@@ -43,6 +43,21 @@ const ENTITY_FIELDS: Record<ProfileChangeEntityType, string[]> = {
     district: ["educationHeadName"],
     student: ["fullname"],
 };
+
+/**
+ * SOFT_DELETE_TASK.md §6.7: requests of soft-deleted entities are not moderated (they stay in the table and are
+ * back in the queue after a restore). The plain table names are the live views, so EXISTS on them is enough.
+ */
+function entityIsLive(alias: string) {
+    const type = sql.ref(`${alias}.entity_type`);
+    const id = sql.ref(`${alias}.entity_id`);
+    return sql<boolean>`(
+        (${type} = 'school'   AND EXISTS (SELECT 1 FROM schools   x WHERE x.id = ${id})) OR
+        (${type} = 'teacher'  AND EXISTS (SELECT 1 FROM teachers  x WHERE x.id = ${id})) OR
+        (${type} = 'district' AND EXISTS (SELECT 1 FROM districts x WHERE x.id = ${id})) OR
+        (${type} = 'student'  AND EXISTS (SELECT 1 FROM students  x WHERE x.id = ${id}))
+    )`;
+}
 
 function mapRow(row: any): ProfileChangeRequest {
     return {
@@ -150,6 +165,7 @@ export class ProfileChangeRequestServicePg {
             .selectFrom("profile_change_requests")
             .select(({ fn }) => [fn.countAll().as("count")])
             .where("status", "=", "pending")
+            .where(entityIsLive("profile_change_requests"))
             .executeTakeFirstOrThrow();
         return Number(row.count);
     }
@@ -233,6 +249,7 @@ export class ProfileChangeRequestServicePg {
                 "u.email as submitted_by_email",
             ])
             .where("pcr.status", "=", status)
+            .where(entityIsLive("pcr"))
             .orderBy("pcr.submitted_at", "desc")
             .execute();
 

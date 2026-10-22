@@ -7,9 +7,9 @@ import { deleteFile } from "./file.service";
 import { escapeRegex } from "../utils/validation.util";
 import { CODE_DIVISORS } from "../utils/entity-codes.const";
 import { cascadeTeacherCodeToStudents } from "../utils/code-cascade.util";
-import { deleteLinkedUsers } from "../utils/linked-users.util";
 import { resolveRatingYear } from "./ratingYear.service.pg";
 import { resolveExamTypeId } from "./examType.service.pg";
+import { deleteEntity, deleteEntities, assertCodeNotDeleted } from "./deletion.service.pg";
 
 export interface YearRatingRow {
     year: number;
@@ -112,6 +112,7 @@ export class TeacherServicePg {
     }
 
     async create(data: TeacherCreate): Promise<Teacher> {
+        await assertCodeNotDeleted("teacher", data.code);
         const row = await pg
             .insertInto("teachers")
             .values({
@@ -159,6 +160,7 @@ export class TeacherServicePg {
         // годится, students.school_id/district_id тоже должны переехать вместе с учителем.
         const existing = await pg.selectFrom("teachers").select(["code", "school_id"]).where("id", "=", id).executeTakeFirst();
         if (!existing) throw new Error("Teacher not found");
+        if (data.code !== undefined) await assertCodeNotDeleted("teacher", data.code);
 
         const codeChanging = data.code !== undefined && data.code !== existing.code;
         const schoolMoving = data.schoolId !== undefined && data.schoolId !== existing.school_id;
@@ -203,7 +205,9 @@ export class TeacherServicePg {
                     // поэтому ученики переезжают вместе с учителем (KICIK_DUZELISLER_2026-09-11
                     // п.4b). districtId usecase всегда подставляет от новой школы при переводе,
                     // ?? null — подстраховка на случай отсутствующего значения.
-                    await trx.updateTable("students")
+                    // students_all, not the live view: hidden students of this teacher must move with him too,
+                    // otherwise they come back from «Silinənlər» pointing to the old school (SOFT_DELETE_TASK.md §6.5).
+                    await trx.updateTable("students_all")
                         .set({ school_id: data.schoolId!, district_id: data.districtId ?? null })
                         .where("teacher_id", "=", id)
                         .execute();
@@ -224,30 +228,14 @@ export class TeacherServicePg {
         }
     }
 
-    /** Каскад: связанные users → результаты учеников → ученики → учитель. Одна транзакция. */
-    async delete(id: number): Promise<void> {
-        await pg.transaction().execute(async (trx) => {
-            const students = await trx.selectFrom("students").select("id").where("teacher_id", "=", id).execute();
-            const studentIds = students.map((s) => s.id);
-
-            // users.teacher_id/student_id → teachers/students без ON DELETE (users_teacher_id_fkey
-            // и т.п., DUZELISLER_2026-09-29 п.1) — 715 учителей в проде имеют собственный аккаунт
-            // (users.role='teacher', teacher_id=id), без этого шага DELETE учителя падал на нём же.
-            await deleteLinkedUsers(trx, { teacherIds: [id], studentIds });
-
-            if (studentIds.length > 0) {
-                await trx.deleteFrom("student_results").where("student_id", "in", studentIds).execute();
-                await trx.deleteFrom("students").where("teacher_id", "=", id).execute();
-            }
-
-            const result = await trx.deleteFrom("teachers").where("id", "=", id).executeTakeFirst();
-            if (Number(result.numDeletedRows) === 0) throw new Error("Teacher not found");
-        });
+    /** Soft delete (SOFT_DELETE_TASK.md): hides the teacher with his students as one restorable batch. */
+    async delete(id: number, deletedBy: number | null = null): Promise<void> {
+        await deleteEntity("teacher", id, deletedBy);
     }
 
-    async deleteBulk(ids: number[]): Promise<BulkOperationResult> {
-        for (const id of ids) await this.delete(id);
-        return { insertedCount: 0, modifiedCount: 0, deletedCount: ids.length, errors: [] };
+    async deleteBulk(ids: number[], deletedBy: number | null = null): Promise<BulkOperationResult> {
+        const deleted = await deleteEntities("teacher", ids, deletedBy);
+        return { insertedCount: 0, modifiedCount: 0, deletedCount: deleted, errors: [] };
     }
 
     /**
@@ -447,7 +435,10 @@ export class TeacherServicePg {
 
     async checkExistingTeacherCodes(codes: number[]): Promise<number[]> {
         if (codes.length === 0) return [];
-        const rows = await pg.selectFrom("teachers").select("code").where("code", "in", codes).execute();
+        // *_all on purpose (SOFT_DELETE_TASK.md §6.3): a code owned by a deleted record counts as existing, so the
+        // importer skips it. This also keeps hidden rows away from the ON CONFLICT (code) upsert, which would
+        // silently update them through the view.
+        const rows = await pg.selectFrom("teachers_all").select("code").where("code", "in", codes).execute();
         return rows.map((r) => r.code);
     }
 

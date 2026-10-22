@@ -26,6 +26,7 @@ import publicRoutes from "./routes/public.routes";
 import profileChangeRoutes from "./routes/profileChange.routes";
 import metodikaRoutes from "./routes/metodika.routes";
 import achievementFileRoutes from "./routes/achievementFile.routes";
+import deletionRoutes from "./routes/deletion.routes";
 import { serveAchievementFileContent } from "./controllers/achievementFile.controller";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
@@ -194,6 +195,7 @@ app.use("/api/public", publicRoutes);
 app.use("/api/profile-changes", profileChangeRoutes);
 app.use("/api/metodika", metodikaRoutes);
 app.use("/api/achievement-files", achievementFileRoutes);
+app.use("/api/deletions", deletionRoutes);
 app.use("/api/auth", authLimiter, authRoutes);
 
 app.use((req, res, next) => {

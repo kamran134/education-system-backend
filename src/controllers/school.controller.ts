@@ -179,7 +179,7 @@ export class SchoolController {
     deleteSchool = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const { id } = req.params;
-            await this.schoolUseCase.deleteSchool(id);
+            await this.schoolUseCase.deleteSchool(id, parseInt(req.user!.userId, 10));
 
             res.json(ResponseHandler.deleted('Məlumat uğurla silindi'));
         } catch (error) {
@@ -191,7 +191,7 @@ export class SchoolController {
         try {
             const { schoolIds } = req.params;
             const ids = schoolIds.split(',');
-            const result = await this.schoolUseCase.deleteSchools(ids);
+            const result = await this.schoolUseCase.deleteSchools(ids, parseInt(req.user!.userId, 10));
 
             res.json(ResponseHandler.success(result, ` məlumat uğurla silindi`));
         } catch (error) {

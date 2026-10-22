@@ -32,6 +32,8 @@ export interface GradePromotionResult {
  * `executedByUserId` теперь число (users.id, FK), не строка ObjectId.
  */
 export class GradePromotionServicePg {
+    // SOFT_DELETE_TASK.md §6.6: everything here reads / writes students_all, not the live view. Deleted students are
+    // promoted together with everyone else, so that a student restored a year later lands in the right grade.
     async preview(): Promise<GradePromotionPreview> {
         const targetAcademicYear = getPromotionTargetAcademicYear();
 
@@ -43,7 +45,7 @@ export class GradePromotionServicePg {
                 .where("status", "=", "completed")
                 .executeTakeFirst(),
             pg
-                .selectFrom("students")
+                .selectFrom("students_all")
                 .select(["grade", ({ fn }) => fn.countAll().as("count")])
                 .groupBy("grade")
                 .orderBy("grade")
@@ -127,7 +129,7 @@ export class GradePromotionServicePg {
                 // не изменится, но факт "в уходящем году был в 11-м" должен быть записан.
                 await sql`
                     INSERT INTO student_grade_history (student_id, academic_year, grade)
-                    SELECT id, ${outgoingYear}::int, grade FROM students WHERE grade IS NOT NULL
+                    SELECT id, ${outgoingYear}::int, grade FROM students_all WHERE grade IS NOT NULL
                     ON CONFLICT (student_id, academic_year) DO UPDATE SET grade = EXCLUDED.grade
                 `.execute(trx);
                 await sql`
@@ -138,13 +140,13 @@ export class GradePromotionServicePg {
                 `.execute(trx);
 
                 const promoteResult = await trx
-                    .updateTable("students")
+                    .updateTable("students_all")
                     .set(({ eb }) => ({ grade: eb("grade", "+", 1) }))
                     .where("grade", "<", MAX_STUDENT_GRADE)
                     .executeTakeFirst();
 
                 const ceilingRow = await trx
-                    .selectFrom("students")
+                    .selectFrom("students_all")
                     .select(({ fn }) => [fn.countAll().as("count")])
                     .where("grade", ">=", MAX_STUDENT_GRADE)
                     .executeTakeFirstOrThrow();
@@ -156,7 +158,7 @@ export class GradePromotionServicePg {
                 // за ещё не начавшийся учебный год быть не может.
                 await sql`
                     INSERT INTO student_grade_history (student_id, academic_year, grade)
-                    SELECT id, ${academicYear}::int, grade FROM students WHERE grade IS NOT NULL
+                    SELECT id, ${academicYear}::int, grade FROM students_all WHERE grade IS NOT NULL
                     ON CONFLICT (student_id, academic_year) DO UPDATE SET grade = EXCLUDED.grade
                 `.execute(trx);
 

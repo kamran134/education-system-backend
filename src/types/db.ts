@@ -78,6 +78,10 @@ export interface Districts {
   rate: number | null;
   region_id: number | null;
   student_count: number | null;
+  // Soft delete (037_soft_delete.sql). Live rows are read through the same-named view, hidden ones only via <name>_all.
+  deleted_at: Timestamp | null;
+  deleted_by: number | null;
+  deletion_id: number | null;
 }
 
 export interface DistrictYearRatings {
@@ -232,6 +236,10 @@ export interface Schools {
   school_of_the_year_score: Generated<number | null>;
   status: string | null;
   student_count: number | null;
+  // Soft delete (037_soft_delete.sql). Live rows are read through the same-named view, hidden ones only via <name>_all.
+  deleted_at: Timestamp | null;
+  deleted_by: number | null;
+  deletion_id: number | null;
 }
 
 export interface SchemaMigrations {
@@ -308,6 +316,10 @@ export interface Students {
   school_id: number | null;
   status: string | null;
   teacher_id: number | null;
+  // Soft delete (037_soft_delete.sql). Live rows are read through the same-named view, hidden ones only via <name>_all.
+  deleted_at: Timestamp | null;
+  deleted_by: number | null;
+  deletion_id: number | null;
 }
 
 export interface StudentYearRatings {
@@ -417,6 +429,10 @@ export interface Teachers {
   status: string | null;
   student_count: number | null;
   teacher_of_the_year_score: Generated<number | null>;
+  // Soft delete (037_soft_delete.sql). Live rows are read through the same-named view, hidden ones only via <name>_all.
+  deleted_at: Timestamp | null;
+  deleted_by: number | null;
+  deletion_id: number | null;
 }
 
 export interface TeacherYearRatings {
@@ -671,6 +687,19 @@ export interface VTeacherYearScores {
   exam_type_id: number | null;
 }
 
+// Added by hand after 037_soft_delete.sql (deletion batches; students_all/teachers_all/schools_all/districts_all
+// are the base tables behind the same-named filtering views).
+export interface Deletions {
+  id: Generated<number>;
+  entity_type: string;
+  entity_id: number;
+  deleted_by: number | null;
+  deleted_at: Generated<Timestamp>;
+  counts: Json;
+  restored_at: Timestamp | null;
+  restored_by: number | null;
+}
+
 export interface DB {
   academic_year_closures: AcademicYearClosures;
   achievement_files: AchievementFiles;
@@ -679,7 +708,9 @@ export interface DB {
   certificate_templates: CertificateTemplates;
   code_change_logs: CodeChangeLogs;
   district_year_ratings: DistrictYearRatings;
+  deletions: Deletions;
   districts: Districts;
+  districts_all: Districts;
   exam_type_section_subjects: ExamTypeSectionSubjects;
   exam_type_sections: ExamTypeSections;
   exam_types: ExamTypes;
@@ -694,14 +725,17 @@ export interface DB {
   schema_migrations: SchemaMigrations;
   school_year_ratings: SchoolYearRatings;
   schools: Schools;
+  schools_all: Schools;
   student_grade_history: StudentGradeHistory;
   student_results: StudentResults;
   student_result_subject_scores: StudentResultSubjectScores;
   student_year_ratings: StudentYearRatings;
   students: Students;
+  students_all: Students;
   subjects: Subjects;
   teacher_year_ratings: TeacherYearRatings;
   teachers: Teachers;
+  teachers_all: Teachers;
   user_login_events: UserLoginEvents;
   user_refresh_tokens: UserRefreshTokens;
   user_settings: UserSettings;

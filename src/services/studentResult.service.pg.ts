@@ -576,8 +576,8 @@ export class StudentResultServicePg {
             }
 
             // Запись — одной транзакцией.
-            const { processedCount, studentsWithoutTeacher } = await pg.transaction().execute(async (trx) => {
-                const { students, studentsWithoutTeacher } = await this.processStudentResults(
+            const { processedCount, studentsWithoutTeacher, deletedStudentCodes, studentsOfDeletedTeacher } = await pg.transaction().execute(async (trx) => {
+                const { students, studentsWithoutTeacher, deletedStudentCodes, studentsOfDeletedTeacher } = await this.processStudentResults(
                     trx, parsedRows.map((r) => ({ code: r.studentCode, fullname: r.fullname, grade: r.grade }))
                 );
                 const studentByCode = new Map(students.map((s) => [s.code, s]));
@@ -644,7 +644,7 @@ export class StudentResultServicePg {
                     }
                 }
 
-                return { processedCount: resultRows.length, studentsWithoutTeacher };
+                return { processedCount: resultRows.length, studentsWithoutTeacher, deletedStudentCodes, studentsOfDeletedTeacher };
             });
 
             await deleteFile(filePath).catch(() => {});
@@ -655,6 +655,22 @@ export class StudentResultServicePg {
                 if (!c) continue;
                 addReport(c.row, c.rowNumber, 0, code, "Layihə müəllimi",
                     `Kodun müəllim hissəsi (${Math.floor(code / CODE_DIVISORS.STUDENT_TO_TEACHER)}) sistemdə yoxdur — şagird yaradılmadı, nəticə yüklənmədi`);
+            }
+
+            // SOFT_DELETE_TASK.md §6.4: rows of deleted students (and new students under a deleted teacher) are
+            // rejected, not restored — a file upload must not undo an administrator's decision.
+            const rejectDeleted = (codes: number[], kind: string, subject: string) => {
+                for (const code of codes) {
+                    const c = candidateByCode.get(code);
+                    if (!c) continue;
+                    const message = `${subject} (kod ${code}) silinib — «Silinənlər» bölməsindən bərpa edib faylı yenidən yükləyin`;
+                    addReport(c.row, c.rowNumber, 0, code, kind, message);
+                    issues.push({ row: c.rowNumber, code, reason: message });
+                }
+            };
+            rejectDeleted(deletedStudentCodes, "Silinmiş şagird", "Şagird");
+            for (const [teacherCode, studentCodes] of studentsOfDeletedTeacher) {
+                rejectDeleted(studentCodes, "Silinmiş müəllim", `Müəllim ${teacherCode}, şagird`);
             }
             report.sort((a, b) => a.row - b.row || (a.column ?? "").localeCompare(b.column ?? ""));
 
@@ -713,26 +729,42 @@ export class StudentResultServicePg {
     private async processStudentResults(
         trx: Transaction<DB>,
         studentDataToInsert: Array<{ code: number; fullname: string; grade: number }>
-    ): Promise<{ students: Array<{ id: number; code: number }>; studentsWithoutTeacher: number[] }> {
+    ): Promise<{
+        students: Array<{ id: number; code: number }>;
+        studentsWithoutTeacher: number[];
+        deletedStudentCodes: number[];
+        studentsOfDeletedTeacher: Map<number, number[]>;
+    }> {
         const studentCodes = studentDataToInsert.map((s) => s.code);
-        const existingStudents = studentCodes.length > 0
-            ? await trx.selectFrom("students").select(["id", "code"]).where("code", "in", studentCodes).execute()
+        // students_all on purpose (SOFT_DELETE_TASK.md §6.4): a code owned by a deleted student must not look "new",
+        // the INSERT below would hit students_code_key and abort the whole import transaction.
+        const foundStudents = studentCodes.length > 0
+            ? await trx.selectFrom("students_all").select(["id", "code", "deleted_at"]).where("code", "in", studentCodes).execute()
             : [];
-        const existingCodes = new Set(existingStudents.map((s) => s.code));
+        const existingStudents = foundStudents.filter((s) => s.deleted_at === null).map((s) => ({ id: s.id, code: s.code }));
+        const deletedStudentCodes = foundStudents.filter((s) => s.deleted_at !== null).map((s) => s.code);
+        const existingCodes = new Set(foundStudents.map((s) => s.code));
         const newStudents = studentDataToInsert.filter((s) => !existingCodes.has(s.code));
 
         // Учителя — одним запросом по всем кодам учителей (код ученика / 1000), а не по запросу на ученика.
         const teacherCodes = [...new Set(newStudents.map((s) => Math.floor(s.code / CODE_DIVISORS.STUDENT_TO_TEACHER)))];
-        const teachers = teacherCodes.length > 0
-            ? await trx.selectFrom("teachers").select(["id", "code", "school_id", "district_id"]).where("code", "in", teacherCodes).execute()
+        const foundTeachers = teacherCodes.length > 0
+            ? await trx.selectFrom("teachers_all").select(["id", "code", "school_id", "district_id", "deleted_at"]).where("code", "in", teacherCodes).execute()
             : [];
-        const teacherByCode = new Map(teachers.map((t) => [t.code, t]));
+        const teacherByCode = new Map(foundTeachers.filter((t) => t.deleted_at === null).map((t) => [t.code, t]));
+        const deletedTeacherCodes = new Set(foundTeachers.filter((t) => t.deleted_at !== null).map((t) => t.code));
+        const studentsOfDeletedTeacher = new Map<number, number[]>();
 
         const studentsWithTeacher: Array<{ code: number; fullname: string; grade: number; teacherId: number; schoolId: number | null; districtId: number | null }> = [];
         const studentsWithoutTeacher: number[] = [];
 
         for (const s of newStudents) {
-            const teacher = teacherByCode.get(Math.floor(s.code / CODE_DIVISORS.STUDENT_TO_TEACHER));
+            const teacherCode = Math.floor(s.code / CODE_DIVISORS.STUDENT_TO_TEACHER);
+            if (deletedTeacherCodes.has(teacherCode)) {
+                studentsOfDeletedTeacher.set(teacherCode, [...(studentsOfDeletedTeacher.get(teacherCode) ?? []), s.code]);
+                continue;
+            }
+            const teacher = teacherByCode.get(teacherCode);
             if (!teacher) {
                 studentsWithoutTeacher.push(s.code);
                 continue;
@@ -764,7 +796,7 @@ export class StudentResultServicePg {
             newStudentsRows = newStudentsRows.concat(inserted);
         }
 
-        return { students: [...existingStudents, ...newStudentsRows], studentsWithoutTeacher };
+        return { students: [...existingStudents, ...newStudentsRows], studentsWithoutTeacher, deletedStudentCodes, studentsOfDeletedTeacher };
     }
 
     /** Удаляет результаты экзамена и очищает `status` у затронутых учеников. Баллы по предметам
