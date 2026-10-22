@@ -10,6 +10,8 @@ import { DistrictUseCase } from "../usecases/district.usecase";
 import { DistrictServicePg } from "../services/district.service.pg";
 import { StudentUseCase } from "../usecases/student.usecase";
 import { StudentServicePg } from "../services/student.service.pg";
+import { pg } from "../config/pg";
+import { applyApprovedFileOps, discardRejectedFileOps, readFileOps, removeFilesFromDisk } from "../services/achievementFile.service.pg";
 
 const VALID_ENTITY_TYPES: ProfileChangeEntityType[] = ["school", "teacher", "district", "student"];
 
@@ -125,15 +127,41 @@ export class ProfileChangeController {
                 return;
             }
 
+            // Р6 (UGURLAR_FILES_TASK.md): the admin approves what they saw. If the owner touched the
+            // files after that (submitted_at moved), refuse instead of approving an unseen upload.
+            // Without the field the old behaviour stays (text-only requests, older clients).
+            const rawExpected = req.body?.expectedSubmittedAt;
+            const expectedMs = rawExpected === undefined || rawExpected === null ? null : new Date(rawExpected).getTime();
+            if (expectedMs !== null && isNaN(expectedMs)) {
+                res.status(400).json(ResponseHandler.badRequest("expectedSubmittedAt düzgün deyil"));
+                return;
+            }
+            const staleMessage = "Məlumat bu arada yenilənib. Səhifəni yeniləyib yenidən baxın";
+            if (expectedMs !== null && expectedMs !== pending.submittedAt.getTime()) {
+                res.status(409).json(ResponseHandler.conflict(staleMessage));
+                return;
+            }
+
             // «Düzəliş et»: admin göndərilən dəyərləri özü düzəldib təsdiqləyə bilər — body-də
             // payload gələrsə, əsl tətbiq olunan dəyər odur, pending.payload deyil.
-            const finalPayload = req.body?.payload ?? pending.payload;
+            const source = req.body?.payload ?? pending.payload;
+            if (typeof source !== "object" || Array.isArray(source)) {
+                res.status(400).json(ResponseHandler.badRequest("payload düzgün deyil"));
+                return;
+            }
+            // Files are NEVER taken from the body or applied as a profile field: they are
+            // approved from the re-read pending request below, by id, filtered by entity.
+            const { achievementFiles: _files, ...finalPayload } = source as Record<string, any>;
             const adminUserId = parseInt(req.user!.userId, 10);
 
             if (pending.entityType === "school") {
-                await this.schoolUseCase.updateSchoolProfile(String(pending.entityId), finalPayload, adminUserId);
+                if (Object.keys(finalPayload).length > 0) {
+                    await this.schoolUseCase.updateSchoolProfile(String(pending.entityId), finalPayload, adminUserId);
+                }
             } else if (pending.entityType === "teacher") {
-                await this.teacherUseCase.updateTeacherProfile(String(pending.entityId), finalPayload, adminUserId);
+                if (Object.keys(finalPayload).length > 0) {
+                    await this.teacherUseCase.updateTeacherProfile(String(pending.entityId), finalPayload, adminUserId);
+                }
             } else if (pending.entityType === "district") {
                 await this.districtUseCase.updateDistrictProfile(String(pending.entityId), finalPayload);
             } else {
@@ -143,8 +171,42 @@ export class ProfileChangeController {
                 await this.studentUseCase.updateStudentProfile(String(pending.entityId), finalPayload);
             }
 
-            const updated = await profileChangeRequestServicePg.markReviewed(id, "approved", adminUserId, null, finalPayload);
-            res.json(ResponseHandler.updated(updated, "Məlumatlar təsdiqləndi"));
+            if (pending.entityType !== "school" && pending.entityType !== "teacher") {
+                const updated = await profileChangeRequestServicePg.markReviewed(id, "approved", adminUserId, null, finalPayload);
+                res.json(ResponseHandler.updated(updated, "Məlumatlar təsdiqləndi"));
+                return;
+            }
+
+            // File part and the verdict in one transaction. The request is re-read under a row lock:
+            // the owner's upload takes the same lock, so what is approved is exactly this state.
+            // The text part above has no lock on purpose (the profile update runs on its own
+            // connection; holding the request lock across it could deadlock against an upload).
+            // If a file op slips in between and the re-check fails, the text stays applied — it is
+            // idempotent and the request is still pending for the next, informed, approve.
+            const entityType = pending.entityType;
+            const outcome = await pg.transaction().execute(async (trx) => {
+                const fresh = await profileChangeRequestServicePg.getPendingByIdForUpdate(trx, id);
+                if (!fresh) return { kind: "notFound" as const };
+                if (expectedMs !== null && expectedMs !== fresh.submittedAt.getTime()) return { kind: "stale" as const };
+
+                const ops = readFileOps(fresh.payload);
+                const removed = await applyApprovedFileOps(trx, entityType, pending.entityId, ops, adminUserId);
+                const hasOps = ops.add.length > 0 || ops.remove.length > 0;
+                const history = hasOps ? { ...finalPayload, achievementFiles: ops } : finalPayload;
+                const updated = await profileChangeRequestServicePg.markReviewed(id, "approved", adminUserId, null, history, trx);
+                return updated ? { kind: "ok" as const, updated, removed } : { kind: "notFound" as const };
+            });
+
+            if (outcome.kind === "notFound") {
+                res.status(404).json(ResponseHandler.notFound("Təsdiq gözləyən məlumat tapılmadı (artıq baxılıb?)"));
+                return;
+            }
+            if (outcome.kind === "stale") {
+                res.status(409).json(ResponseHandler.conflict(staleMessage));
+                return;
+            }
+            removeFilesFromDisk(outcome.removed);
+            res.json(ResponseHandler.updated(outcome.updated, "Məlumatlar təsdiqləndi"));
         } catch (error) {
             next(error);
         }
@@ -161,13 +223,23 @@ export class ProfileChangeController {
             const adminUserId = parseInt(req.user!.userId, 10);
             const reviewNote: string | null = req.body?.reviewNote ?? null;
 
-            const updated = await profileChangeRequestServicePg.markReviewed(id, "rejected", adminUserId, reviewNote);
-            if (!updated) {
+            // Pending files proposed for adding are deleted in the same transaction as the verdict
+            // (disk after commit); removal requests are just dropped, those files stay (Р3).
+            const result = await pg.transaction().execute(async (trx) => {
+                const updated = await profileChangeRequestServicePg.markReviewed(id, "rejected", adminUserId, reviewNote, undefined, trx);
+                if (!updated) return null;
+                const discarded = updated.entityType === "school" || updated.entityType === "teacher"
+                    ? await discardRejectedFileOps(trx, updated.entityType, updated.entityId, readFileOps(updated.payload))
+                    : [];
+                return { updated, discarded };
+            });
+            if (!result) {
                 res.status(404).json(ResponseHandler.notFound("Təsdiq gözləyən məlumat tapılmadı (artıq baxılıb?)"));
                 return;
             }
 
-            res.json(ResponseHandler.updated(updated, "Məlumatlar rədd edildi"));
+            removeFilesFromDisk(result.discarded);
+            res.json(ResponseHandler.updated(result.updated, "Məlumatlar rədd edildi"));
         } catch (error) {
             next(error);
         }

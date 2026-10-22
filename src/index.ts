@@ -25,6 +25,8 @@ import certificateRoutes from "./routes/certificate.routes";
 import publicRoutes from "./routes/public.routes";
 import profileChangeRoutes from "./routes/profileChange.routes";
 import metodikaRoutes from "./routes/metodika.routes";
+import achievementFileRoutes from "./routes/achievementFile.routes";
+import { serveAchievementFileContent } from "./controllers/achievementFile.controller";
 import cookieParser from "cookie-parser";
 import morgan from "morgan";
 import helmet from "helmet";
@@ -92,8 +94,32 @@ app.use(cookieParser());
 // Bumps users.last_seen_at for "online now" stats; never blocks a request (activity.middleware.ts).
 app.use("/api", trackActivity);
 
+// Файлы «Uğurlar» (UGURLAR_FILES_TASK.md) лежат в uploads/achievements/, но /uploads ниже раздаётся
+// статикой без авторизации — префикс закрываем до неё: чужие и ещё не одобренные файлы отдаются
+// только по подписанной ссылке (/api/achievement-files/:id/content). Путь сверяется после
+// decodeURIComponent и normalize: express.static декодирует его сам, поэтому проверка по сырому
+// req.path обходилась бы через /uploads/%61chievements/... и /uploads/x/../achievements/...
+app.use('/uploads', (req, res, next) => {
+    let decoded: string;
+    try {
+        decoded = decodeURIComponent(req.path);
+    } catch {
+        res.status(400).end();
+        return;
+    }
+    if (/^\/+achievements(\/|$)/i.test(path.posix.normalize(decoded.replace(/\\/g, '/')))) {
+        res.status(404).end();
+        return;
+    }
+    next();
+});
+
 // Статические файлы для аватаров
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+
+// Выдача файла «Uğurlar» по подписи (HMAC) — до generalLimiter: у <img src> нет Bearer, и 20
+// миниатюр на профиль у школы за NAT съели бы анонимный лимит 100/мин.
+app.get('/api/achievement-files/:id/content', serveAchievementFileContent);
 
 // Общий лимит для всех запросов (более мягкий)
 // Аутентифицированные пользователи (Bearer token) не подпадают под лимит —
@@ -167,6 +193,7 @@ app.use("/api/certificates", certificateRoutes);
 app.use("/api/public", publicRoutes);
 app.use("/api/profile-changes", profileChangeRoutes);
 app.use("/api/metodika", metodikaRoutes);
+app.use("/api/achievement-files", achievementFileRoutes);
 app.use("/api/auth", authLimiter, authRoutes);
 
 app.use((req, res, next) => {

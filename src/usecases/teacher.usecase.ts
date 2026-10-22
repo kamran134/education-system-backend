@@ -5,6 +5,7 @@ import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS, CODE_DIVISORS, rebaseCode } from "../utils/entity-codes.const";
 import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
 import { pg } from "../config/pg";
+import { removeAchievementDirs } from "../services/achievementFile.service.pg";
 
 export class TeacherUseCase {
     constructor(private teacherService: TeacherServicePg) {}
@@ -230,6 +231,8 @@ export class TeacherUseCase {
 
         await this.teacherService.delete(parseInt(id, 10));
         await profileChangeRequestServicePg.deleteForEntity('teacher', parseInt(id, 10));
+        // Rows of achievement_files go with the FK cascade; the files on disk are ours to remove.
+        removeAchievementDirs('teacher', [parseInt(id, 10)]);
     }
 
     async deleteTeachers(ids: string[]): Promise<BulkOperationResult> {
@@ -241,6 +244,7 @@ export class TeacherUseCase {
         const numericIds = ids.map((id) => parseInt(id, 10));
         const result = await this.teacherService.deleteBulk(numericIds);
         await profileChangeRequestServicePg.deleteForEntities('teacher', numericIds);
+        removeAchievementDirs('teacher', numericIds);
         return result;
     }
 

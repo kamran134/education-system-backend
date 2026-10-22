@@ -23,6 +23,24 @@ export type JsonValue = JsonArray | JsonObject | JsonPrimitive;
 
 export type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
+// Добавлено вручную вслед за миграцией 036_achievement_files.sql — перегенерировать через
+// kysely-codegen при следующей возможности подключиться к живой БД и сверить.
+export interface AchievementFiles {
+  approved_at: Timestamp | null;
+  approved_by: number | null;
+  has_thumbnail: Generated<boolean>;
+  id: Generated<number>;
+  mime_type: string;
+  original_name: string;
+  school_id: number | null;
+  size_bytes: number;
+  status: Generated<string>;
+  storage_name: string;
+  teacher_id: number | null;
+  uploaded_at: Generated<Timestamp>;
+  uploaded_by: number | null;
+}
+
 export interface Booklets {
   disciplines: Generated<Json>;
   district_id: number | null;
@@ -655,6 +673,7 @@ export interface VTeacherYearScores {
 
 export interface DB {
   academic_year_closures: AcademicYearClosures;
+  achievement_files: AchievementFiles;
   app_settings: AppSettings;
   booklets: Booklets;
   certificate_templates: CertificateTemplates;

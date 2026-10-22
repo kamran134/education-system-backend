@@ -563,6 +563,29 @@ CREATE UNIQUE INDEX profile_change_requests_one_pending
 CREATE INDEX profile_change_requests_queue
     ON profile_change_requests (status, submitted_at DESC);
 
+-- Файлы «Uğurlar» профиля учителя/школы (036_achievement_files.sql, UGURLAR_FILES_TASK.md).
+-- Настоящие FK (в отличие от profile_change_requests выше) — владелец ровно один из двух;
+-- pending-файл виден только владельцу/админу, одобрение и удаление одобренного идут через
+-- payload.achievementFiles { add, remove } pending-заявки. Лежат на диске вне публичной статики.
+CREATE TABLE achievement_files (
+    id            bigserial   PRIMARY KEY,
+    teacher_id    bigint      REFERENCES teachers(id) ON DELETE CASCADE,
+    school_id     bigint      REFERENCES schools(id)  ON DELETE CASCADE,
+    storage_name  text        NOT NULL UNIQUE,      -- '<uuid>.<pdf|jpg|png>'
+    original_name text        NOT NULL CHECK (length(original_name) BETWEEN 1 AND 255),
+    mime_type     text        NOT NULL CHECK (mime_type IN ('application/pdf','image/jpeg','image/png')),
+    size_bytes    integer     NOT NULL CHECK (size_bytes > 0 AND size_bytes <= 10485760),
+    has_thumbnail boolean     NOT NULL DEFAULT false,
+    status        text        NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved')),
+    uploaded_by   bigint      REFERENCES users(id) ON DELETE SET NULL,
+    uploaded_at   timestamptz NOT NULL DEFAULT now(),
+    approved_by   bigint      REFERENCES users(id) ON DELETE SET NULL,
+    approved_at   timestamptz,
+    CONSTRAINT achievement_files_one_owner CHECK (num_nonnulls(teacher_id, school_id) = 1)
+);
+CREATE INDEX achievement_files_teacher ON achievement_files (teacher_id) WHERE teacher_id IS NOT NULL;
+CREATE INDEX achievement_files_school  ON achievement_files (school_id)  WHERE school_id  IS NOT NULL;
+
 -- Трекинг для db/migrations/apply-pending.sh (автоприменение на CI/CD, см. migrations/README.md).
 -- На свежей БД, поднятой из этого файла, остаётся пустой — она уже включает миграции 001-004,
 -- бутстрап-список апскрипта сюда не относится (тот привязан к конкретному прод-серверу).

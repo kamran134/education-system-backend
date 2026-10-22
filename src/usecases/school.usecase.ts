@@ -5,6 +5,7 @@ import { PaginationOptions, FilterOptionsPg, SortOptions, PaginatedResponse, Bul
 import { ValidationUtils } from "../utils/validation.util";
 import { CODE_LENGTHS, CODE_DIVISORS } from "../utils/entity-codes.const";
 import { profileChangeRequestServicePg } from "../services/profileChangeRequest.service.pg";
+import { removeAchievementDirs } from "../services/achievementFile.service.pg";
 
 export class SchoolUseCase {
     constructor(private schoolService: SchoolServicePg) {}
@@ -185,6 +186,8 @@ export class SchoolUseCase {
         // Полиморфная связь без FK (BASE_FIXES_TASK.md §2.4) — заявку за удалённую школу
         // подчищаем явно, иначе она осиротеет в очереди модерации.
         await profileChangeRequestServicePg.deleteForEntity('school', parseInt(id, 10));
+        // Rows of achievement_files go with the FK cascade; the files on disk are ours to remove.
+        removeAchievementDirs('school', [parseInt(id, 10)]);
     }
 
     async deleteSchools(ids: string[]): Promise<BulkOperationResult> {
@@ -196,6 +199,7 @@ export class SchoolUseCase {
         const numericIds = ids.map((id) => parseInt(id, 10));
         const result = await this.schoolService.deleteBulk(numericIds);
         await profileChangeRequestServicePg.deleteForEntities('school', numericIds);
+        removeAchievementDirs('school', numericIds);
         return result;
     }
 

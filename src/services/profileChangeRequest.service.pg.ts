@@ -1,4 +1,7 @@
+import type { Kysely } from "kysely";
 import { pg } from "../config/pg";
+import type { DB } from "../types/db";
+import { AchievementFileDto, loadFileDtosByIds, readFileOps } from "./achievementFile.service.pg";
 
 export type ProfileChangeEntityType = "school" | "teacher" | "district" | "student";
 export type ProfileChangeStatus = "pending" | "approved" | "rejected";
@@ -21,6 +24,8 @@ export interface ProfileChangeQueueRow extends ProfileChangeRequest {
     submittedByEmail: string;
     /** Текущие (подтверждённые) значения тех же полей — для сравнения «было → стало». */
     current: Record<string, any>;
+    /** File ops of the request resolved to files (UGURLAR_FILES_TASK.md §4.5); absent when the request has none. */
+    files?: { add: AchievementFileDto[]; remove: AchievementFileDto[] };
 }
 
 /** Поля профиля, которые фактически редактируются самим владельцем (BASE_FIXES_TASK.md §2.2/§2.5,
@@ -118,6 +123,18 @@ export class ProfileChangeRequestServicePg {
         return row ? mapRow(row) : null;
     }
 
+    /** Re-read under a row lock for approve: file ops are applied against exactly this state. */
+    async getPendingByIdForUpdate(db: Kysely<DB>, id: number): Promise<ProfileChangeRequest | null> {
+        const row = await db
+            .selectFrom("profile_change_requests")
+            .selectAll()
+            .where("id", "=", id)
+            .where("status", "=", "pending")
+            .forUpdate()
+            .executeTakeFirst();
+        return row ? mapRow(row) : null;
+    }
+
     async getPendingById(id: number): Promise<ProfileChangeRequest | null> {
         const row = await pg
             .selectFrom("profile_change_requests")
@@ -160,9 +177,10 @@ export class ProfileChangeRequestServicePg {
         status: "approved" | "rejected",
         reviewedBy: number,
         reviewNote: string | null,
-        finalPayload?: Record<string, any>
+        finalPayload?: Record<string, any>,
+        db: Kysely<DB> = pg
     ): Promise<ProfileChangeRequest | null> {
-        const row = await pg
+        const row = await db
             .updateTable("profile_change_requests")
             .set({
                 status,
@@ -238,6 +256,14 @@ export class ProfileChangeRequestServicePg {
                 : Promise.resolve([]),
         ]);
 
+        const fileIds = new Set<number>();
+        for (const r of requests) {
+            if (r.entity_type !== "school" && r.entity_type !== "teacher") continue;
+            const ops = readFileOps(r.payload);
+            for (const id of [...ops.add, ...ops.remove]) fileIds.add(id);
+        }
+        const fileDtos = await loadFileDtosByIds([...fileIds]);
+
         const schoolById = new Map(schoolRows.map((s) => [s.id, s]));
         const teacherById = new Map(teacherRows.map((t) => [t.id, t]));
         const districtById = new Map(districtRows.map((d) => [d.id, d]));
@@ -264,12 +290,21 @@ export class ProfileChangeRequestServicePg {
                 current = { fullname: s?.fullname ?? null };
             }
 
-            return {
+            const row: ProfileChangeQueueRow = {
                 ...mapRow(r),
                 entityName,
                 submittedByEmail: r.submitted_by_email ?? "—",
                 current,
             };
+            if (r.entity_type === "school" || r.entity_type === "teacher") {
+                const ops = readFileOps(r.payload);
+                if (ops.add.length > 0 || ops.remove.length > 0) {
+                    // A file that no longer exists (deleted by an admin) is simply skipped.
+                    const resolve = (ids: number[]) => ids.map((id) => fileDtos.get(id)).filter((f): f is AchievementFileDto => !!f);
+                    row.files = { add: resolve(ops.add), remove: resolve(ops.remove) };
+                }
+            }
+            return row;
         });
     }
 }

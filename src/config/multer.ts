@@ -1,7 +1,9 @@
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { Request } from 'express';
+import crypto from 'crypto';
+import { Request, Response, NextFunction } from 'express';
+import { ACHIEVEMENT_MAX_BYTES, achievementDir, parseAchievementEntityId, parseAchievementEntityType } from '../services/achievementFile.service.pg';
 
 // Хранилище для аватаров сущности: <uploads/{entityFolder}/avatars/>/<id сущности>.jpg
 // Имя файла — id сущности из req.params.id, старый файл затирается (у сущности одно фото)
@@ -121,3 +123,62 @@ export const bulkAvatarUpload = multer({
     },
     fileFilter: bulkFileFilter
 });
+
+// Файлы «Uğurlar» профиля учителя/школы (UGURLAR_FILES_TASK.md). Пишутся сразу в каталог сущности
+// (uploads/achievements/<teachers|schools>/<id>/), поэтому роут обязан сначала пройти
+// authMiddleware + requireAchievementManager — иначе анонимный запрос оставил бы файл на диске.
+// Расширение — по заявленному mimetype; контроллер сверяет его с сигнатурой файла и при
+// расхождении удаляет файл, так что в БД попадает только то, что реально лежит на диске.
+const ACHIEVEMENT_EXT: Record<string, string> = {
+    'application/pdf': '.pdf',
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/png': '.png',
+};
+
+const achievementStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const entityType = parseAchievementEntityType(req.params.entityType);
+        const entityId = parseAchievementEntityId(req.params.entityId);
+        if (!entityType || !entityId) {
+            cb(new Error('Invalid achievement file target'), '');
+            return;
+        }
+        const dir = achievementDir(entityType, entityId);
+        fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        cb(null, `${crypto.randomUUID()}${ACHIEVEMENT_EXT[file.mimetype] ?? '.bin'}`);
+    }
+});
+
+// defParamCharset: busboy decodes the filename as latin1 by default, which breaks ə/ş/ğ;
+// multer 2.x passes the option through but @types/multer does not know it yet.
+const achievementFileUpload = multer({
+    storage: achievementStorage,
+    limits: {
+        fileSize: ACHIEVEMENT_MAX_BYTES,
+        files: 1,
+    },
+    defParamCharset: 'utf8',
+} as multer.Options);
+
+// Ловит MulterError сам: глобальный errorHandler отвечает на LIMIT_FILE_SIZE текстом про 50 MB.
+export const uploadAchievementFile = (req: Request, res: Response, next: NextFunction): void => {
+    achievementFileUpload.single('file')(req, res, (err?: unknown) => {
+        if (!err) {
+            next();
+            return;
+        }
+        if (err instanceof multer.MulterError) {
+            const tooBig = err.code === 'LIMIT_FILE_SIZE';
+            res.status(tooBig ? 413 : 400).json({
+                success: false,
+                message: tooBig ? 'Fayl çox böyükdür: maksimum 10 MB' : 'Fayl yüklənərkən xəta baş verdi',
+            });
+            return;
+        }
+        next(err);
+    });
+};
