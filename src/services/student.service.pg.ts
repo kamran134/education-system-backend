@@ -51,6 +51,11 @@ export interface Student {
     place: number | null;
     districtPlace: number | null;
     filterPlace: number | null;
+    /** Stored places of the yearly list (039, all within the grade); null on the monthly and single-record paths. */
+    averagePlace: number | null;
+    averageDistrictPlace: number | null;
+    schoolPlace: number | null;
+    averageSchoolPlace: number | null;
     participationCount: number;
     ratings: YearRatingRow[];
     /** Класс ученика в ЗАПРОШЕННОМ учебном году (см. student_grade_history). null = за тот год
@@ -398,6 +403,10 @@ export class StudentServicePg {
                 "student_year_ratings.average_score as current_average_score",
                 "student_year_ratings.place as current_place",
                 "student_year_ratings.district_place as current_district_place",
+                "student_year_ratings.average_place as current_average_place",
+                "student_year_ratings.average_district_place as current_average_district_place",
+                "student_year_ratings.school_place as current_school_place",
+                "student_year_ratings.average_school_place as current_average_school_place",
                 sql<number>`coalesce(participation.participation_count, 0)`.as("participation_count"),
                 "fp.filter_place as filter_place",
                 yearGradeExpr.as("year_grade"),
@@ -737,6 +746,10 @@ export class StudentServicePg {
         if (column === "averageScore") return { column: "current_average_score", needsRatingJoin: true };
         if (column === "place") return { column: "current_place", needsRatingJoin: true };
         if (column === "districtPlace") return { column: "current_district_place", needsRatingJoin: true };
+        if (column === "averagePlace") return { column: "current_average_place", needsRatingJoin: true };
+        if (column === "averageDistrictPlace") return { column: "current_average_district_place", needsRatingJoin: true };
+        if (column === "schoolPlace") return { column: "current_school_place", needsRatingJoin: true };
+        if (column === "averageSchoolPlace") return { column: "current_average_school_place", needsRatingJoin: true };
         // participation_count is a bare SELECT alias (coalesce(participation.participation_count, 0)),
         // not a students table column — needs the same unprefixed sql.ref as current_score/current_place.
         if (column === "participationCount") return { column: "participation_count", needsRatingJoin: true };
@@ -772,7 +785,7 @@ export class StudentServicePg {
         return { column: map[column] ?? "fullname", needsRatingJoin: false };
     }
 
-    private async attachExtras(rows: (StudentRow & Partial<{ current_score: number | null; current_average_score: number | null; current_place: number | null; current_district_place: number | null; participation_count: number; filter_place: number | null; year_grade: number | null }>)[]): Promise<Student[]> {
+    private async attachExtras(rows: (StudentRow & Partial<{ current_score: number | null; current_average_score: number | null; current_place: number | null; current_district_place: number | null; current_average_place: number | null; current_average_district_place: number | null; current_school_place: number | null; current_average_school_place: number | null; participation_count: number; filter_place: number | null; year_grade: number | null }>)[]): Promise<Student[]> {
         if (rows.length === 0) return [];
         const studentIds = rows.map((r) => r.id);
         const teacherIds = [...new Set(rows.map((r) => r.teacher_id).filter((id): id is number => id !== null))];
@@ -852,6 +865,10 @@ export class StudentServicePg {
                 place: (hasJoinedRating ? row.current_place : current?.place) ?? null,
                 districtPlace: (hasJoinedRating ? row.current_district_place : current?.districtPlace) ?? null,
                 filterPlace: row.filter_place ?? null,
+                averagePlace: row.current_average_place ?? null,
+                averageDistrictPlace: row.current_average_district_place ?? null,
+                schoolPlace: row.current_school_place ?? null,
+                averageSchoolPlace: row.current_average_school_place ?? null,
                 participationCount: (row.participation_count ?? participationById.get(row.id)) ?? 0,
                 ratings,
                 yearGrade: yearGrade ?? null,

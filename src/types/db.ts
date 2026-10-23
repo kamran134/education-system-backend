@@ -199,6 +199,8 @@ export interface RegionYearRatings {
   // Добавлено 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3. PK расширен до
   // (region_id, year, exam_type_id).
   exam_type_id: number;
+  // Added by 039_school_places_and_student_average_places.sql: place by average_score.
+  average_place: number | null;
 }
 
 // Levels — таблица снесена миграцией 026_drop_legacy_subject_columns.sql
@@ -337,6 +339,11 @@ export interface StudentYearRatings {
   // Добавлено 025_ratings_by_exam_type.sql, IMTAHAN_NOVLERI_TASK.md §4 шаг 3. PK расширен до
   // (student_id, year, exam_type_id).
   exam_type_id: number;
+  // Added by 039_school_places_and_student_average_places.sql (all within the grade).
+  average_place: number | null;
+  average_district_place: number | null;
+  school_place: number | null;
+  average_school_place: number | null;
 }
 
 // Добавлено вручную вслед за миграцией 018_student_grade_history.sql — перегенерировать через
@@ -453,6 +460,9 @@ export interface TeacherYearRatings {
   // Added by 035_average_places_and_district_average.sql: place by average_score.
   average_place: number | null;
   average_district_place: number | null;
+  // Added by 039_school_places_and_student_average_places.sql: place within the teacher's school.
+  school_place: number | null;
+  average_school_place: number | null;
 }
 
 export interface UserLoginEvents {
@@ -574,6 +584,8 @@ export interface VRegionPlaces {
   place: number | null;
   region_id: number | null;
   exam_type_id: number | null;
+  // Added by 039_school_places_and_student_average_places.sql.
+  average_place: number | null;
 }
 
 export interface VSchoolMonthPlaces {
@@ -637,6 +649,11 @@ export interface VStudentPlaces {
   place: number | null;
   student_id: number | null;
   exam_type_id: number | null;
+  // Added by 039_school_places_and_student_average_places.sql.
+  average_place: number | null;
+  average_district_place: number | null;
+  school_place: number | null;
+  average_school_place: number | null;
 }
 
 // VStudentResultSubjectScores — вьюха-совместимость v_student_result_subject_scores снесена
@@ -682,6 +699,9 @@ export interface VTeacherPlaces {
   // Added by 035_average_places_and_district_average.sql.
   average_place: number | null;
   average_district_place: number | null;
+  // Added by 039_school_places_and_student_average_places.sql.
+  school_place: number | null;
+  average_school_place: number | null;
 }
 
 export interface VTeacherYearScores {

@@ -52,6 +52,12 @@ export interface RankedEntity {
     id: number; code: number;
     score: number | null; averageScore: number | null; place: number | null; districtPlace: number | null;
     filterPlace: number | null;
+    // Stored places by average_score and within the school (035/039) — yearly tables only, for the fullscreen
+    // view of /stats. Absent on the monthly slices and where the level does not exist (a school has no school place).
+    averagePlace?: number | null;
+    averageDistrictPlace?: number | null;
+    schoolPlace?: number | null;
+    averageSchoolPlace?: number | null;
     studentCount: number | null;
     districtCount?: number | null;
     name?: string;
@@ -348,8 +354,10 @@ export class StatsServicePg {
     private async recomputeStudentRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
         await db.deleteFrom("student_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO student_year_ratings (student_id, year, exam_type_id, score, average_score, place, district_place)
-            SELECT sc.student_id, sc.academic_year, sc.exam_type_id, sc.score, sc.average_score, p.place, p.district_place
+            INSERT INTO student_year_ratings (student_id, year, exam_type_id, score, average_score, place, district_place,
+                average_place, average_district_place, school_place, average_school_place)
+            SELECT sc.student_id, sc.academic_year, sc.exam_type_id, sc.score, sc.average_score, p.place, p.district_place,
+                p.average_place, p.average_district_place, p.school_place, p.average_school_place
             FROM v_student_year_scores sc
             -- v_student_year_scores is built from student_results alone; the JOIN keeps students hidden by a soft
             -- delete (037) out of student_year_ratings. Their results stay and come back with a restore + recompute.
@@ -362,8 +370,10 @@ export class StatsServicePg {
     private async recomputeTeacherRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
         await db.deleteFrom("teacher_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO teacher_year_ratings (teacher_id, year, exam_type_id, score, average_score, place, district_place, average_place, average_district_place)
-            SELECT ts.teacher_id, ts.academic_year, ts.exam_type_id, ts.score, ts.average_score, p.place, p.district_place, p.average_place, p.average_district_place
+            INSERT INTO teacher_year_ratings (teacher_id, year, exam_type_id, score, average_score, place, district_place, average_place, average_district_place,
+                school_place, average_school_place)
+            SELECT ts.teacher_id, ts.academic_year, ts.exam_type_id, ts.score, ts.average_score, p.place, p.district_place, p.average_place, p.average_district_place,
+                p.school_place, p.average_school_place
             FROM v_teacher_year_scores ts
             LEFT JOIN v_teacher_places p ON p.teacher_id = ts.teacher_id AND p.academic_year = ts.academic_year AND p.exam_type_id = ts.exam_type_id
             WHERE ts.academic_year = ${year} AND ts.exam_type_id = ${examTypeId}
@@ -396,8 +406,8 @@ export class StatsServicePg {
     private async recomputeRegionRatings(year: number, examTypeId: number, db: Kysely<DB>): Promise<void> {
         await db.deleteFrom("region_year_ratings").where("year", "=", year).where("exam_type_id", "=", examTypeId).execute();
         await sql`
-            INSERT INTO region_year_ratings (region_id, year, exam_type_id, score, average_score, place)
-            SELECT rs.region_id, rs.academic_year, rs.exam_type_id, rs.score, rs.average_score, p.place
+            INSERT INTO region_year_ratings (region_id, year, exam_type_id, score, average_score, place, average_place)
+            SELECT rs.region_id, rs.academic_year, rs.exam_type_id, rs.score, rs.average_score, p.place, p.average_place
             FROM v_region_year_scores rs
             LEFT JOIN v_region_places p ON p.region_id = rs.region_id AND p.academic_year = rs.academic_year AND p.exam_type_id = rs.exam_type_id
             WHERE rs.academic_year = ${year} AND rs.exam_type_id = ${examTypeId}
@@ -672,7 +682,9 @@ export class StatsServicePg {
         const filterPlaceExpr = denseRankByMetric(rank.expr);
         const sortMap: Record<string, any> = {
             score: sql`tyr.score`, averageScore: sql`tyr.average_score`, place: sql`tyr.place`,
-            districtPlace: sql`tyr.district_place`, code: sql`t.code`,
+            districtPlace: sql`tyr.district_place`, averagePlace: sql`tyr.average_place`,
+            averageDistrictPlace: sql`tyr.average_district_place`, schoolPlace: sql`tyr.school_place`,
+            averageSchoolPlace: sql`tyr.average_school_place`, code: sql`t.code`,
             // "fullName" (capital N) is the persisted frontend column key; "fullname" kept for back-compat.
             fullname: sql`t.fullname COLLATE az_ci`, fullName: sql`t.fullname COLLATE az_ci`,
             school: sql`sc.name COLLATE az_ci`, district: sql`d.name COLLATE az_ci`, studentCount: sql`t.student_count`,
@@ -687,6 +699,8 @@ export class StatsServicePg {
             .select([
                 "t.id as id", "t.code as code", "t.fullname as fullname", "t.student_count as student_count",
                 "tyr.score as score", "tyr.average_score as average_score", "tyr.place as place", "tyr.district_place as district_place",
+                "tyr.average_place as average_place", "tyr.average_district_place as average_district_place",
+                "tyr.school_place as school_place", "tyr.average_school_place as average_school_place",
                 "sc.id as school_id", "sc.name as school_name",
                 "d.id as teacher_district_id", "d.name as teacher_district_name",
             ])
@@ -704,6 +718,8 @@ export class StatsServicePg {
             id: r.id, code: r.code, fullname: r.fullname, score: r.score ?? 0, averageScore: r.average_score ?? 0,
             place: r.place, districtPlace: r.district_place, studentCount: r.student_count ?? 0,
             filterPlace: r.filter_place ?? null,
+            averagePlace: r.average_place, averageDistrictPlace: r.average_district_place,
+            schoolPlace: r.school_place, averageSchoolPlace: r.average_school_place,
             school: r.school_id ? { id: r.school_id, name: r.school_name! } : null,
             district: r.teacher_district_id ? { id: r.teacher_district_id, name: r.teacher_district_name! } : null,
         }));
@@ -835,7 +851,8 @@ export class StatsServicePg {
         const filterPlaceExpr = denseRankByMetric(rank.expr);
         const sortMap: Record<string, any> = {
             score: sql`syr.score`, averageScore: sql`syr.average_score`, place: sql`syr.place`,
-            districtPlace: sql`syr.district_place`, code: sql`sc.code`, name: sql`sc.name COLLATE az_ci`,
+            districtPlace: sql`syr.district_place`, averagePlace: sql`syr.average_place`,
+            averageDistrictPlace: sql`syr.average_district_place`, code: sql`sc.code`, name: sql`sc.name COLLATE az_ci`,
             district: sql`d.name COLLATE az_ci`, studentCount: sql`sc.student_count`, filterPlace: sql`filter_place`,
         };
         const orderExpr = sortMap[sortColumn] ?? sql`syr.average_score`;
@@ -847,6 +864,7 @@ export class StatsServicePg {
                 .select([
                     "sc.id as id", "sc.code as code", "sc.name as name", "sc.student_count as student_count",
                     "syr.score as score", "syr.average_score as average_score", "syr.place as place", "syr.district_place as district_place",
+                    "syr.average_place as average_place", "syr.average_district_place as average_district_place",
                     "d.id as school_district_id", "d.name as school_district_name",
                 ])
                 .select(filterPlaceExpr.as("filter_place"))
@@ -859,6 +877,7 @@ export class StatsServicePg {
             id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: r.average_score ?? 0,
             place: r.place, districtPlace: r.district_place, studentCount: r.student_count ?? 0,
             filterPlace: r.filter_place ?? null,
+            averagePlace: r.average_place, averageDistrictPlace: r.average_district_place,
             district: r.school_district_id ? { id: r.school_district_id, name: r.school_district_name! } : null,
         }));
 
@@ -978,7 +997,7 @@ export class StatsServicePg {
         const filterPlaceExpr = denseRankByMetric(rank.expr);
         const sortMap: Record<string, any> = {
             score: sql`ryr.score`, averageScore: sql`ryr.average_score`, place: sql`ryr.place`,
-            code: sql`r.code`, name: sql`r.name COLLATE az_ci`,
+            averagePlace: sql`ryr.average_place`, code: sql`r.code`, name: sql`r.name COLLATE az_ci`,
             // References the `student_count`/`district_count`/`filter_place` SELECT aliases below —
             // no table prefix, same technique as participation_count in student.service.pg.ts.
             studentCount: sql`student_count`, districtCount: sql`district_count`, filterPlace: sql`filter_place`,
@@ -992,7 +1011,8 @@ export class StatsServicePg {
 
         const [rows, countRow] = await Promise.all([
             baseQuery()
-                .select(["r.id as id", "r.code as code", "r.name as name", "ryr.score as score", "ryr.average_score as average_score", "ryr.place as place"])
+                .select(["r.id as id", "r.code as code", "r.name as name", "ryr.score as score", "ryr.average_score as average_score", "ryr.place as place",
+                    "ryr.average_place as average_place"])
                 .select(studentCountExpr.as("student_count"))
                 .select(districtCountExpr.as("district_count"))
                 .select(filterPlaceExpr.as("filter_place"))
@@ -1006,6 +1026,7 @@ export class StatsServicePg {
             place: r.place, districtPlace: null, studentCount: Number(r.student_count) || 0,
             districtCount: Number(r.district_count) || 0,
             filterPlace: r.filter_place ?? null,
+            averagePlace: r.average_place,
         }));
 
         return { data, totalCount: Number(countRow.count), filterPlaceBasis: rank.basis };
@@ -1108,7 +1129,8 @@ export class StatsServicePg {
             .leftJoin("district_year_ratings as dyr", (join) =>
                 join.onRef("dyr.district_id", "=", "d.id").on("dyr.year", "=", currentYear).on("dyr.exam_type_id", "=", examTypeId)
             )
-            .select(["d.id as id", "d.code as code", "d.name as name", "d.region_id as region_id", "d.student_count as student_count", "dyr.score as score", "dyr.average_score as average_score"])
+            .select(["d.id as id", "d.code as code", "d.name as name", "d.region_id as region_id", "d.student_count as student_count", "dyr.score as score", "dyr.average_score as average_score",
+                "dyr.place as place", "dyr.average_place as average_place"])
             // filterPlace: dense rank by score within this exact (code-filtered) scope — same reasoning
             // as getTeacherStatistics above; matches what buildFilterPlaceMap used to compute over allData.
             .select(denseRankByMetric(rank.expr).as("filter_place"))
@@ -1121,24 +1143,13 @@ export class StatsServicePg {
         const allData = await query.execute();
         const regionIdById = new Map(allData.map((r) => [r.id, r.region_id]));
 
-        // По умолчанию (без явной сортировки по averageScore) место — по сырому score, как и в
-        // персистентном v_district_places/district_year_ratings.place, а не по среднему баллу —
-        // иначе первая загрузка /stats (район) показывала бы место, не совпадающее с профилем
-        // района, пока пользователь не кликнет по колонке вручную. Решение 20.08.2026.
-        // Это ИМЕННО про число в колонке "place" — какой колонкой фактически отсортирован
-        // возвращаемый список, решается отдельно ниже (sortAccessors), не смешивать.
+        // "place" is the stored district_year_ratings.place (by raw score, dense, same as the district profile) and
+        // "averagePlace" the stored place by average (035). Until 24.10.2026 "place" was re-ranked here in JS by the
+        // sort column (and not densely); with both stored places shown side by side that switching only confused.
         const rankColumn: "score" | "average_score" = sortColumn === "averageScore" ? "average_score" : "score";
-        const sorted = [...allData].sort((a, b) => ((b[rankColumn] ?? 0) as number) - ((a[rankColumn] ?? 0) as number));
-        const placeById = new Map<number, number>();
-        let place = 1;
-        sorted.forEach((r, i) => {
-            if (i > 0 && ((r[rankColumn] ?? 0) as number) < ((sorted[i - 1][rankColumn] ?? 0) as number)) place = i + 1;
-            placeById.set(r.id, place);
-        });
-
         const withPlace: RankedEntity[] = allData.map((r) => ({
             id: r.id, code: r.code, name: r.name, score: r.score ?? 0, averageScore: r.average_score ?? 0,
-            place: placeById.get(r.id) ?? null, districtPlace: null,
+            place: r.place, districtPlace: null, averagePlace: r.average_place,
             filterPlace: r.filter_place ?? null, studentCount: r.student_count ?? 0,
         }));
 
@@ -1148,6 +1159,7 @@ export class StatsServicePg {
         const sortAccessors: Record<string, (r: RankedEntity) => number> = {
             code: (r) => r.code, studentCount: (r) => r.studentCount ?? 0,
             place: (r) => r.place ?? 0, filterPlace: (r) => r.filterPlace ?? 0,
+            averagePlace: (r) => r.averagePlace ?? 0,
             score: (r) => r.score ?? 0, averageScore: (r) => r.averageScore ?? 0,
         };
         const dir = sortDirection === "asc" ? 1 : -1;

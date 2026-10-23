@@ -357,6 +357,10 @@ CREATE TABLE student_year_ratings (
     -- дробятся по типу экзамена, очки разных типов не смешиваются (§2 ТЗ). Все существовавшие
     -- до этой миграции строки принадлежат базовому типу (backfill).
     exam_type_id   bigint NOT NULL REFERENCES exam_types(id),
+    average_place          int,                                    -- 039: place by average_score (within the grade)
+    average_district_place int,                                    -- 039
+    school_place           int,                                    -- 039: within the grade and the school
+    average_school_place   int,                                    -- 039
     PRIMARY KEY (student_id, year, exam_type_id)
 );
 
@@ -383,6 +387,8 @@ CREATE TABLE teacher_year_ratings (
     exam_type_id   bigint NOT NULL REFERENCES exam_types(id),      -- 025_ratings_by_exam_type.sql
     average_place  int,                                            -- 035: place by average_score
     average_district_place int,                                    -- 035
+    school_place   int,                                            -- 039: within the teacher's school
+    average_school_place int,                                      -- 039
     PRIMARY KEY (teacher_id, year, exam_type_id)
 );
 
@@ -417,6 +423,7 @@ CREATE TABLE region_year_ratings (
     average_score  double precision,
     place          int,                                           -- district_place у региона тоже отсутствует
     exam_type_id   bigint NOT NULL REFERENCES exam_types(id),      -- 025_ratings_by_exam_type.sql
+    average_place  int,                                            -- 039: place by average_score
     PRIMARY KEY (region_id, year, exam_type_id)
 );
 
@@ -847,7 +854,16 @@ SELECT sc.student_id,
        dense_rank() OVER (PARTITION BY sc.academic_year, sc.exam_type_id, sc.grade
                           ORDER BY sc.score DESC)                AS place,
        dense_rank() OVER (PARTITION BY sc.academic_year, sc.exam_type_id, sc.grade, s.district_id
-                          ORDER BY sc.score DESC)                AS district_place
+                          ORDER BY sc.score DESC)                AS district_place,
+       -- 039: places by average_score and within the school, still inside the grade
+       dense_rank() OVER (PARTITION BY sc.academic_year, sc.exam_type_id, sc.grade
+                          ORDER BY sc.average_score DESC)        AS average_place,
+       dense_rank() OVER (PARTITION BY sc.academic_year, sc.exam_type_id, sc.grade, s.district_id
+                          ORDER BY sc.average_score DESC)        AS average_district_place,
+       dense_rank() OVER (PARTITION BY sc.academic_year, sc.exam_type_id, sc.grade, s.school_id
+                          ORDER BY sc.score DESC)                AS school_place,
+       dense_rank() OVER (PARTITION BY sc.academic_year, sc.exam_type_id, sc.grade, s.school_id
+                          ORDER BY sc.average_score DESC)        AS average_school_place
 FROM v_student_year_scores sc
 JOIN students s ON s.id = sc.student_id;
 
@@ -904,7 +920,10 @@ SELECT ts.teacher_id,
        dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id, t.district_id ORDER BY ts.score DESC) AS district_place,
        -- 035: second place, by average_score (the stored place/district_place stay by raw score)
        dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id ORDER BY ts.average_score DESC) AS average_place,
-       dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id, t.district_id ORDER BY ts.average_score DESC) AS average_district_place
+       dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id, t.district_id ORDER BY ts.average_score DESC) AS average_district_place,
+       -- 039: place within the teacher's school
+       dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id, t.school_id ORDER BY ts.score DESC) AS school_place,
+       dense_rank() OVER (PARTITION BY ts.academic_year, ts.exam_type_id, t.school_id ORDER BY ts.average_score DESC) AS average_school_place
 FROM v_teacher_year_scores ts
 JOIN teachers t ON t.id = ts.teacher_id
 WHERE ts.score > 0;
@@ -1004,7 +1023,9 @@ CREATE VIEW v_region_places AS
 SELECT rs.region_id,
        rs.academic_year,
        rs.exam_type_id,
-       dense_rank() OVER (PARTITION BY rs.academic_year, rs.exam_type_id ORDER BY rs.score DESC) AS place
+       dense_rank() OVER (PARTITION BY rs.academic_year, rs.exam_type_id ORDER BY rs.score DESC) AS place,
+       -- 039: second place, by average_score
+       dense_rank() OVER (PARTITION BY rs.academic_year, rs.exam_type_id ORDER BY rs.average_score DESC) AS average_place
 FROM v_region_year_scores rs
 WHERE rs.score > 0;
 
