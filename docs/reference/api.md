@@ -390,8 +390,8 @@ Multer: `memoryStorage`, лимит 10 MB, `authMiddleware` стоит пере�
 
 ## Итог по числу маршрутов
 
-- В `src/routes/*.routes.ts`: **178** (метод+путь).
-- Дополнительно в `index.ts`: `GET /api/achievement-files/:id/content`, `GET /`, статика `/uploads/*` (не считаются в 178).
+- В `src/routes/*.routes.ts`: **177** (метод+путь).
+- Дополнительно в `index.ts`: `GET /api/achievement-files/:id/content`, `GET /`, статика `/uploads/*` (не считаются в 177).
 
 ## Замечания
 
