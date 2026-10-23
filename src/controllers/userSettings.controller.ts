@@ -4,12 +4,14 @@ import { ResponseHandler } from "../utils/response-handler.util";
 
 export const getUserSettings = async (req: Request, res: Response) => {
     try {
-        const userId = req.query.userId;
+        // Own settings only: the id comes from the JWT. A `userId` in the query (still sent by the
+        // frontend) is ignored, otherwise any user could read anyone's settings.
+        const userId = req.user?.userId;
         if (!userId) {
-            res.status(400).json(ResponseHandler.badRequest("User ID is required"));
+            res.status(401).json({ success: false, message: "Unauthorized" });
             return;
         }
-        const settings = await getUserSettingsPg(parseInt(userId as string, 10));
+        const settings = await getUserSettingsPg(parseInt(userId, 10));
         res.json(ResponseHandler.success(settings));
     } catch (error) {
         console.error("Error fetching user settings:", error);
@@ -19,9 +21,11 @@ export const getUserSettings = async (req: Request, res: Response) => {
 
 export const updateUserSettings = async (req: Request, res: Response) => {
     try {
-        const { userId, ...settingsData } = req.body;
+        // Own settings only: `userId` in the body is dropped and the JWT's is used instead.
+        const { userId: _ignoredUserId, ...settingsData } = req.body;
+        const userId = req.user?.userId;
         if (!userId) {
-            res.status(400).json(ResponseHandler.badRequest("User ID is required"));
+            res.status(401).json({ success: false, message: "Unauthorized" });
             return;
         }
 

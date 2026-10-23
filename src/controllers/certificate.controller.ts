@@ -4,6 +4,33 @@ import { defaultCertificateLayout } from "../services/certificate-default-layout
 import { AWARD_CODES, CertificateIssueService } from "../services/certificate-issue.service";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { CertificateField } from "../types/certificate.types";
+import { pg } from "../config/pg";
+import { canViewEntity } from "../utils/hierarchy-access.util";
+
+/**
+ * Same access rule as GET /api/students/:id (student.controller.ts): the student must be in the
+ * caller's scope. `students` is the live view, so a hidden student reads as not found.
+ * Returns the HTTP status to answer with, or null when access is granted.
+ */
+async function studentAccessStatus(req: Request, studentId: number): Promise<403 | 404 | null> {
+    const student = await pg
+        .selectFrom("students")
+        .select(["id", "teacher_id", "school_id", "district_id"])
+        .where("id", "=", studentId)
+        .executeTakeFirst();
+    if (!student) return 404;
+    const allowed = await canViewEntity(req.user, "student", student.id, {
+        teacherId: student.teacher_id,
+        schoolId: student.school_id,
+        districtId: student.district_id,
+    });
+    return allowed ? null : 403;
+}
+
+function sendAccessError(res: Response, status: 403 | 404): void {
+    if (status === 404) res.status(404).json(ResponseHandler.notFound("Şagird tapılmadı"));
+    else res.status(403).json(ResponseHandler.error("Bu sertifikata baxmaq icazəniz yoxdur"));
+}
 
 const templates = new CertificateTemplateService();
 const issue = new CertificateIssueService();
@@ -245,7 +272,7 @@ export class CertificateController {
         }
     };
 
-    // ---- Скачивание (доступ = доступ к странице ученика, authMiddleware([])) ----
+    // ---- Скачивание (доступ = доступ к странице ученика: canViewEntity, как GET /students/:id) ----
 
     downloadForResult = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
@@ -253,6 +280,19 @@ export class CertificateController {
             const awardCode = req.params.awardCode;
             if (!(AWARD_CODES as readonly string[]).includes(awardCode)) {
                 res.status(400).json(ResponseHandler.badRequest("Naməlum mükafat növü"));
+                return;
+            }
+            // Scope check BEFORE issueOrGet: the first download creates an issued_certificates row.
+            const result = Number.isFinite(studentResultId)
+                ? await pg.selectFrom("student_results").select("student_id").where("id", "=", studentResultId).executeTakeFirst()
+                : undefined;
+            if (!result) {
+                res.status(404).json(ResponseHandler.notFound("Nəticə tapılmadı"));
+                return;
+            }
+            const denied = await studentAccessStatus(req, result.student_id);
+            if (denied) {
+                sendAccessError(res, denied);
                 return;
             }
             const issued = await issue.issueOrGet(studentResultId, awardCode);
@@ -268,6 +308,15 @@ export class CertificateController {
     availabilityForStudent = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const studentId = parseInt(req.params.studentId, 10);
+            if (!Number.isFinite(studentId)) {
+                res.status(400).json(ResponseHandler.badRequest("Yanlış şagird id"));
+                return;
+            }
+            const denied = await studentAccessStatus(req, studentId);
+            if (denied) {
+                sendAccessError(res, denied);
+                return;
+            }
             res.json(ResponseHandler.success(await issue.availabilityForStudent(studentId)));
         } catch (err) {
             next(err);

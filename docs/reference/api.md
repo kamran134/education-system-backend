@@ -277,8 +277,8 @@
 |---|---|---|---|---|
 | GET | `/global` | allRegisteredRoles (ANY) | userSettings::getGlobalSettings | Глобальные настройки колонок по ролям |
 | PUT | `/global` | A (`authMiddleware(['admin','superadmin'])`) | userSettings::updateGlobalSettings | Обновить глобальные настройки |
-| GET | `/` | allRegisteredRoles (ANY) | userSettings::getUserSettings | Настройки колонок пользователя |
-| PUT | `/` | allRegisteredRoles (ANY) | userSettings::updateUserSettings | Сохранить настройки колонок |
+| GET | `/` | allRegisteredRoles (ANY) | userSettings::getUserSettings | Свои настройки колонок; id берётся из JWT, `userId` в query игнорируется |
+| PUT | `/` | allRegisteredRoles (ANY) | userSettings::updateUserSettings | Сохранить свои настройки колонок; `userId` в теле игнорируется |
 
 ## /api/academic-year — Учебный год
 
@@ -319,8 +319,8 @@ Multer: `memoryStorage`, лимит 10 MB, `authMiddleware` стоит пере�
 | POST | `/issued/:id/revoke` | A | certificate::revokeIssued | Отозвать сертификат |
 | DELETE | `/issued/:id` | A | certificate::deleteIssued | Удалить снапшот выдачи |
 | DELETE | `/templates/:id/issued` | A | certificate::deleteIssuedByTemplate | Сбросить все снапшоты шаблона |
-| GET | `/result/:studentResultId/:awardCode` | ANY | certificate::downloadForResult | Выдать (при первом скачивании) и скачать PDF сертификата |
-| GET | `/availability/student/:studentId` | ANY | certificate::availabilityForStudent | Какие сертификаты доступны ученику |
+| GET | `/result/:studentResultId/:awardCode` | ANY + область ученика (`canViewEntity`, как `GET /students/:id`) | certificate::downloadForResult | Выдать (при первом скачивании) и скачать PDF сертификата; 403 вне области — проверка до выдачи |
+| GET | `/availability/student/:studentId` | ANY + область ученика (`canViewEntity`) | certificate::availabilityForStudent | Какие сертификаты доступны ученику |
 
 ## /api/public — Публичное
 
@@ -375,7 +375,6 @@ Multer: `memoryStorage`, лимит 10 MB, `authMiddleware` стоит пере�
 
 | Метод | Путь | Доступ | Контроллер::метод | Что делает |
 |---|---|---|---|---|
-| GET | `/check-role/:id` | **public** | auth::checkRole | Роль пользователя по id |
 | POST | `/login` | **public**, `loginLimiter` | auth::login | Вход; требует `isApproved`; refresh в httpOnly cookie |
 | POST | `/register` | **public** | auth::register | Регистрация: всегда неодобренный `student`, `role` из тела игнорируется |
 | POST | `/approve/:id` | A | auth::approveUser | Подтвердить пользователя |

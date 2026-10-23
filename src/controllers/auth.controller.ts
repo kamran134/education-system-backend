@@ -414,25 +414,6 @@ export const approveUser = async (req: Request, res: Response) => {
     }
 }
 
-export const checkRole = async (req: Request, res: Response) => {
-    const userId = req.params.id;
-
-    console.log("Checking role for user ID:", userId);
-
-    if (!userId) {
-        res.status(401).json({ message: "İstifadəçi tapılmadı!" });
-        return;
-    }
-
-    const user = await userServicePg.findById(parseInt(userId, 10));
-    if (!user) {
-        res.status(404).json({ message: "İstifadəçi rolu tapılmadı!" });
-        return;
-    }
-
-    res.json({ role: user.role });
-}
-
 export const logout = async (req: Request, res: Response) => {
     try {
         const { refreshToken } = req.cookies;

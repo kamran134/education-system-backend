@@ -62,7 +62,7 @@ router.route("/issued/:id").delete(authMiddleware(ADMIN_ROLES), controller.delet
 // чтобы уже скачавшие получили пересчитанный сертификат при следующем скачивании.
 router.route("/templates/:id/issued").delete(authMiddleware(ADMIN_ROLES), controller.deleteIssuedByTemplate);
 
-// ---- Скачивание — тот же доступ, что и GET /api/students/:id (authMiddleware([])) ----
+// ---- Скачивание — тот же доступ, что и GET /api/students/:id: проверка области в контроллере (canViewEntity) ----
 router.route("/result/:studentResultId/:awardCode").get(authMiddleware([]), controller.downloadForResult);
 router.route("/availability/student/:studentId").get(authMiddleware([]), controller.availabilityForStudent);
 

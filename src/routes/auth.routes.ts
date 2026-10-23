@@ -1,6 +1,6 @@
 import express from "express";
 import rateLimit from "express-rate-limit";
-import { login, register, approveUser, logout, checkRole, refreshToken, me, changeOwnPassword, logoutFromAllDevices, getActiveSessions, getTokenStatistics, forceCleanupTokens } from "../controllers/auth.controller";
+import { login, register, approveUser, logout, refreshToken, me, changeOwnPassword, logoutFromAllDevices, getActiveSessions, getTokenStatistics, forceCleanupTokens } from "../controllers/auth.controller";
 import { authMiddleware } from "../middleware/auth.middleware";
 
 const router = express.Router();
@@ -18,7 +18,6 @@ const loginLimiter = rateLimit({
     legacyHeaders: false,
 });
 
-router.get("/check-role/:id", checkRole);
 router.post("/login", loginLimiter, login); // Применяем строгий лимит только к login
 router.post("/register", register);
 router.post("/approve/:id", authMiddleware(["superadmin", "admin"]), approveUser);
