@@ -356,7 +356,9 @@ export const changeOwnPassword = async (req: Request, res: Response) => {
 };
 
 export const register = async (req: Request, res: Response) => {
-    const { email, password, role } = req.body;
+    // `role` from the body is deliberately ignored: this route is public, and trusting it let anyone
+    // create an approved superadmin. Privileged accounts are created by admins (user.controller.ts).
+    const { email, password } = req.body;
     const errors = validationResult(req);
 
     if (!errors.isEmpty()) {
@@ -383,13 +385,9 @@ export const register = async (req: Request, res: Response) => {
         }
 
         const passwordHash = await bcrypt.hash(password.toString(), 10);
-        // Mongo-версия дефолтила role на 'user' — значение, которого никогда не было в её же
-        // enum (см. находки шага 3, PG_MIGRATION_TASKS.md: единственная реальная запись с role='user'
-        // перенесена в Postgres как 'admin'). Postgres CHECK на users.role его тоже не пропустит.
-        // Дефолт исправлен на 'student', как в самой схеме (db/schema.sql) — сознательное отличие,
-        // не молчаливое: без роли в форме регистрации 'student' и был подразумеваемым намерением.
+        // Self-registration is always an unapproved student; an admin approves it (POST /approve/:id).
         await userServicePg.create({
-            email, passwordHash, role: role || 'student', isApproved: role === "superadmin"
+            email, passwordHash, role: 'student', isApproved: false
         });
 
         res.status(201).json({ message: "İstifadəçi qeydiyyatdan keçdi. Təsdiq gözlənilir." })
