@@ -377,7 +377,7 @@ Multer: `memoryStorage`, лимит 10 MB, `authMiddleware` стоит пере�
 |---|---|---|---|---|
 | GET | `/check-role/:id` | **public** | auth::checkRole | Роль пользователя по id |
 | POST | `/login` | **public**, `loginLimiter` | auth::login | Вход; требует `isApproved`; refresh в httpOnly cookie |
-| POST | `/register` | **public** | auth::register | Регистрация |
+| POST | `/register` | **public** | auth::register | Регистрация: всегда неодобренный `student`, `role` из тела игнорируется |
 | POST | `/approve/:id` | A | auth::approveUser | Подтвердить пользователя |
 | POST | `/logout` | **public** (по cookie refreshToken) | auth::logout | Выход из сессии |
 | POST | `/logout-all` | ANY | auth::logoutFromAllDevices | Выход со всех устройств |

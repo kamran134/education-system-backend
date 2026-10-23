@@ -98,8 +98,11 @@ routes → controllers → usecases → services/*.pg.ts → Kysely → Postgres
 - Refresh-токены хранятся в `user_refresh_tokens`. На пользователя не больше 5 сессий, при
   превышении удаляются самые старые (`token.service.pg.ts::limitUserTokens`). Просроченные токены
   чистит фоновый таймер, запущенный при старте (`startTokenCleanupScheduler`).
-- Вход возможен только при `users.is_approved = true`. Новых пользователей одобряет администратор
-  (`POST /api/auth/approve/:id`) или сразу создаёт их одобренными в админке.
+- Вход возможен только при `users.is_approved = true`. Публичная регистрация
+  (`POST /api/auth/register`) всегда создаёт **неодобренного `student`**: роль из тела запроса
+  игнорируется (до 23.10.2026 через неё можно было создать себе одобренного superadmin). Одобряет
+  администратор (`POST /api/auth/approve/:id`). Пользователей с другими ролями создают только в
+  админке («İstifadəçilər»), там же их привязывают к сущности.
 - Вход и refresh отказывают, если сущность пользователя (ученик, учитель, школа, район) скрыта
   soft delete (`utils/deleted-account.util.ts`, 403 / 401).
 - Ограничение частоты (`index.ts`, `auth.routes.ts`):
