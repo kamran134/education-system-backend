@@ -2,6 +2,10 @@ import { sql } from "kysely";
 import { pg } from "../config/pg";
 import { escapeRegex } from "../utils/validation.util";
 import { resolveExamTypeId } from "./examType.service.pg";
+import { refreshRatingsInBackground } from "./deletion.service.pg";
+
+/** Ids per DELETE statement — keeps the bind-parameter count far below Postgres' 65535. */
+const DELETE_CHUNK = 5000;
 
 export interface ExamResultsFilterPg {
     search?: string;
@@ -124,6 +128,61 @@ export class ExamResultsServicePg {
         }));
 
         return { data, totalCount: Number(countRow.count) };
+    }
+
+    /**
+     * Deletes every result the /exam-results filter selects — the "Filtrə uyğun nəticələri sil" button (customer
+     * request 29.10.2026: a district deletes its rows of an exam and re-uploads a corrected file). Same joins and
+     * filter as getExamResults, so exactly the rows on screen go (results of hidden students are not on screen
+     * and stay). Guards: at least one exam must be chosen, and a closed academic year is never touched — its
+     * *_year_ratings are sealed (academic_year_closures). The current year's ratings are recomputed afterwards.
+     */
+    async deleteExamResults(filters: ExamResultsFilterPg): Promise<number> {
+        if (!filters.examIds || filters.examIds.length === 0) {
+            const err: any = new Error("Silmək üçün ən azı bir imtahan seçin");
+            err.status = 400;
+            throw err;
+        }
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
+
+        const deletedCount = await pg.transaction().execute(async (trx) => {
+            const matching = this.applyFilter(
+                trx
+                    .selectFrom("student_results as sr")
+                    .innerJoin("students as st", "st.id", "sr.student_id")
+                    .leftJoin("exams as e", "e.id", "sr.exam_id"),
+                { ...filters, examTypeId }
+            );
+
+            const closed = await matching
+                .select("sr.academic_year as academic_year")
+                .where("sr.academic_year", "in", trx.selectFrom("academic_year_closures").select("academic_year"))
+                .limit(1)
+                .executeTakeFirst();
+            if (closed) {
+                const err: any = new Error(
+                    `Seçilmiş nəticələr arasında bağlanmış ${closed.academic_year}/${Number(closed.academic_year) + 1} ` +
+                    `tədris ilinin nəticələri var — onları silmək olmaz`
+                );
+                err.status = 409;
+                throw err;
+            }
+
+            const rows = await matching.select(["sr.id as id", "sr.student_id as student_id"]).execute();
+            const ids = rows.map((r) => r.id);
+            const studentIds = Array.from(new Set(rows.map((r) => r.student_id)));
+            for (let i = 0; i < ids.length; i += DELETE_CHUNK) {
+                await trx.deleteFrom("student_results").where("id", "in", ids.slice(i, i + DELETE_CHUNK)).execute();
+            }
+            // Same as deleteResultsByExamId (studentResult.service.pg.ts).
+            for (let i = 0; i < studentIds.length; i += DELETE_CHUNK) {
+                await trx.updateTable("students").set({ status: null }).where("id", "in", studentIds.slice(i, i + DELETE_CHUNK)).execute();
+            }
+            return ids.length;
+        });
+
+        if (deletedCount > 0) refreshRatingsInBackground();
+        return deletedCount;
     }
 
     async getExamResultById(id: number): Promise<ExamResultRow | null> {

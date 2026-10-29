@@ -5,7 +5,8 @@
 import xlsx from "xlsx-js-style";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { pg } from "../config/pg";
-import { examTypeServicePg, ExamTypeRow, ExamTypeSectionRow } from "./examType.service.pg";
+import { examTypeServicePg, ExamTypeRow, ExamTypeSectionRow, isSectionInForce } from "./examType.service.pg";
+import { academicYearOfDate } from "../utils/academic-year.util";
 
 /**
  * Транслит азербайджанских букв в ASCII + слаг без пробелов, для имени файла шаблона
@@ -204,7 +205,10 @@ export class ResultTemplateService {
             throw err;
         }
 
-        const section = examType.sections.find((s) => grade >= s.gradeFrom && grade <= s.gradeTo);
+        const academicYear = academicYearOfDate(new Date(exam.date));
+        const section = examType.sections.find(
+            (s) => grade >= s.gradeFrom && grade <= s.gradeTo && isSectionInForce(s, academicYear)
+        );
         if (!section) {
             const err: any = new Error(`${grade}-ci sinif üçün bu imtahan növündə bölmə tapılmadı`);
             err.status = 400;

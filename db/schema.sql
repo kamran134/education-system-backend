@@ -167,11 +167,23 @@ CREATE TABLE exam_type_sections (
     name_az      text   NOT NULL,
     grade_from   int    NOT NULL,
     grade_to     int    NOT NULL,
+    -- 040_exam_type_section_years_and_order.sql: учебные годы действия секции (включительно, NULL = без
+    -- границы) и порядок в редакторе. Секцию с результатами прошлых лет не меняют, а архивируют
+    -- (to_year = текущий - 1) и создают новую с текущего года — examType.service.pg.ts::upsertSections.
+    from_year    int,
+    to_year      int,
+    sort_order   int    NOT NULL DEFAULT 0,
     CHECK (grade_from <= grade_to),
+    CONSTRAINT exam_type_sections_years_check CHECK (from_year IS NULL OR to_year IS NULL OR from_year <= to_year),
     -- grade_to + 1: секция трактует свой диапазон классов как ВКЛЮЧАЮЩИЙ (grade_from..grade_to),
     -- а int4range сам по себе полуоткрытый — без +1 секции "1-4 sinif" (grade_to=4) и
     -- "5-11 sinif" (grade_from=5) не считались бы корректно соседствующими на границе класса 4/5.
-    EXCLUDE USING gist (exam_type_id WITH =, int4range(grade_from, grade_to + 1) WITH &&)
+    -- Классы не пересекаются в пределах одного учебного года; NULL-границы лет = бесконечность.
+    CONSTRAINT exam_type_sections_grades_years_excl EXCLUDE USING gist (
+        exam_type_id WITH =,
+        int4range(grade_from, grade_to + 1) WITH &&,
+        int4range(from_year, to_year + 1) WITH &&
+    )
 );
 
 -- code (трёхзначное собственное пространство номеров, никак не связанное с иерархией

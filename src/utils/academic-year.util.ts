@@ -11,6 +11,20 @@ export function getCurrentAcademicYear(): number {
     return currentMonth >= 9 ? currentYear : currentYear - 1;
 }
 
+/**
+ * Academic year of an exam by its calendar day in Asia/Baku (most exams are stored at 20:00Z of the previous
+ * day). Same formula as the results import: July/August count to the year that has just ended.
+ */
+export function academicYearOfDate(date: Date): number {
+    const [year, month] = date.toLocaleDateString("en-CA", { timeZone: "Asia/Baku" }).split("-").map(Number);
+    return academicYearOfMonth(month, year);
+}
+
+/** Academic year of a result's (month, year); unlike the generated student_results.academic_year, July/August are not NULL. */
+export function academicYearOfMonth(month: number, year: number): number {
+    return month >= 9 ? year : year - 1;
+}
+
 /** Выпускной класс — при повышении на класс дальше не идут (в системе нет статуса "выпустился"). */
 export const MAX_STUDENT_GRADE = 11;
 

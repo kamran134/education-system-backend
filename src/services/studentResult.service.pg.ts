@@ -3,7 +3,8 @@ import { Transaction } from "kysely";
 import { pg } from "../config/pg";
 import { DB } from "../types/db";
 import { studentServicePg, StudentCreate } from "./student.service.pg";
-import { examTypeServicePg } from "./examType.service.pg";
+import { examTypeServicePg, findSectionForGrade } from "./examType.service.pg";
+import { academicYearOfMonth } from "../utils/academic-year.util";
 import { levelScaleServicePg, maxPriorBandRanks } from "./levelScale.service.pg";
 import { subjectServicePg } from "./subject.service.pg";
 import { PaginationOptions, FilterOptionsPg, SortOptions } from "../types/common.types";
@@ -201,7 +202,9 @@ export class StudentResultServicePg {
 
     async create(data: StudentResultCreate): Promise<StudentResult> {
         const examTypeId = await this.resolveExamTypeId(data.examId);
-        const summary = await this.computeScoreSummary(examTypeId, data.grade, data.disciplines);
+        const summary = await this.computeScoreSummary(
+            examTypeId, data.grade, academicYearOfMonth(data.month, data.year), data.disciplines
+        );
 
         const row = await pg.transaction().execute(async (trx) => {
             const inserted = await trx
@@ -245,8 +248,12 @@ export class StudentResultServicePg {
 
         // A new grade or exam can move the result into another section/type, so section, percent
         // and pillə are recomputed even when the client sent no disciplines — from the stored ones.
+        // Month/year too: sections have academic-year windows (040).
+        const month = data.month ?? current.month;
+        const year = data.year ?? current.year;
         const placementChanged = (data.grade !== undefined && data.grade !== current.grade)
-            || (data.examId !== undefined && data.examId !== current.exam_id);
+            || (data.examId !== undefined && data.examId !== current.exam_id)
+            || month !== current.month || year !== current.year;
         let disciplines = data.disciplines;
         if (disciplines === undefined && placementChanged) {
             const stored = await pg
@@ -259,7 +266,7 @@ export class StudentResultServicePg {
 
         if (disciplines !== undefined) {
             const examTypeId = await this.resolveExamTypeId(examId);
-            const summary = await this.computeScoreSummary(examTypeId, grade, disciplines);
+            const summary = await this.computeScoreSummary(examTypeId, grade, academicYearOfMonth(month, year), disciplines);
             scoreFields = {
                 exam_type_id: examTypeId,
                 section_id: summary.sectionId,
@@ -454,7 +461,7 @@ export class StudentResultServicePg {
 
                 let config = sectionConfigByGrade.get(grade);
                 if (config === undefined) {
-                    config = await this.resolveSectionConfig(exam.exam_type_id, grade);
+                    config = await this.resolveSectionConfig(exam.exam_type_id, grade, academicYearStart);
                     sectionConfigByGrade.set(grade, config);
                 }
                 if (config === null) {
@@ -928,19 +935,14 @@ export class StudentResultServicePg {
         return base.id;
     }
 
-    /** Секция типа экзамена, в которую попадает класс, + её конфиг предметов. `null`, если ни
+    /** Секция типа экзамена, в которую попадает класс в учебном году `academicYear` (040: у секций
+     *  есть годы действия), + её конфиг предметов. `null`, если ни
      *  одна секция не покрывает этот класс (данные и должны быть возможны без исключения —
      *  вызывающий код решает, ошибка ли это построчная или на весь импорт). Бросает исключение,
      *  если секция найдена, но в ней НЕ настроено ни одного предмета (§3/§7 ТЗ) — делить на
      *  ноль нельзя, а это состояние (свежесозданный тип/секция "5-11 sinif") штатное. */
-    private async resolveSectionConfig(examTypeId: number, grade: number): Promise<SectionConfig | null> {
-        const section = await pg
-            .selectFrom("exam_type_sections")
-            .select(["id", "name_az"])
-            .where("exam_type_id", "=", examTypeId)
-            .where("grade_from", "<=", grade)
-            .where("grade_to", ">=", grade)
-            .executeTakeFirst();
+    private async resolveSectionConfig(examTypeId: number, grade: number, academicYear: number): Promise<SectionConfig | null> {
+        const section = await findSectionForGrade(pg, examTypeId, grade, academicYear);
         if (!section) return null;
 
         const subjectRows = await pg
@@ -975,6 +977,7 @@ export class StudentResultServicePg {
     private async computeScoreSummary(
         examTypeId: number,
         grade: number,
+        academicYear: number,
         disciplines: StudentResultSubjectScoreInput[]
     ): Promise<{
         sectionId: number;
@@ -986,7 +989,7 @@ export class StudentResultServicePg {
         participationScore: number;
         subjectRows: Array<{ subjectCode: string; score: number; questionCount: number }>;
     }> {
-        const config = await this.resolveSectionConfig(examTypeId, grade);
+        const config = await this.resolveSectionConfig(examTypeId, grade, academicYear);
         if (!config) {
             throw this.importError(`${grade}-ci sinif üçün bu imtahan növündə bölmə tapılmadı`);
         }

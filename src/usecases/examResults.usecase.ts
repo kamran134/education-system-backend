@@ -25,6 +25,10 @@ export class ExamResultsUseCase {
         this.examResultsService = new ExamResultsServicePg();
     }
 
+    async deleteExamResults(filters: ExamResultsFilterPg): Promise<number> {
+        return await this.examResultsService.deleteExamResults(filters);
+    }
+
     async getExamResults(params: ExamResultsParams): Promise<{ data: ExamResultRow[], totalCount: number }> {
 
         const {

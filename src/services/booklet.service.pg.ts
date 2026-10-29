@@ -4,6 +4,8 @@ import fs from "fs";
 import { PaginationOptions, SortOptions } from "../types/common.types";
 import { deleteFile } from "./file.service";
 import { Json } from "../types/db";
+import { findSectionForGrade } from "./examType.service.pg";
+import { academicYearOfDate } from "../utils/academic-year.util";
 
 const MAX_BOOKLET_SIZE_BYTES = 50 * 1024 * 1024; // 50 MB
 
@@ -254,15 +256,11 @@ export class BookletServicePg {
             // предмета, а не про его принадлежность конкретной секции).
             const disciplineKeys = Object.keys(disciplines);
             if (disciplineKeys.length > 0) {
-                const exam = await pg.selectFrom("exams").select("exam_type_id").where("id", "=", examId).executeTakeFirst();
+                const exam = await pg.selectFrom("exams").select(["exam_type_id", "date"]).where("id", "=", examId).executeTakeFirst();
                 if (exam) {
-                    const section = await pg
-                        .selectFrom("exam_type_sections")
-                        .select("id")
-                        .where("exam_type_id", "=", exam.exam_type_id)
-                        .where("grade_from", "<=", grade)
-                        .where("grade_to", ">=", grade)
-                        .executeTakeFirst();
+                    const section = await findSectionForGrade(
+                        pg, exam.exam_type_id, grade, academicYearOfDate(new Date(exam.date))
+                    );
 
                     const allowedCodes = section
                         ? new Set(

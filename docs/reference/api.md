@@ -223,11 +223,12 @@
 | DELETE | `/:id` | canDelete (A) | studentResult::deleteStudentResult | Удалить результат |
 | DELETE | `/exam/:examId` | A | studentResult::deleteResults | Удалить все результаты экзамена |
 
-## /api/exam-results — Результаты экзаменов (чтение)
+## /api/exam-results — Результаты экзаменов (чтение и удаление по фильтру)
 
 | Метод | Путь | Доступ | Контроллер::метод | Что делает |
 |---|---|---|---|---|
 | GET | `/` | ANY (`authMiddleware()`) | examResults::getExamResults | Результаты с фильтрами и пагинацией; скоуп teacher/schoolDirector/district/region/student (examResults.controller.ts:43-51) |
+| DELETE | `/` | A (`superadmin`, `admin`) | examResults::deleteExamResults | Удаляет все результаты, подходящие под те же фильтры, что GET (кнопка «Filtrə uyğun nəticələri sil», просьба заказчика 29.10.2026). Нужен хотя бы один `examIds` (400), результаты закрытого учебного года — 409; после удаления фоновый пересчёт рейтингов текущего года. Ответ `{ deletedCount }` |
 | GET | `/:id` | ANY | examResults::getExamResultById | Один результат; проверка владения внутри (`:99-118`), чужой — как «не найдено» |
 
 ## /api/stats — Рейтинги (статистика по сущностям)

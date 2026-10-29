@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ExamResultsUseCase } from "../usecases/examResults.usecase";
-import { ExamResultRow } from "../services/examResults.service.pg";
+import { ExamResultRow, ExamResultsFilterPg } from "../services/examResults.service.pg";
 import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { isAdminLike } from "../utils/avatar.util";
@@ -18,42 +18,13 @@ export class ExamResultsController {
             const pagination = RequestParser.parsePagination(req);
             const sort = RequestParser.parseSorting(req, 'exam.date', 'desc');
 
-            // Parse filters
             const params = {
-                search: req.query.search as string,
-                code: req.query.code ? parseInt(req.query.code as string) : undefined,
-                dateFrom: req.query.dateFrom as string,
-                dateTo: req.query.dateTo as string,
-                examIds: req.query.examIds ? (req.query.examIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
-                districtIds: req.query.districtIds ? (req.query.districtIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
-                schoolIds: req.query.schoolIds ? (req.query.schoolIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
-                teacherIds: req.query.teacherIds ? (req.query.teacherIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
-                studentIds: undefined as number[] | undefined,
-                grades: req.query.grades ? (req.query.grades as string).split(',').map(g => parseInt(g)) : undefined,
-                examTypeId: req.query.examTypeId ? parseInt(req.query.examTypeId as string, 10) : undefined,
+                ...(await this.parseScopedFilters(req)),
                 sortColumn: sort.sortColumn,
                 sortDirection: sort.sortDirection as 'asc' | 'desc',
                 page: pagination.page,
                 size: pagination.size
             };
-
-            // Ролевое сужение — тот же приём, что в teacher.controller.ts:getTeachers. Перезаписывает
-            // только «свой» ключ, остальные фильтры из query остаются как есть и применяются как AND:
-            // это и есть защита от подстановки чужого id (пересечение со своей областью даст пустую выборку).
-            if (req.user?.role === 'teacher' && req.user.teacherId) {
-                params.teacherIds = narrowToScope(params.teacherIds, [parseInt(req.user.teacherId, 10)]);
-            } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
-                params.schoolIds = narrowToScope(params.schoolIds, [parseInt(req.user.schoolId, 10)]);
-            } else if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
-                params.districtIds = narrowToScope(params.districtIds, [parseInt(req.user.districtId, 10)]);
-            } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
-                params.districtIds = narrowToScope(params.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
-            } else if (req.user?.role === 'student' && req.user.studentId) {
-                // Ученик видит только свои результаты. Без этой ветки роль проваливалась мимо
-                // всех остальных и получала выборку по всей республике: у student нет ни
-                // teacherId, ни schoolId, ни districtId в токене, только studentId.
-                params.studentIds = [parseInt(req.user.studentId, 10)];
-            }
 
             const result = await this.examResultsUseCase.getExamResults(params);
 
@@ -64,6 +35,60 @@ export class ExamResultsController {
         } catch (error) {
             next(error);
         }
+    }
+
+    /**
+     * DELETE /api/exam-results — the same query string as GET, deletes every matching result
+     * (admin / superadmin only, see the route). Returns the number of deleted results.
+     */
+    deleteExamResults = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const deletedCount = await this.examResultsUseCase.deleteExamResults(await this.parseScopedFilters(req));
+            res.json(ResponseHandler.success({ deletedCount }, `${deletedCount} nəticə silindi`));
+        } catch (error: any) {
+            if (error?.status) {
+                res.status(error.status).json(ResponseHandler.error(error.message));
+                return;
+            }
+            next(error);
+        }
+    }
+
+    /** Filters from the query string, narrowed to the caller's scope. Shared by GET and DELETE. */
+    private parseScopedFilters = async (req: Request): Promise<ExamResultsFilterPg> => {
+        const params: ExamResultsFilterPg = {
+            search: req.query.search as string,
+            code: req.query.code ? parseInt(req.query.code as string) : undefined,
+            dateFrom: req.query.dateFrom as string,
+            dateTo: req.query.dateTo as string,
+            examIds: req.query.examIds ? (req.query.examIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
+            districtIds: req.query.districtIds ? (req.query.districtIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
+            schoolIds: req.query.schoolIds ? (req.query.schoolIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
+            teacherIds: req.query.teacherIds ? (req.query.teacherIds as string).split(',').map(id => parseInt(id, 10)) : undefined,
+            studentIds: undefined,
+            grades: req.query.grades ? (req.query.grades as string).split(',').map(g => parseInt(g)) : undefined,
+            examTypeId: req.query.examTypeId ? parseInt(req.query.examTypeId as string, 10) : undefined,
+        };
+
+        // Ролевое сужение — тот же приём, что в teacher.controller.ts:getTeachers. Перезаписывает
+        // только «свой» ключ, остальные фильтры из query остаются как есть и применяются как AND:
+        // это и есть защита от подстановки чужого id (пересечение со своей областью даст пустую выборку).
+        if (req.user?.role === 'teacher' && req.user.teacherId) {
+            params.teacherIds = narrowToScope(params.teacherIds, [parseInt(req.user.teacherId, 10)]);
+        } else if (req.user?.role === 'schoolDirector' && req.user.schoolId) {
+            params.schoolIds = narrowToScope(params.schoolIds, [parseInt(req.user.schoolId, 10)]);
+        } else if (req.user?.role === 'districtRepresenter' && req.user.districtId) {
+            params.districtIds = narrowToScope(params.districtIds, [parseInt(req.user.districtId, 10)]);
+        } else if (req.user?.role === 'regionRepresenter' && req.user.regionId) {
+            params.districtIds = narrowToScope(params.districtIds, await districtIdsOfRegion(parseInt(req.user.regionId, 10)));
+        } else if (req.user?.role === 'student' && req.user.studentId) {
+            // Ученик видит только свои результаты. Без этой ветки роль проваливалась мимо
+            // всех остальных и получала выборку по всей республике: у student нет ни
+            // teacherId, ни schoolId, ни districtId в токене, только studentId.
+            params.studentIds = [parseInt(req.user.studentId, 10)];
+        }
+
+        return params;
     }
 
     getExamResultById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -127,3 +152,4 @@ const examResultsController = new ExamResultsController();
 
 export const getExamResults = examResultsController.getExamResults;
 export const getExamResultById = examResultsController.getExamResultById;
+export const deleteExamResults = examResultsController.deleteExamResults;

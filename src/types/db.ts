@@ -407,10 +407,13 @@ export interface ExamTypes {
 // подключиться к живой БД и сверить.
 export interface ExamTypeSections {
   exam_type_id: number;
+  from_year: number | null;
   grade_from: number;
   grade_to: number;
   id: Generated<number>;
   name_az: string;
+  sort_order: Generated<number>;
+  to_year: number | null;
 }
 
 // Добавлено вручную вслед за миграцией 023_exam_types_and_level_scales.sql, см.
