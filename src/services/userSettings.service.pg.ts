@@ -22,6 +22,8 @@ export interface UserSettingsRow {
     allSchoolCollumns: string[];
     allDistrictCollumns: string[];
     allRegionCollumns: string[];
+    /** Admin's own /exam-results columns (041); empty = the page's default order. */
+    examResultCollumns: string[];
     teacherViewCollumns: string[];
     directorViewCollumns: string[];
     districtViewCollumns: string[];
@@ -39,6 +41,7 @@ export interface UserSettingsUpdate {
     allSchoolCollumns?: string[];
     allDistrictCollumns?: string[];
     allRegionCollumns?: string[];
+    examResultCollumns?: string[];
     teacherViewCollumns?: string[];
     directorViewCollumns?: string[];
     districtViewCollumns?: string[];
@@ -55,6 +58,7 @@ function toColumns(data: Partial<UserSettingsUpdate>) {
         ...(data.allSchoolCollumns !== undefined && { all_school_collumns: data.allSchoolCollumns }),
         ...(data.allDistrictCollumns !== undefined && { all_district_collumns: data.allDistrictCollumns }),
         ...(data.allRegionCollumns !== undefined && { all_region_collumns: data.allRegionCollumns }),
+        ...(data.examResultCollumns !== undefined && { exam_result_collumns: data.examResultCollumns }),
         ...(data.teacherViewCollumns !== undefined && { teacher_view_collumns: data.teacherViewCollumns }),
         ...(data.directorViewCollumns !== undefined && { director_view_collumns: data.directorViewCollumns }),
         ...(data.districtViewCollumns !== undefined && { district_view_collumns: data.districtViewCollumns }),
@@ -67,7 +71,7 @@ function toRow(row: {
     id: number; user_id: number | null;
     developing_student_collumns: string[]; student_collumns: string[]; all_student_collumns: string[];
     all_teacher_collumns: string[]; all_school_collumns: string[]; all_district_collumns: string[];
-    all_region_collumns: string[];
+    all_region_collumns: string[]; exam_result_collumns: string[];
     teacher_view_collumns: string[]; director_view_collumns: string[]; district_view_collumns: string[];
     student_view_collumns: string[]; role_settings: Json; created_at: Date; updated_at: Date;
 }): UserSettingsRow {
@@ -81,6 +85,7 @@ function toRow(row: {
         allSchoolCollumns: row.all_school_collumns,
         allDistrictCollumns: row.all_district_collumns,
         allRegionCollumns: row.all_region_collumns,
+        examResultCollumns: row.exam_result_collumns,
         teacherViewCollumns: row.teacher_view_collumns,
         directorViewCollumns: row.director_view_collumns,
         districtViewCollumns: row.district_view_collumns,

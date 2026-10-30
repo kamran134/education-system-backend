@@ -511,6 +511,7 @@ export interface UserSettings {
   developing_student_collumns: Generated<string[]>;
   director_view_collumns: Generated<string[]>;
   district_view_collumns: Generated<string[]>;
+  exam_result_collumns: Generated<string[]>;
   id: Generated<number>;
   role_settings: Generated<Json>;
   student_collumns: Generated<string[]>;

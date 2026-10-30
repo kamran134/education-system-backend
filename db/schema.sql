@@ -501,6 +501,7 @@ CREATE TABLE user_settings (
     district_view_collumns       text[] NOT NULL DEFAULT '{}',
     student_view_collumns        text[] NOT NULL DEFAULT '{}',
     all_region_collumns          text[] NOT NULL DEFAULT '{}',
+    exam_result_collumns         text[] NOT NULL DEFAULT '{}',    -- admin's own /exam-results columns (041)
     role_settings                jsonb  NOT NULL DEFAULT '{}'::jsonb,
     created_at                   timestamptz NOT NULL DEFAULT now(),
     updated_at                   timestamptz NOT NULL DEFAULT now()
