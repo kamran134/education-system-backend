@@ -5,3 +5,6 @@ dist/
 # Персональные данные учеников — никогда не коммитить
 uploads/
 audit-report.json
+
+# Local one-off scripts (district 185 clone/cleanup, test passwords) — never commit
+db/scripts/
