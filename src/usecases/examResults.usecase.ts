@@ -12,6 +12,7 @@ export interface ExamResultsParams {
     studentIds?: number[];
     grades?: number[];
     examTypeId?: number;
+    academicYear?: number;
     sortColumn?: string;
     sortDirection?: string;
     page?: number;
@@ -29,6 +30,10 @@ export class ExamResultsUseCase {
         return await this.examResultsService.deleteExamResults(filters);
     }
 
+    async getLatestExamId(filters: ExamResultsFilterPg): Promise<number | null> {
+        return await this.examResultsService.getLatestExamId(filters);
+    }
+
     async getExamResults(params: ExamResultsParams): Promise<{ data: ExamResultRow[], totalCount: number }> {
 
         const {
@@ -43,6 +48,7 @@ export class ExamResultsUseCase {
             studentIds,
             grades,
             examTypeId,
+            academicYear,
             sortColumn = 'exam.date',
             sortDirection = 'desc',
             page = 1,
@@ -60,7 +66,8 @@ export class ExamResultsUseCase {
             teacherIds,
             studentIds,
             grades,
-            examTypeId
+            examTypeId,
+            academicYear
         };
 
         return await this.examResultsService.getExamResults(

@@ -5,6 +5,7 @@ import { RequestParser } from "../utils/request-parser.util";
 import { ResponseHandler } from "../utils/response-handler.util";
 import { isAdminLike } from "../utils/avatar.util";
 import { districtIdsOfRegion, narrowToScope } from "../utils/region-scope.util";
+import { academicYearOfDate, getCurrentAcademicYear } from "../utils/academic-year.util";
 
 export class ExamResultsController {
     private examResultsUseCase: ExamResultsUseCase;
@@ -88,7 +89,29 @@ export class ExamResultsController {
             params.studentIds = [parseInt(req.user.studentId, 10)];
         }
 
+        // Г3 B (customer decision): every role except admin/superadmin sees the current academic year only.
+        // getCurrentAcademicYear(), not resolveRatingYear() — the latter stays on the old year until ratings are
+        // activated; explicit role check, not isAdminLike — it includes moderator.
+        if (this.isYearRestricted(req)) params.academicYear = getCurrentAcademicYear();
+
         return params;
+    }
+
+    /** Г3 B: roles limited to the current academic year (everyone but admin/superadmin, moderator included). */
+    private isYearRestricted = (req: Request): boolean => {
+        const role = req.user?.role;
+        return !(role === 'admin' || role === 'superadmin');
+    }
+
+    /** GET /api/exam-results/latest-exam — latest exam with results inside the caller's scope (null if none). */
+    getLatestExam = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const filters = await this.parseScopedFilters(req);
+            const examId = await this.examResultsUseCase.getLatestExamId(filters);
+            res.json(ResponseHandler.success({ examId }, 'Məlumat uğurla alındı'));
+        } catch (error) {
+            next(error);
+        }
     }
 
     getExamResultById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -104,6 +127,13 @@ export class ExamResultsController {
             if (!(await this.isVisibleToUser(req, result))) {
                 // Тот же 404, что и для несуществующей записи — не подсказываем чужой роли,
                 // что запись вообще существует (в отличие от 403).
+                res.status(404).json(ResponseHandler.notFound('Məlumat tapılmadı'));
+                return;
+            }
+
+            // Г3 B: past-year results are hidden from restricted roles here too (by-id bypasses the list filter).
+            if (this.isYearRestricted(req)
+                && (!result.exam || academicYearOfDate(new Date(result.exam.date)) !== getCurrentAcademicYear())) {
                 res.status(404).json(ResponseHandler.notFound('Məlumat tapılmadı'));
                 return;
             }
@@ -152,4 +182,5 @@ const examResultsController = new ExamResultsController();
 
 export const getExamResults = examResultsController.getExamResults;
 export const getExamResultById = examResultsController.getExamResultById;
+export const getLatestExam = examResultsController.getLatestExam;
 export const deleteExamResults = examResultsController.deleteExamResults;

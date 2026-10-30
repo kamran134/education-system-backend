@@ -22,6 +22,9 @@ export interface ExamResultsFilterPg {
     // подставляет базовый тип, чтобы результаты разных типов экзамена не смешивались в одной
     // таблице (у каждого свой набор предметов/шкала, общий список был бы мусором).
     examTypeId?: number;
+    // Г3 (29.10.2026): only this academic year (student_results.academic_year). Set by the controller
+    // for every role except admin/superadmin.
+    academicYear?: number;
 }
 
 export interface ExamResultRow {
@@ -128,6 +131,29 @@ export class ExamResultsServicePg {
         }));
 
         return { data, totalCount: Number(countRow.count) };
+    }
+
+    /**
+     * Id of the most recent exam (by date) that has at least one result inside the caller's filter scope — the
+     * /exam-results page preselects it (Г3 A). Same filter as getExamResults, minus examIds; no count, one row.
+     */
+    async getLatestExamId(filters: ExamResultsFilterPg): Promise<number | null> {
+        let query = pg
+            .selectFrom("student_results as sr")
+            .innerJoin("students as st", "st.id", "sr.student_id")
+            .innerJoin("exams as e", "e.id", "sr.exam_id");
+
+        const examTypeId = await resolveExamTypeId(filters.examTypeId);
+        query = this.applyFilter(query, { ...filters, examIds: undefined, examTypeId });
+
+        const row = await query
+            .select(["sr.exam_id as exam_id"])
+            .orderBy("e.date", "desc")
+            .orderBy("e.id", "desc")
+            .limit(1)
+            .executeTakeFirst();
+
+        return row?.exam_id ?? null;
     }
 
     /**
@@ -263,6 +289,7 @@ export class ExamResultsServicePg {
 
         if (filters.examTypeId !== undefined) q = q.where("sr.exam_type_id" as any, "=", filters.examTypeId);
         if (filters.examIds && filters.examIds.length > 0) q = q.where("sr.exam_id" as any, "in", filters.examIds);
+        if (filters.academicYear !== undefined) q = q.where("sr.academic_year" as any, "=", filters.academicYear);
         if (filters.grades && filters.grades.length > 0) q = q.where("sr.grade" as any, "in", filters.grades);
         if (filters.dateFrom) q = q.where("e.date" as any, ">=", new Date(filters.dateFrom));
         if (filters.dateTo) q = q.where("e.date" as any, "<=", new Date(filters.dateTo));
