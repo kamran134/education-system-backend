@@ -229,6 +229,7 @@
 |---|---|---|---|---|
 | GET | `/` | ANY (`authMiddleware()`) | examResults::getExamResults | Результаты с фильтрами и пагинацией; скоуп teacher/schoolDirector/district/region/student (examResults.controller.ts:43-51) |
 | DELETE | `/` | A (`superadmin`, `admin`) | examResults::deleteExamResults | Удаляет все результаты, подходящие под те же фильтры, что GET (кнопка «Filtrə uyğun nəticələri sil», просьба заказчика 29.10.2026). Нужен хотя бы один `examIds` (400), результаты закрытого учебного года — 409; после удаления фоновый пересчёт рейтингов текущего года. Ответ `{ deletedCount }` |
+| DELETE | `/selected` | A (`superadmin`, `admin`) | examResults::deleteSelectedExamResults | Удаляет отмеченные в таблице результаты («Seçilmişləri sil», 30.10.2026). Тело `{ ids: number[] }` (1–5000, иначе 400), результаты закрытого учебного года — 409, затем фоновый пересчёт рейтингов. Ответ `{ deletedCount }` |
 | GET | `/:id` | ANY | examResults::getExamResultById | Один результат; проверка владения внутри (`:99-118`), чужой — как «не найдено» |
 
 ## /api/stats — Рейтинги (статистика по сущностям)

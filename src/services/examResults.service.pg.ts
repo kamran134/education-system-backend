@@ -1,11 +1,20 @@
-import { sql } from "kysely";
+import { sql, Transaction } from "kysely";
 import { pg } from "../config/pg";
+import { DB } from "../types/db";
 import { escapeRegex } from "../utils/validation.util";
 import { resolveExamTypeId } from "./examType.service.pg";
 import { refreshRatingsInBackground } from "./deletion.service.pg";
 
 /** Ids per DELETE statement — keeps the bind-parameter count far below Postgres' 65535. */
 const DELETE_CHUNK = 5000;
+
+/** Rows a delete may touch — same joins as getExamResults, so applyFilter sees the columns it expects. */
+function deletableResults(trx: Transaction<DB>) {
+    return trx
+        .selectFrom("student_results as sr")
+        .innerJoin("students as st", "st.id", "sr.student_id")
+        .leftJoin("exams as e", "e.id", "sr.exam_id");
+}
 
 export interface ExamResultsFilterPg {
     search?: string;
@@ -171,14 +180,28 @@ export class ExamResultsServicePg {
         }
         const examTypeId = await resolveExamTypeId(filters.examTypeId);
 
+        return this.deleteMatching((trx) => this.applyFilter(deletableResults(trx), { ...filters, examTypeId }));
+    }
+
+    /**
+     * Deletes the rows ticked on /exam-results — the "Seçilmişləri sil" link (30.10.2026). Admin-only, so no scope
+     * narrowing; the closed-year guard, students.status reset and rating refresh are the same as for the filter.
+     */
+    async deleteExamResultsByIds(ids: number[]): Promise<number> {
+        if (ids.length === 0) {
+            const err: any = new Error("Silmək üçün ən azı bir nəticə seçin");
+            err.status = 400;
+            throw err;
+        }
+        return this.deleteMatching((trx) => deletableResults(trx).where("sr.id", "in", ids));
+    }
+
+    /** Shared body of both deletes: refuses closed years (409), deletes in chunks, resets students.status. */
+    private async deleteMatching(
+        buildMatching: (trx: Transaction<DB>) => ReturnType<typeof deletableResults>
+    ): Promise<number> {
         const deletedCount = await pg.transaction().execute(async (trx) => {
-            const matching = this.applyFilter(
-                trx
-                    .selectFrom("student_results as sr")
-                    .innerJoin("students as st", "st.id", "sr.student_id")
-                    .leftJoin("exams as e", "e.id", "sr.exam_id"),
-                { ...filters, examTypeId }
-            );
+            const matching = buildMatching(trx);
 
             const closed = await matching
                 .select("sr.academic_year as academic_year")

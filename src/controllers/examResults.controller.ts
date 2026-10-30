@@ -7,6 +7,9 @@ import { isAdminLike } from "../utils/avatar.util";
 import { districtIdsOfRegion, narrowToScope } from "../utils/region-scope.util";
 import { academicYearOfDate, getCurrentAcademicYear } from "../utils/academic-year.util";
 
+/** Upper bound for one "Seçilmişləri sil" request — a hand-made selection, not a whole exam (that is the filter delete). */
+const MAX_SELECTED_DELETE = 5000;
+
 export class ExamResultsController {
     private examResultsUseCase: ExamResultsUseCase;
 
@@ -45,6 +48,33 @@ export class ExamResultsController {
     deleteExamResults = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
         try {
             const deletedCount = await this.examResultsUseCase.deleteExamResults(await this.parseScopedFilters(req));
+            res.json(ResponseHandler.success({ deletedCount }, `${deletedCount} nəticə silindi`));
+        } catch (error: any) {
+            if (error?.status) {
+                res.status(error.status).json(ResponseHandler.error(error.message));
+                return;
+            }
+            next(error);
+        }
+    }
+
+    /**
+     * DELETE /api/exam-results/selected — body `{ ids: number[] }`, the rows ticked in the table (admin / superadmin
+     * only, see the route). The ids go in the body: a selection spanning pages would not fit a query string.
+     */
+    deleteSelectedExamResults = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+        try {
+            const raw = req.body?.ids;
+            const ids = Array.isArray(raw) ? Array.from(new Set(raw.map((id: unknown) => Number(id)))) : [];
+            if (ids.length === 0 || ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+                res.status(400).json(ResponseHandler.error("Silmək üçün ən azı bir nəticə seçin"));
+                return;
+            }
+            if (ids.length > MAX_SELECTED_DELETE) {
+                res.status(400).json(ResponseHandler.error(`Bir dəfəyə ən çox ${MAX_SELECTED_DELETE} nəticə silmək olar`));
+                return;
+            }
+            const deletedCount = await this.examResultsUseCase.deleteExamResultsByIds(ids);
             res.json(ResponseHandler.success({ deletedCount }, `${deletedCount} nəticə silindi`));
         } catch (error: any) {
             if (error?.status) {

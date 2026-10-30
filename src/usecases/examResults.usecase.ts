@@ -30,6 +30,10 @@ export class ExamResultsUseCase {
         return await this.examResultsService.deleteExamResults(filters);
     }
 
+    async deleteExamResultsByIds(ids: number[]): Promise<number> {
+        return await this.examResultsService.deleteExamResultsByIds(ids);
+    }
+
     async getLatestExamId(filters: ExamResultsFilterPg): Promise<number | null> {
         return await this.examResultsService.getLatestExamId(filters);
     }

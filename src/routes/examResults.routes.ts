@@ -11,6 +11,9 @@ router.get('/', authMiddleware(), examResultsController.getExamResults.bind(exam
 // DELETE /api/exam-results?<same filters as GET> - delete every matching result (at least one exam required)
 router.delete('/', authMiddleware(['superadmin', 'admin']), examResultsController.deleteExamResults.bind(examResultsController));
 
+// DELETE /api/exam-results/selected - body { ids: number[] }: delete the results ticked in the table
+router.delete('/selected', authMiddleware(['superadmin', 'admin']), examResultsController.deleteSelectedExamResults.bind(examResultsController));
+
 // GET /api/exam-results/latest-exam?<same filters as GET> - id of the latest exam with results in the caller's scope
 // (must stay above '/:id', otherwise "latest-exam" is taken as an id)
 router.get('/latest-exam', authMiddleware(), examResultsController.getLatestExam.bind(examResultsController));
