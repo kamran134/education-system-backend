@@ -10,7 +10,7 @@ router.route("/").get(authMiddleware([]), getStudentResults);
 router.route("/upload")
     .post(authMiddleware(["superadmin", "admin"]), upload.single("file"), createAllResults);
 router.route("/:id")
-    .put(authMiddleware(["superadmin", "admin", "moderator"]), updateStudentResult)
+    .put(authMiddleware(["superadmin", "admin"]), updateStudentResult)
     .delete(canDelete, deleteStudentResult);
 router.route("/exam/:examId")
     .delete(authMiddleware(["superadmin", "admin"]), deleteResults);
