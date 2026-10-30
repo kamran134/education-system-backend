@@ -27,6 +27,8 @@ export interface ExamResultsFilterPg {
     teacherIds?: number[];
     studentIds?: number[];
     grades?: number[];
+    // Pillə band codes (student_results.level), customer request 30.10.2026.
+    levels?: string[];
     // IMTAHAN_NOVLERI_TASK.md — экран Nəticələr (fixes 20.09.2026): без него resolveExamTypeId()
     // подставляет базовый тип, чтобы результаты разных типов экзамена не смешивались в одной
     // таблице (у каждого свой набор предметов/шкала, общий список был бы мусором).
@@ -314,6 +316,7 @@ export class ExamResultsServicePg {
         if (filters.examIds && filters.examIds.length > 0) q = q.where("sr.exam_id" as any, "in", filters.examIds);
         if (filters.academicYear !== undefined) q = q.where("sr.academic_year" as any, "=", filters.academicYear);
         if (filters.grades && filters.grades.length > 0) q = q.where("sr.grade" as any, "in", filters.grades);
+        if (filters.levels && filters.levels.length > 0) q = q.where("sr.level" as any, "in", filters.levels);
         if (filters.dateFrom) q = q.where("e.date" as any, ">=", new Date(filters.dateFrom));
         if (filters.dateTo) q = q.where("e.date" as any, "<=", new Date(filters.dateTo));
         if (filters.code !== undefined) q = q.where("st.code" as any, "=", filters.code);

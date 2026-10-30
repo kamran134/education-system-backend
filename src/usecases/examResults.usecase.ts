@@ -11,6 +11,7 @@ export interface ExamResultsParams {
     teacherIds?: number[];
     studentIds?: number[];
     grades?: number[];
+    levels?: string[];
     examTypeId?: number;
     academicYear?: number;
     sortColumn?: string;
@@ -51,6 +52,7 @@ export class ExamResultsUseCase {
             teacherIds,
             studentIds,
             grades,
+            levels,
             examTypeId,
             academicYear,
             sortColumn = 'exam.date',
@@ -70,6 +72,7 @@ export class ExamResultsUseCase {
             teacherIds,
             studentIds,
             grades,
+            levels,
             examTypeId,
             academicYear
         };
