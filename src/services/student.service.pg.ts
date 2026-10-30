@@ -347,7 +347,7 @@ export class StudentServicePg {
         // a second JS ranking pass, same technique already used for participation_count below.
         const rankFilterOptions = { ...filters, code: undefined, search: undefined };
         const rank = rankMetric(sort.sortColumn, { score: "student_year_ratings.score", averageScore: "student_year_ratings.average_score" });
-        const filterPlaceSubquery = this.applyFilter(
+        const filterPlaceSubquery = this.applyRatedOnly(this.applyFilter(
             pg.selectFrom("students")
                 // Балл — за ratingYear (не currentYear): "место в рамках фильтра" ранжирует
                 // по баллу того года, что реально показан на карточке/в колонке, а не по баллу
@@ -362,7 +362,7 @@ export class StudentServicePg {
                 ),
             rankFilterOptions,
             yearGradeExpr
-        ).select([
+        ), filters, "student_year_ratings.score").select([
             "students.id as student_id",
             // "место в рамках фильтра" считается внутри того класса, который показан в строке
             // (year_grade), а не живого students.grade — иначе после повышения место "уезжает"
@@ -412,6 +412,7 @@ export class StudentServicePg {
                 yearGradeExpr.as("year_grade"),
             ]);
         base = this.applyFilter(base, filters, yearGradeExpr);
+        base = this.applyRatedOnly(base, filters, "student_year_ratings.score");
 
         // "teacher"/"school"/"district" are the literal sortColumn keys students-year-tab sends
         // (TableColumn.key there, e.g. teacher's field is 'teacher.fullname' but the sort key is
@@ -435,17 +436,24 @@ export class StudentServicePg {
 
         const [rows, countRow] = await Promise.all([
             query.execute(),
-            this.applyFilter(
+            this.applyRatedOnly(this.applyFilter(
                 // Join нужен только затем, чтобы applyFilter мог фильтровать по тому же
                 // "классу за год" (grades), что и основной запрос — иначе count разойдётся с
                 // фактическим числом строк на странице.
                 pg.selectFrom("students")
                     .leftJoin("student_grade_history as sgh", (join) =>
                         join.onRef("sgh.student_id", "=", "students.id").on("sgh.academic_year", "=", currentYear)
+                    )
+                    // Read only by the ratedOnly condition. The join is on the full PK, so at most
+                    // one row per student and the count without the flag is unchanged.
+                    .leftJoin("student_year_ratings", (join) =>
+                        join.onRef("student_year_ratings.student_id", "=", "students.id")
+                            .on("student_year_ratings.year", "=", ratingYear)
+                            .on("student_year_ratings.exam_type_id", "=", examTypeId)
                     ),
                 filters,
                 yearGradeExpr
-            )
+            ), filters, "student_year_ratings.score")
                 .select(({ fn }) => [fn.countAll().as("count")])
                 .executeTakeFirstOrThrow(),
         ]);
@@ -477,14 +485,14 @@ export class StudentServicePg {
         // same reasoning as in getFilteredStudents, partitioned by the month's grade.
         const rankFilterOptions = { ...filters, code: undefined, search: undefined };
         const rank = rankMetric(sort.sortColumn, { score: "sms.score" });
-        const filterPlaceSubquery = this.applyFilter(
+        const filterPlaceSubquery = this.applyRatedOnly(this.applyFilter(
             pg.selectFrom("students")
                 .leftJoin("v_student_month_scores as sms", (join) =>
                     join.onRef("sms.student_id", "=", "students.id").on("sms.year", "=", monthFilter.year).on("sms.month", "=", monthFilter.month)
                 ),
             rankFilterOptions,
             monthGradeExpr
-        ).select([
+        ), filters, "sms.score").select([
             "students.id as student_id",
             denseRankByMetric(rank.expr, sql`coalesce(${monthGradeExpr}, 0)`).as("filter_place"),
         ]);
@@ -512,6 +520,7 @@ export class StudentServicePg {
                 sql<number | null>`sms.grade`.as("year_grade"),
             ]);
         base = this.applyFilter(base, filters, monthGradeExpr);
+        base = this.applyRatedOnly(base, filters, "sms.score");
 
         const joinedNameSortColumns: Record<string, any> = {
             teacher: sql`t.fullname COLLATE az_ci`,
@@ -531,7 +540,7 @@ export class StudentServicePg {
 
         const [rows, countRow] = await Promise.all([
             query.execute(),
-            this.applyFilter(
+            this.applyRatedOnly(this.applyFilter(
                 // Join нужен только затем, чтобы applyFilter мог фильтровать по тому же "классу за
                 // месяц" (grades), что и основной запрос — иначе count разойдётся с фактическим
                 // числом строк на странице.
@@ -541,7 +550,7 @@ export class StudentServicePg {
                     ),
                 filters,
                 monthGradeExpr
-            )
+            ), filters, "sms.score")
                 .select(({ fn }) => [fn.countAll().as("count")])
                 .executeTakeFirstOrThrow(),
         ]);
@@ -694,6 +703,12 @@ export class StudentServicePg {
             q = q.where((eb: ExpressionBuilder<DB, "students">) => eb("fullname", "ilike", `%${term}%`)) as Q;
         }
         return q;
+    }
+
+    // ratedOnly (/stats, DUZELISLER_2026-10-29 G1): keep only students with score > 0 in the shown
+    // year/month (scoreRef). Without the flag the query is returned unchanged.
+    private applyRatedOnly<Q extends { where: any }>(query: Q, filters: FilterOptionsPg, scoreRef: string): Q {
+        return filters.ratedOnly ? query.where(scoreRef as any, ">", 0) : query;
     }
 
     // gradeExpr — выражение "класс ученика за выбранный год" (см. getFilteredStudents:

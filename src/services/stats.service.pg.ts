@@ -671,6 +671,7 @@ export class StatsServicePg {
                 if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("t.school_id", "in", filters.schoolIds);
                 if (regionDistrictIds) q = q.where("t.district_id", "in", regionDistrictIds);
             }
+            if (filters.ratedOnly) q = q.where("tyr.score", ">", 0);
             return q;
         };
 
@@ -761,6 +762,7 @@ export class StatsServicePg {
                 if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("t.school_id", "in", filters.schoolIds);
                 if (regionDistrictIds) q = q.where("t.district_id", "in", regionDistrictIds);
             }
+            if (filters.ratedOnly) q = q.where("tms.score", ">", 0);
             return q;
         };
 
@@ -842,6 +844,7 @@ export class StatsServicePg {
             if (filters.districtIds && filters.districtIds.length > 0) q = q.where("sc.district_id", "in", filters.districtIds);
             if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("sc.id", "in", filters.schoolIds);
             if (regionDistrictIds) q = q.where("sc.district_id", "in", regionDistrictIds);
+            if (filters.ratedOnly) q = q.where("syr.score", ">", 0);
             return q;
         };
 
@@ -913,6 +916,7 @@ export class StatsServicePg {
             if (filters.districtIds && filters.districtIds.length > 0) q = q.where("sc.district_id", "in", filters.districtIds);
             if (filters.schoolIds && filters.schoolIds.length > 0) q = q.where("sc.id", "in", filters.schoolIds);
             if (regionDistrictIds) q = q.where("sc.district_id", "in", regionDistrictIds);
+            if (filters.ratedOnly) q = q.where("sms.score", ">", 0);
             return q;
         };
 
@@ -988,6 +992,7 @@ export class StatsServicePg {
                 )
                 .where("r.active", "=", true);
             if (filters.regionIds && filters.regionIds.length > 0) q = q.where("r.id", "in", filters.regionIds);
+            if (filters.ratedOnly) q = q.where("ryr.score", ">", 0);
             return q;
         };
 
@@ -1058,6 +1063,7 @@ export class StatsServicePg {
                 )
                 .where("r.active", "=", true);
             if (filters.regionIds && filters.regionIds.length > 0) q = q.where("r.id", "in", filters.regionIds);
+            if (filters.ratedOnly) q = q.where("rms.score", ">", 0);
             return q;
         };
 
@@ -1139,6 +1145,7 @@ export class StatsServicePg {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
             query = query.where("d.code", ">=", parseInt(start)).where("d.code", "<=", parseInt(end));
         }
+        if (filters.ratedOnly) query = query.where("dyr.score", ">", 0);
 
         const allData = await query.execute();
         const regionIdById = new Map(allData.map((r) => [r.id, r.region_id]));
@@ -1229,6 +1236,7 @@ export class StatsServicePg {
             const { start, end } = RequestParser.parseCodeRange(filters.code, 3);
             query = query.where("d.code", ">=", parseInt(start)).where("d.code", "<=", parseInt(end));
         }
+        if (filters.ratedOnly) query = query.where("dms.score", ">", 0);
 
         const allData = await query.execute();
         const regionIdById = new Map(allData.map((r) => [r.id, r.region_id]));

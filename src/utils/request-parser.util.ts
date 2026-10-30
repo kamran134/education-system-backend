@@ -104,6 +104,7 @@ export class RequestParser {
             // IMTAHAN_NOVLERI_TASK.md §5 шаг 3: необязательный фильтр по типу экзамена для
             // /api/stats/*. Без него resolveExamTypeId() подставляет базовый тип.
             examTypeId: req.query.examTypeId ? parseInt(req.query.examTypeId as string) : undefined,
+            ratedOnly: req.query.ratedOnly === 'true',
         };
     }
 

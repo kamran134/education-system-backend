@@ -61,6 +61,9 @@ export interface FilterOptionsPg {
     // Без него resolveExamTypeId() подставляет базовый тип (is_base = true) — существующие
     // экраны продолжают видеть ровно то же, что и до появления типов.
     examTypeId?: number;
+    // Only entities with a rating (score > 0) for the chosen year/month and exam type. Sent by /stats
+    // only; without it lists include every entity (the /students directory, teacher profile).
+    ratedOnly?: boolean;
 }
 
 export interface SortOptions {
